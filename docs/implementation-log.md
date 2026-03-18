@@ -230,3 +230,18 @@ This log records what was actually implemented while
   - yes
 - Deviations:
   - none beyond the grouped data-batch approach already recorded above
+
+### Commit `b641ced` - `chore(data): add bundled GTDB taxonomy releases 220 and 226`
+
+- Implemented:
+  - added the bundled GTDB taxonomy TSV files for releases 220 and 226
+- Files:
+  - `data/gtdb_taxonomy/220.0/`
+  - `data/gtdb_taxonomy/226.0/`
+- Checks run:
+  - verified the downloaded file set with `find data/gtdb_taxonomy -maxdepth 2 -type f | sort`
+  - verified rough payload sizes with `du -sh data/gtdb_taxonomy/* | sort -h`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none beyond the grouped data-batch approach already recorded above
