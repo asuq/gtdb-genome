@@ -85,3 +85,27 @@ This log records what was actually implemented while
   - preflight was wired into the main command immediately rather than waiting
     for the wrapper commit, because the documented Phase 1 acceptance criteria
     already require clear missing-tool failures
+
+### Commit `930e347` - `chore(bin): add repo-local uv wrapper`
+
+- Implemented:
+  - added the repo-local `bin/gtdb-genomes` wrapper
+  - updated the wrapper to run through `uv` without the dev dependency group
+  - added `uv.lock` after syncing the project with Python 3.12
+  - fixed `python -m gtdb_genomes.cli` by calling `main()` from the module
+- Files:
+  - `bin/gtdb-genomes`
+  - `src/gtdb_genomes/cli.py`
+  - `uv.lock`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv lock --python /opt/homebrew/bin/python3.12`
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv sync --python /opt/homebrew/bin/python3.12 --group dev`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome/bin:$PATH UV_CACHE_DIR=/tmp/gtdb_uv_cache bin/gtdb-genomes --help`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome/bin:$PATH UV_CACHE_DIR=/tmp/gtdb_uv_cache bin/gtdb-genomes --release latest --taxon g__Escherichia --output /tmp/gtdb_check`
+  - `PYTHONPATH=src /opt/homebrew/bin/python3.12 -m gtdb_genomes.cli --release latest --taxon g__Escherichia --output /tmp/gtdb_check`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - `uv.lock` landed with the wrapper commit rather than the first scaffold
+    commit, because syncing was only needed once the real `uv` execution path
+    was being verified
