@@ -1,0 +1,59 @@
+{% set name = "gtdb-genomes" %}
+{% set version = "0.0.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  # Replace these placeholders once the project has a real release archive.
+  url: https://example.org/{{ name }}-{{ version }}.tar.gz
+  sha256: 0000000000000000000000000000000000000000000000000000000000000000
+
+build:
+  number: 0
+  noarch: python
+  # The future Conda package should install a normal entrypoint and must not
+  # depend on the repo-local uv wrapper.
+  script: {{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv
+
+requirements:
+  host:
+    - python >=3.12
+    - pip
+    # Adjust this if a different PEP 517 backend is chosen later.
+    - hatchling
+  run:
+    - python >=3.12
+    - polars
+    - pydantic
+    - biopython
+    - gffutils
+    - tqdm
+    - unzip
+    # Confirm the correct package name and channel before submission.
+    # If the CLI is not packaged for Conda, document it as an external
+    # runtime requirement instead of leaving this placeholder in place.
+    # - ncbi-datasets-cli
+
+test:
+  commands:
+    - gtdb-genomes --help
+  imports:
+    - gtdb_genomes
+
+about:
+  home: https://github.com/your-org/gtdb-genomes
+  summary: Download NCBI genomes by GTDB taxon and GTDB release.
+  description: |
+    Template Bioconda recipe for the future gtdb-genomes package.
+    This recipe is intentionally not release-ready yet. It documents the
+    expected package shape, runtime dependencies, and console entrypoint.
+  license: TBD
+  license_file: LICENSE
+  doc_url: https://github.com/your-org/gtdb-genomes
+  dev_url: https://github.com/your-org/gtdb-genomes
+
+extra:
+  recipe-maintainers:
+    - your-github-id
