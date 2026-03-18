@@ -317,3 +317,17 @@ This log records what was actually implemented while
     `s__` and only collapses runs of 3 or more underscores, because the frozen
     plan's blanket underscore-collapsing rule conflicts with the README output
     example and would otherwise damage the standard GTDB token shape
+
+### Commit `fae5b93` - `refactor(selection): use native polars slug replacement`
+
+- Implemented:
+  - replaced the slug-attachment Python callback with native Polars
+    `replace_strict`
+- Files:
+  - `src/gtdb_genomes/selection.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
