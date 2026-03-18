@@ -4,10 +4,26 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from collections.abc import Iterable
+from dataclasses import dataclass
+
+import polars as pl
 
 
 ACCESSION_PATTERN = re.compile(r"GC[AF]_\d+\.\d+")
+
+
+@dataclass(slots=True)
+class MetadataLookupError(Exception):
+    """Raised when `datasets summary genome accession` fails."""
+
+    message: str
+
+    def __str__(self) -> str:
+        """Return the human-readable exception message."""
+
+        return self.message
 
 
 def build_summary_command(
@@ -28,6 +44,35 @@ def build_summary_command(
     if api_key:
         command.extend(["--api-key", api_key])
     return command
+
+
+def run_summary_lookup(
+    accessions: Iterable[str],
+    api_key: str | None = None,
+    datasets_bin: str = "datasets",
+) -> dict[str, set[str]]:
+    """Look up accession metadata through the datasets CLI."""
+
+    ordered_accessions = tuple(dict.fromkeys(accessions))
+    if not ordered_accessions:
+        return {}
+    command = build_summary_command(
+        ordered_accessions,
+        api_key=api_key,
+        datasets_bin=datasets_bin,
+    )
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        error_message = result.stderr.strip() or result.stdout.strip()
+        if not error_message:
+            error_message = "datasets summary genome accession failed"
+        raise MetadataLookupError(error_message)
+    return parse_summary_json_lines(result.stdout, ordered_accessions)
 
 
 def extract_accessions(payload: object) -> set[str]:
@@ -88,3 +133,76 @@ def choose_preferred_accession(
     if paired_gca:
         return paired_gca[0], "paired_to_gca"
     return requested_accession, "unchanged_original"
+
+
+def get_accession_type(accession: str) -> str:
+    """Return the accession prefix class for one assembly accession."""
+
+    if accession.startswith("GCA_"):
+        return "GCA"
+    if accession.startswith("GCF_"):
+        return "GCF"
+    return "unknown"
+
+
+def build_accession_preference_table(
+    accessions: Iterable[str],
+    summary_map: dict[str, set[str]],
+    prefer_gca: bool = True,
+) -> pl.DataFrame:
+    """Build a Polars table describing the chosen accession for each request."""
+
+    rows: list[dict[str, str]] = []
+    for requested_accession in dict.fromkeys(accessions):
+        final_accession, conversion_status = choose_preferred_accession(
+            requested_accession,
+            summary_map.get(requested_accession),
+            prefer_gca=prefer_gca,
+        )
+        rows.append(
+            {
+                "ncbi_accession": requested_accession,
+                "final_accession": final_accession,
+                "accession_type_original": get_accession_type(
+                    requested_accession,
+                ),
+                "accession_type_final": get_accession_type(final_accession),
+                "conversion_status": conversion_status,
+            },
+        )
+    return pl.DataFrame(
+        rows,
+        schema={
+            "ncbi_accession": pl.String,
+            "final_accession": pl.String,
+            "accession_type_original": pl.String,
+            "accession_type_final": pl.String,
+            "conversion_status": pl.String,
+        },
+    )
+
+
+def apply_accession_preferences(
+    selection_frame: pl.DataFrame,
+    summary_map: dict[str, set[str]],
+    prefer_gca: bool = True,
+) -> pl.DataFrame:
+    """Attach preferred-accession metadata to a selected taxonomy frame."""
+
+    if selection_frame.is_empty():
+        return selection_frame.with_columns(
+            pl.lit("").alias("final_accession"),
+            pl.lit("").alias("accession_type_original"),
+            pl.lit("").alias("accession_type_final"),
+            pl.lit("").alias("conversion_status"),
+        )
+    preference_frame = build_accession_preference_table(
+        selection_frame.get_column("ncbi_accession").to_list(),
+        summary_map,
+        prefer_gca=prefer_gca,
+    )
+    return selection_frame.join(
+        preference_frame,
+        on="ncbi_accession",
+        how="left",
+    )
