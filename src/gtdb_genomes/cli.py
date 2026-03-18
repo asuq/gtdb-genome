@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from gtdb_genomes.preflight import PreflightError, check_required_tools
 
 
 @dataclass(slots=True)
@@ -190,4 +193,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the gtdb-genomes command-line interface."""
     parser = build_parser()
     parse_args(parser, argv)
+    try:
+        check_required_tools()
+    except PreflightError as error:
+        print(f"gtdb-genomes: error: {error}", file=sys.stderr)
+        return 5
     return 0
