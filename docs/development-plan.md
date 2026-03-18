@@ -342,6 +342,106 @@ These TSV column sets are part of the implementation contract and should not be 
 - `download_status`
 - `duplicate_across_taxa`
 
+## Edge-Case Contract
+
+This section is the authoritative source of truth for validation, failure handling, fallback rules, output-creation thresholds, fixed status vocabularies, and exit codes.
+
+### Input normalisation and validation
+
+- trim leading and trailing whitespace for `--taxon` and `--release`
+- require exact case-sensitive GTDB taxon matching after trimming
+- reject empty `--taxon` after trimming with exit code `2`
+- deduplicate repeated `--taxon` values after trimming, preserving first-seen order in summaries
+- require `--threads` to be a positive integer; `0` or negative values fail with exit code `2`
+- fail with exit code `2` if `--output` exists and is non-empty
+- resolve release aliases by exact match against bundled manifest aliases after trimming
+
+### Bundled GTDB data failures
+
+- missing bundled manifest fails with exit code `3`
+- unreadable bundled manifest fails with exit code `3`
+- missing referenced taxonomy TSVs fail with exit code `3`
+- unreadable bundled taxonomy TSVs fail with exit code `3`
+- no GTDB network fetch is ever attempted
+- `latest` resolves to the newest bundled release from the local manifest only
+
+### `--dry-run` and `--debug`
+
+- `--dry-run` creates no `OUTPUT/` tree and no TSV files
+- `--debug --dry-run` is allowed
+- when `--debug` and `--dry-run` are combined, debug output is console-only
+- `OUTPUT/debug.log` is never created in dry-run mode
+
+### Output-creation threshold
+
+- exit codes `2`, `3`, and `5` create no output tree
+- exit codes `4`, `6`, and `7` create `OUTPUT/` and root TSVs
+- zero-match runs create requested taxon directories with header-only `taxon_accessions.tsv`
+- zero-match runs also create all root TSVs
+- in zero-match runs, `accession_map.tsv` and `download_failures.tsv` are header-only
+
+### `auto` preview failure
+
+- `--download-method auto` requires a successful `datasets --preview`
+- if `datasets --preview` fails in `auto` mode, the run exits with code `5`
+- preview failure is treated as an external-tool or preflight error, not as code `7`
+
+### `GCA` fallback
+
+- if metadata lookup for a specific accession fails, fall back immediately to the original GTDB accession without retrying metadata lookup
+- if preferred `GCA` is selected, that preferred accession must consume its full retry budget before fallback begins
+- the preferred `GCA` attempt means:
+  - initial attempt
+  - retry 1 after 5 s
+  - retry 2 after 15 s
+  - retry 3 after 45 s
+- only after all preferred-`GCA` attempts fail may the tool retry the original accession
+- the original accession then receives its own full retry budget
+- if fallback succeeds, keep the genome and record the failed preferred attempt in `download_failures.tsv`
+- `accession_map.tsv` records one row per requested taxon and final usable accession result
+- failed intermediate preferred-`GCA` attempts are recorded only in `download_failures.tsv`
+
+### Duplicate semantics
+
+- `duplicate_copies_written` counts extra copy operations beyond the first placement of a genome across requested taxa
+- `duplicate_across_taxa` is `true` only when an accession belongs to more than one requested taxon in the same run
+
+### Fixed enumerations
+
+Exit codes:
+
+- `0`: full success
+- `2`: CLI usage or validation error
+- `3`: bundled GTDB data error
+- `4`: zero matches for all requested taxa
+- `5`: external tool or preflight error
+- `6`: partial failure with at least one successful genome
+- `7`: runtime failure with no successful genomes
+
+`conversion_status` values:
+
+- `unchanged_original`
+- `paired_to_gca`
+- `metadata_lookup_failed_fallback_original`
+- `paired_to_gca_fallback_original_on_download_failure`
+- `failed_no_usable_accession`
+
+`download_status` values:
+
+- `planned_dry_run`
+- `downloaded`
+- `downloaded_after_fallback`
+- `failed`
+
+`stage` values:
+
+- `preflight`
+- `metadata_lookup`
+- `preview`
+- `preferred_download`
+- `fallback_download`
+- `rehydrate`
+
 ## Cross-Cutting Decisions
 
 These decisions are fixed across all phases:

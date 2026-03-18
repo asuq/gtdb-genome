@@ -205,6 +205,8 @@ The root TSV files are intended to be stable machine-readable outputs:
 
 Fixed column sets are defined in [Step-wise development plan](docs/development-plan.md).
 
+Exact exit codes, fallback rules, zero-match behaviour, and fixed status values are defined in the `Edge-Case Contract` section of [Step-wise development plan](docs/development-plan.md).
+
 ## Bundled GTDB Taxonomy
 
 GTDB taxonomy TSV files are planned to ship with the software rather than being downloaded at runtime.
