@@ -720,3 +720,19 @@ PY`
     tree. The frozen plan defined zero-match as a non-success result but did
     not separately specify the dry-run branch, so this implementation keeps the
     non-success code while still honouring the no-output dry-run rule.
+
+### Commit `4ba4fe8` - `test(edge): cover contract-level failure and exit-code cases`
+
+- Implemented:
+  - added integrated tests for zero-match output creation and exit code `4`
+  - added a preview-failure test for exit code `5` with no output tree
+  - added a total-runtime-failure test that checks blank
+    `final_accession`, `failed_no_usable_accession`, and `failed`
+- Files:
+  - `tests/test_edge_contract.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
