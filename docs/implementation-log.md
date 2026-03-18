@@ -736,3 +736,20 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `c0be7d4` - `test(cli): add stubbed end-to-end command tests`
+
+- Implemented:
+  - added a CLI-boundary test that captures normalised arguments passed into
+    the workflow runner
+  - verified that `main()` returns the workflow exit code unchanged
+  - verified that trimming, taxon de-duplication, include normalisation, and
+    boolean flags survive the CLI-to-workflow hand-off
+- Files:
+  - `tests/test_cli_integration.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
