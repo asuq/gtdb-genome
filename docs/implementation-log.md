@@ -600,3 +600,18 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `7f171da` - `test(layout): cover output structure and header-only cases`
+
+- Implemented:
+  - added tests for run-directory creation and unzip command handling
+  - added tests for fixed TSV headers and zero-match header-only output files
+  - added tests for accession payload copying and duplicate detection
+- Files:
+  - `tests/test_layout.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
