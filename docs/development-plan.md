@@ -13,7 +13,7 @@ Create the minimal project skeleton for a `uv`-managed Python application and es
 ### Concrete tasks
 
 - create `pyproject.toml` for a Python 3.12+ project
-- choose and declare the build backend compatible with `uv`
+- use `hatchling` as the build backend
 - create the package layout under `src/gtdb_genomes/`
 - add the repo-local wrapper command that executes through `uv`
 - add startup checks for required external tools: `datasets` and `unzip`
@@ -68,6 +68,9 @@ Parse GTDB taxonomy tables, match requested taxa by descendant membership, and p
 - parse accession and lineage columns safely
 - support repeatable `--taxon`
 - implement descendant membership matching
+- derive taxon directory slugs by replacing whitespace and characters outside `A-Za-z0-9._-` with `_`
+- collapse repeated underscores in taxon slugs
+- append an 8-character hash suffix only when two taxa would otherwise collide
 - merge matches across taxa while keeping per-taxon membership information
 - deduplicate the accession set for download planning
 
@@ -75,6 +78,7 @@ Parse GTDB taxonomy tables, match requested taxa by descendant membership, and p
 
 - repeated taxa produce a combined accession set without losing taxon membership mapping
 - descendant matching behaves as documented for rank tokens such as `d__`, `g__`, and `s__`
+- taxon slug generation is deterministic and collision-safe
 - the accession list and taxon mapping can be exported into summary tables
 
 ### Notable risks or assumptions
@@ -95,6 +99,7 @@ Refine the GTDB accession set by preferring paired `GCA` accessions when NCBI me
 - replace `GCF_*` accessions with paired `GCA_*` accessions when available
 - preserve the original accession when no paired `GCA` accession exists
 - record conversion status for later summaries
+- do not retry metadata lookups automatically
 
 ### Acceptance criteria
 
@@ -119,16 +124,20 @@ Select the correct `datasets` workflow and control concurrency safely.
 - run `datasets --preview` in `auto` mode
 - switch to dehydrate/rehydrate for requests with at least 1,000 genomes or more than 15 GB
 - implement direct-mode accession sharding
-- cap direct-mode download concurrency at 5 jobs
+- require `genome` to be present in every allowed `--include` value
+- cap direct-mode download concurrency at `min(--threads, 5)` jobs
 - map `--threads` to local worker limits and rehydrate worker count
 - support `--include` passthrough and `--api-key` forwarding with redaction
+- allow `--dry-run` to resolve releases, populate the taxonomy cache, and query accession metadata, but prohibit genome downloads and output-tree creation
+- retry only `datasets download genome accession` and `datasets rehydrate`
+- use one initial attempt plus up to 3 retries with fixed backoff delays of 5 s, 15 s, and 45 s
 
 ### Acceptance criteria
 
 - auto mode chooses the documented path for small and large requests
-- direct mode never exceeds 5 concurrent `datasets` download jobs
+- direct mode never exceeds `min(--threads, 5)` concurrent `datasets` download jobs
 - dehydrate mode uses one package download followed by controlled rehydration
-- command construction respects the documented `--include` and `--threads` behaviour
+- command construction respects the documented `--include`, `--dry-run`, retry, and `--threads` behaviour
 
 ### Notable risks or assumptions
 
@@ -145,9 +154,11 @@ Convert raw `datasets` output into the documented final directory structure.
 
 - unzip downloaded archives into working directories
 - locate assembly-specific content within the `ncbi_dataset` layout
+- fail fast if `--output` exists and is non-empty
 - create `OUTPUT/` summary files directly under the output root
 - create per-taxon directories under `OUTPUT/taxa/<taxon_slug>/`
 - copy each genome into every taxon directory where it belongs
+- preserve the full accession payload requested through `datasets` in each final accession directory
 - write per-taxon accession manifests directly inside each taxon directory
 - support `--keep-temp` for preserving intermediate files
 
@@ -156,6 +167,7 @@ Convert raw `datasets` output into the documented final directory structure.
 - final output matches the documented tree
 - there is no shared `OUTPUT/genomes/` directory
 - duplicate genomes appear in each relevant taxon directory
+- accession directories keep the full downloaded payload, not only FASTA files
 - duplicate-copy actions are recorded in logs
 
 ### Notable risks or assumptions
@@ -175,6 +187,7 @@ Provide clear operational logging and strong secret hygiene.
 - add redaction helpers for API keys and command traces
 - write `OUTPUT/debug.log` only when `--debug` is enabled
 - log duplicate-copy events, download decisions, and failure summaries
+- ensure failure TSVs contain only redacted error messages
 - ensure errors do not leak secrets
 
 ### Acceptance criteria
@@ -201,6 +214,8 @@ Build a test suite that validates behaviour without depending on large live down
 - add tests for accession conversion logic
 - add tests for direct vs dehydrate decision rules
 - add tests for concurrency capping at 5
+- add tests for `--include` validation and dry-run boundaries
+- add tests for download-only retry logic
 - add tests for output reorganisation and duplicate-copy handling
 - add tests for secret redaction and debug logging
 - use fake or stubbed `datasets` command behaviour where practical
@@ -242,6 +257,88 @@ Prepare the project for future distribution without changing the documented beha
 - some dependencies, especially the NCBI `datasets` CLI package name and channel source, may need confirmation during packaging
 - packaging should happen after the implementation is stable enough to justify a tagged release
 
+## Fixed TSV Schemas
+
+These TSV column sets are part of the implementation contract and should not be left to ad hoc design during coding.
+
+### `run_summary.tsv`
+
+- `run_id`
+- `started_at`
+- `finished_at`
+- `requested_release`
+- `resolved_release`
+- `download_method_requested`
+- `download_method_used`
+- `threads_requested`
+- `download_concurrency_used`
+- `rehydrate_workers_used`
+- `include`
+- `prefer_gca`
+- `debug_enabled`
+- `requested_taxa_count`
+- `matched_rows`
+- `unique_gtdb_accessions`
+- `final_accessions`
+- `successful_accessions`
+- `failed_accessions`
+- `output_dir`
+- `exit_code`
+
+### `taxon_summary.tsv`
+
+- `requested_taxon`
+- `taxon_slug`
+- `matched_rows`
+- `unique_gtdb_accessions`
+- `final_accessions`
+- `successful_accessions`
+- `failed_accessions`
+- `duplicate_copies_written`
+- `output_dir`
+
+### `accession_map.tsv`
+
+- `requested_taxon`
+- `taxon_slug`
+- `resolved_release`
+- `taxonomy_file`
+- `lineage`
+- `gtdb_accession`
+- `final_accession`
+- `accession_type_original`
+- `accession_type_final`
+- `conversion_status`
+- `download_method_used`
+- `download_batch`
+- `output_relpath`
+- `download_status`
+
+### `download_failures.tsv`
+
+- `requested_taxon`
+- `taxon_slug`
+- `gtdb_accession`
+- `final_accession`
+- `stage`
+- `attempt_index`
+- `max_attempts`
+- `error_type`
+- `error_message_redacted`
+- `final_status`
+
+### `taxon_accessions.tsv`
+
+- `requested_taxon`
+- `taxon_slug`
+- `lineage`
+- `gtdb_accession`
+- `final_accession`
+- `conversion_status`
+- `output_relpath`
+- `download_status`
+- `duplicate_across_taxa`
+
 ## Cross-Cutting Decisions
 
 These decisions are fixed across all phases:
@@ -251,9 +348,15 @@ These decisions are fixed across all phases:
 - repeatable `--taxon`
 - no `--taxa-file`, `--domain`, or `--api-key-env`
 - default `--include genome`
+- every allowed `--include` value must contain `genome`
 - `--debug` writes `OUTPUT/debug.log`
+- `--dry-run` may resolve releases, populate taxonomy cache, and query metadata, but must not download genome payloads or create the output tree
 - taxonomy TSVs are cached in the repo
+- fail fast when `--output` exists and is non-empty
 - no shared `OUTPUT/genomes/`
 - manifests are written directly under `OUTPUT/` and directly under each taxon directory
+- accession directories preserve the full downloaded payload requested for that accession
 - duplicated genomes are copied into each taxon folder and logged
-- direct-mode network concurrency never exceeds 5
+- keep successful outputs on partial failure, but exit non-zero
+- retry only download operations, with one initial attempt plus up to 3 retries
+- direct-mode network concurrency is `min(--threads, 5)`

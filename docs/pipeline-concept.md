@@ -36,6 +36,11 @@ flowchart TD
     P --> Q["Write summaries, failure logs, and optional debug log"]
 ```
 
+Dry-run note:
+
+- `--dry-run` may resolve releases, fetch/cache taxonomy TSVs, and query accession metadata, but it must not download genome payloads or create the final output tree.
+- automatic retries apply only to `datasets download genome accession` and `datasets rehydrate`, using one initial attempt plus up to 3 retries.
+
 ## Step-By-Step Concept
 
 ### 1. GTDB release discovery
@@ -71,6 +76,8 @@ Planned cache behaviour:
 - keep the cache separate from user output directories
 
 This design gives predictable local reuse and makes debugging easier because the exact GTDB input tables remain available after a run.
+
+Dry-run is allowed to populate this cache because taxonomy resolution is part of planning the run rather than retrieving genome payloads.
 
 ### 3. Taxon descendant matching
 
@@ -114,15 +121,23 @@ In `auto` mode, the current planned policy is:
 
 These thresholds are intended to keep smaller jobs simple while pushing very large jobs towards the workflow that NCBI recommends for large downloads.
 
+The planned `--include` rule is intentionally strict:
+
+- the value is passed through to `datasets`
+- `genome` must be present in the requested include set
+- values such as `none` are rejected because the tool is defined as a genome retriever
+
 ### 6. Direct download sharding
 
 When direct download is chosen, the tool is expected to:
 
-- split the accession list into batches
+- split the accession list into approximately even batches
 - launch multiple `datasets download genome accession` jobs in parallel
-- never exceed 5 concurrent download jobs, regardless of `--threads`
+- never exceed `min(--threads, 5)` concurrent download jobs
 
 The direct-download cap is intentional. It limits server pressure while still allowing practical throughput improvements on large, but not enormous, requests.
+
+Only direct download operations are retried automatically. Metadata lookups, taxonomy fetches, and preview calls are not retried by design.
 
 ### 7. Dehydrate and rehydrate flow
 
@@ -132,12 +147,15 @@ For larger requests, the tool should:
 2. unzip the package into a working directory
 3. run `datasets rehydrate --directory <dir>`
 4. control rehydrate worker count with `min(threads, 30)`
+5. retry `datasets rehydrate` on failure up to 3 times after the initial attempt
 
 This keeps large transfers aligned with the intended `datasets` workflow and avoids running many independent direct downloads for large jobs.
 
 ### 8. Unzip and output reorganisation
 
 The raw `datasets` package layout is useful internally, but not ideal as the final user-facing layout.
+
+Before writing output, the tool must check `--output` and fail fast if the directory already exists and is non-empty.
 
 The planned output structure is:
 
@@ -156,8 +174,18 @@ Important rules:
 - log every duplicate-copy action clearly
 - keep summary files directly under `OUTPUT/`
 - keep per-taxon manifest files directly under each taxon directory
+- preserve the full downloaded accession payload in each final accession directory, including metadata and any extra file classes requested through `--include`
 
 This layout optimises for human browsing by taxon rather than for deduplicated storage.
+
+Taxon directories are derived from a filesystem-safe taxon slug:
+
+- keep the GTDB token readable
+- replace spaces and unsafe characters with underscores
+- collapse repeated underscores
+- append a short hash suffix only when two taxa would otherwise collide
+
+If some genomes fail after all retries but others succeed, the tool keeps the successful output, writes failure summaries, and exits non-zero.
 
 ## Logging, Debug Mode, and Secret Redaction
 
@@ -171,6 +199,8 @@ Normal logging should describe:
 - choice of direct vs dehydrate mode
 - duplicate copy operations
 - failures and skipped accessions
+
+Failure TSVs must contain only redacted error messages.
 
 `--debug` should additionally record:
 

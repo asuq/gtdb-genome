@@ -13,15 +13,17 @@ source:
 build:
   number: 0
   noarch: python
-  # The future Conda package should install a normal entrypoint and must not
-  # depend on the repo-local uv wrapper.
+  # The future Conda package should install the normal Python console
+  # entrypoint for gtdb-genomes and must not depend on the repo-local uv
+  # wrapper.
   script: {{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv
 
 requirements:
   host:
     - python >=3.12
     - pip
-    # Adjust this if a different PEP 517 backend is chosen later.
+    # Hatchling is the planned build backend documented in the root README and
+    # development plan. Adjust only if the implementation later changes it.
     - hatchling
   run:
     - python >=3.12
@@ -31,9 +33,10 @@ requirements:
     - gffutils
     - tqdm
     - unzip
-    # Confirm the correct package name and channel before submission.
-    # If the CLI is not packaged for Conda, document it as an external
-    # runtime requirement instead of leaving this placeholder in place.
+    # Confirm the correct datasets package name and channel before submission.
+    # Keep this unresolved until packaging time. If the datasets CLI is not
+    # packaged for Conda, document it as an external runtime requirement
+    # instead of leaving a guessed dependency here.
     # - ncbi-datasets-cli
 
 test:
@@ -49,6 +52,8 @@ about:
     Template Bioconda recipe for the future gtdb-genomes package.
     This recipe is intentionally not release-ready yet. It documents the
     expected package shape, runtime dependencies, and console entrypoint.
+    The packaged command should preserve the documented CLI contract described
+    in the root README.
   license: TBD
   license_file: LICENSE
   doc_url: https://github.com/your-org/gtdb-genomes

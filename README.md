@@ -79,6 +79,8 @@ The planned rules are:
 - switch to dehydrate/rehydrate when the request contains at least 1,000 genomes
 - also switch to dehydrate/rehydrate when `datasets --preview` reports more than 15 GB
 
+Only genome download operations are retried automatically. The planned retry policy is one initial attempt plus up to 3 retries for `datasets download genome accession` and `datasets rehydrate`, with fixed backoff delays of 5 s, 15 s, and 45 s.
+
 ### `--threads`
 
 Defaults to all available CPU threads.
@@ -86,7 +88,7 @@ Defaults to all available CPU threads.
 The planned concurrency rules are:
 
 - direct download may shard the accession list across multiple `datasets download genome accession` jobs
-- direct-mode network concurrency must never exceed 5 concurrent download jobs
+- direct-mode network concurrency is `min(threads, 5)`
 - dehydrate mode uses one package download, then `datasets rehydrate --max-workers` for local file retrieval
 - rehydrate worker count is planned as `min(threads, 30)`
 
@@ -99,9 +101,10 @@ Defaults to `genome`.
 - `genome`
 - `genome,gff3`
 - `genome,gff3,protein`
-- `none`
 
 The planned implementation will validate the argument lightly, then pass it through to `datasets download genome accession --include` rather than translating it into custom internal presets.
+
+`genome` is mandatory in every allowed `--include` value. Values such as `none` are intentionally not supported because the final output must remain genome-centric.
 
 ### `--debug`
 
@@ -113,6 +116,29 @@ When enabled, the planned tool will:
 - write a redacted `OUTPUT/debug.log`
 
 Debug mode is separate from `--keep-temp`. Temporary files will still be removed unless `--keep-temp` is also set.
+
+### `--dry-run`
+
+`--dry-run` is a resolution-only mode.
+
+It may:
+
+- resolve the requested GTDB release
+- download and cache GTDB taxonomy TSV files if they are not already cached
+- perform NCBI metadata lookups needed for accession mapping
+- decide which download method would be used
+
+It must not:
+
+- download genome payloads
+- run dehydrate or rehydrate
+- create the final `OUTPUT/` tree
+
+### `--output`
+
+The output directory must either not exist or exist as an empty directory.
+
+The planned implementation will fail fast when `--output` already exists and is non-empty. It will not merge into or overwrite an existing populated output tree.
 
 ## Output Layout
 
@@ -143,6 +169,38 @@ Important layout decisions:
 - there is no shared `OUTPUT/genomes/` directory
 - if the same genome belongs to more than one requested taxon, it is copied into each matching taxon directory
 - duplicate-copy events are planned to be logged explicitly
+- each `OUTPUT/taxa/<taxon_slug>/<assembly_accession>/` directory keeps the full downloaded accession payload requested through `datasets`, not only FASTA files
+
+Taxon slug rule:
+
+- preserve the GTDB token text as far as practical
+- replace whitespace and characters outside `A-Za-z0-9._-` with `_`
+- collapse repeated underscores
+- append a short hash suffix only when two taxa would otherwise map to the same directory name
+
+The planned run will keep successful outputs when some genomes fail, but it will write failure records and exit non-zero for partial completion.
+
+### Summary Files
+
+The root TSV files are intended to be stable machine-readable outputs:
+
+- `run_summary.tsv`
+  - one row for the overall run
+  - records run metadata, chosen method, thread settings, counts, output path, and final exit code
+- `taxon_summary.tsv`
+  - one row per requested taxon
+  - records matched rows, accession counts, success and failure counts, duplicate-copy count, and output directory
+- `accession_map.tsv`
+  - one row per taxon-accession mapping
+  - records lineage, original GTDB accession, final accession, conversion status, download batch, output path, and download status
+- `download_failures.tsv`
+  - one row per failed accession attempt
+  - records stage, attempt index, redacted error message, and final failure status
+- `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
+  - one row per accession assigned to that taxon
+  - records lineage, accession mapping, output path, and whether the accession is duplicated across taxa
+
+Fixed column sets are defined in [Step-wise development plan](docs/development-plan.md).
 
 ## Taxonomy Cache
 
@@ -225,13 +283,23 @@ Known limitation:
 
 - if a user types the API key directly on the shell command line, the shell history or operating-system process inspection may still expose it outside the control of this tool
 
+## Failure Handling
+
+The planned behaviour is:
+
+- keep all successfully retrieved genomes and summary files
+- record unsuccessful resolutions or downloads in `download_failures.tsv`
+- exit with a non-zero status if any requested genome ultimately fails
+
+This makes partial results usable without hiding incomplete runs.
+
 ## Known Limitations In The Planned Design
 
 - the repository currently contains documents only, not executable code
 - GTDB release discovery must support historical naming changes across releases
 - `GCA` preference depends on paired accession metadata being available from NCBI
 - very large requests will still depend on upstream `datasets` performance and NCBI service availability
-- direct download concurrency is intentionally capped at 5 to avoid excessive server load
+- direct download concurrency is intentionally limited to `min(--threads, 5)` to avoid excessive server load
 
 ## Future Packaging
 
