@@ -317,6 +317,8 @@ These TSV column sets are part of the implementation contract and should not be 
 - `output_relpath`
 - `download_status`
 
+`final_accession` is left blank when no usable accession ultimately exists. In that case, `conversion_status` and `download_status` carry the outcome semantics.
+
 ### `download_failures.tsv`
 
 - `requested_taxon`
@@ -428,7 +430,6 @@ Exit codes:
 
 `download_status` values:
 
-- `planned_dry_run`
 - `downloaded`
 - `downloaded_after_fallback`
 - `failed`
@@ -441,6 +442,12 @@ Exit codes:
 - `preferred_download`
 - `fallback_download`
 - `rehydrate`
+
+`final_status` values:
+
+- `retry_scheduled`
+- `retry_exhausted`
+- `fallback_exhausted`
 
 ## Cross-Cutting Decisions
 
