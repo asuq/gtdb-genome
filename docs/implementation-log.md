@@ -673,3 +673,31 @@ PY`
   - yes
 - Deviations:
   - none
+
+## Phase 8: Edge-case closure and CLI integration
+
+### Commit `ecb6abf` - `feat(run): integrate end-to-end workflow execution`
+
+- Implemented:
+  - wired the CLI entrypoint into a real workflow runner
+  - integrated bundled release resolution, taxonomy loading, taxon selection,
+    metadata preference mapping, method selection, downloads, extraction,
+    manifest writing, and exit-code handling
+  - added dry-run handling, zero-match output generation, duplicate-copy
+    counting, and partial-failure result shaping
+- Files:
+  - `src/gtdb_genomes/cli.py`
+  - `src/gtdb_genomes/workflow.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - partial
+- Deviations:
+  - the runnable implementation currently executes one download job per
+    accession for both direct and dehydrate modes, rather than aggregating
+    multiple accessions into one `datasets` archive. This keeps preferred-`GCA`
+    fallback, per-accession failure records, and final output placement
+    deterministic, at the cost of more `datasets` invocations than originally
+    planned.
+  - dehydrate mode therefore applies the documented method choice and
+    rehydration semantics per accession rather than through one global package.
