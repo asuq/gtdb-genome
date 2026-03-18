@@ -658,3 +658,18 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `753977e` - `test(logging): cover redaction and dry-run debug rules`
+
+- Implemented:
+  - added tests for text and command redaction
+  - added tests for debug-log file creation on real runs
+  - added tests ensuring dry-run debug logging stays console-only
+- Files:
+  - `tests/test_logging.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
