@@ -1,0 +1,93 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions / compiled artifacts
+*.so
+*.pyd
+*.dll
+*.dylib
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.egg
+
+# Virtual environments
+# uv / venv
+.venv/
+venv/
+env/
+ENV/
+
+# Conda / mamba
+.env/
+.conda/
+conda-meta/
+
+# uv creates __pypackages__ optionally (PEP 582 style)
+__pypackages__/
+
+# uv cache (global but sometimes local)
+.uv/
+uv.lock.bak
+
+# Mamba / Conda environments
+.envrc
+.micromamba/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# Type checking / linting
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
+# Logs / runtime
+*.log
+logs/
+tmp/
+temp/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS files
+Thumbs.db
+
+# Data
+data/
+results/
+outputs/
+
+# Secrets / credentials
+.env
+.env.*
+*.key
+*.pem
+
+# Documentation builds
+docs/_build/
+
+# Misc
+*.bak
+*.tmp
