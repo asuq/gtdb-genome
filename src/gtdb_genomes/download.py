@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 import math
 from pathlib import Path
 import re
 import subprocess
+import time
 
 
 DEHYDRATE_ACCESSION_THRESHOLD = 1000
 DEHYDRATE_SIZE_GB_THRESHOLD = 15.0
 DIRECT_DOWNLOAD_CONCURRENCY_CAP = 5
 REHYDRATE_WORKER_CAP = 30
+RETRY_DELAYS_SECONDS = (5, 15, 45)
 SIZE_PATTERN = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*([KMGT]?B)\b")
 SIZE_UNITS = {
     "B": 1,
@@ -44,6 +46,38 @@ class DownloadMethodDecision:
     method_used: str
     accession_count: int
     preview_size_bytes: int | None
+
+
+@dataclass(slots=True)
+class CommandFailureRecord:
+    """One failed retryable command attempt."""
+
+    stage: str
+    attempt_index: int
+    max_attempts: int
+    error_type: str
+    error_message: str
+    final_status: str
+
+
+@dataclass(slots=True)
+class RetryableCommandResult:
+    """The result of a retryable subprocess command."""
+
+    succeeded: bool
+    stdout: str
+    stderr: str
+    failures: tuple[CommandFailureRecord, ...]
+
+
+@dataclass(slots=True)
+class AccessionDownloadResult:
+    """The result of downloading one accession with optional fallback."""
+
+    succeeded: bool
+    used_accession: str | None
+    used_fallback: bool
+    failures: tuple[CommandFailureRecord, ...]
 
 
 def validate_include_value(include: str) -> str:
@@ -250,3 +284,125 @@ def split_direct_download_batches(
         for index in range(0, len(ordered_accessions), chunk_size)
     ]
     return tuple(batches)
+
+
+def run_retryable_command(
+    command: list[str],
+    stage: str,
+    final_failure_status: str = "retry_exhausted",
+    sleep_func: Callable[[float], None] = time.sleep,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> RetryableCommandResult:
+    """Run a retryable subprocess command with the fixed retry schedule."""
+
+    max_attempts = len(RETRY_DELAYS_SECONDS) + 1
+    failures: list[CommandFailureRecord] = []
+    for attempt_index in range(1, max_attempts + 1):
+        result = runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return RetryableCommandResult(
+                succeeded=True,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                failures=tuple(failures),
+            )
+        if attempt_index < max_attempts:
+            failures.append(
+                CommandFailureRecord(
+                    stage=stage,
+                    attempt_index=attempt_index,
+                    max_attempts=max_attempts,
+                    error_type="subprocess",
+                    error_message=result.stderr.strip() or result.stdout.strip(),
+                    final_status="retry_scheduled",
+                ),
+            )
+            sleep_func(RETRY_DELAYS_SECONDS[attempt_index - 1])
+            continue
+        failures.append(
+            CommandFailureRecord(
+                stage=stage,
+                attempt_index=attempt_index,
+                max_attempts=max_attempts,
+                error_type="subprocess",
+                error_message=result.stderr.strip() or result.stdout.strip(),
+                final_status=final_failure_status,
+            ),
+        )
+        return RetryableCommandResult(
+            succeeded=False,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            failures=tuple(failures),
+        )
+    raise AssertionError("retry loop terminated unexpectedly")
+
+
+def download_with_accession_fallback(
+    preferred_accession: str,
+    fallback_accession: str | None,
+    archive_path: Path,
+    include: str,
+    api_key: str | None = None,
+    datasets_bin: str = "datasets",
+    dehydrated: bool = False,
+    debug: bool = False,
+    sleep_func: Callable[[float], None] = time.sleep,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> AccessionDownloadResult:
+    """Download one accession and fall back to the original if needed."""
+
+    preferred_result = run_retryable_command(
+        build_download_command(
+            [preferred_accession],
+            archive_path,
+            include,
+            api_key=api_key,
+            datasets_bin=datasets_bin,
+            dehydrated=dehydrated,
+            debug=debug,
+        ),
+        stage="preferred_download",
+        sleep_func=sleep_func,
+        runner=runner,
+    )
+    if preferred_result.succeeded:
+        return AccessionDownloadResult(
+            succeeded=True,
+            used_accession=preferred_accession,
+            used_fallback=False,
+            failures=preferred_result.failures,
+        )
+    if fallback_accession is None or fallback_accession == preferred_accession:
+        return AccessionDownloadResult(
+            succeeded=False,
+            used_accession=None,
+            used_fallback=False,
+            failures=preferred_result.failures,
+        )
+    fallback_result = run_retryable_command(
+        build_download_command(
+            [fallback_accession],
+            archive_path,
+            include,
+            api_key=api_key,
+            datasets_bin=datasets_bin,
+            dehydrated=dehydrated,
+            debug=debug,
+        ),
+        stage="fallback_download",
+        final_failure_status="fallback_exhausted",
+        sleep_func=sleep_func,
+        runner=runner,
+    )
+    return AccessionDownloadResult(
+        succeeded=fallback_result.succeeded,
+        used_accession=fallback_accession if fallback_result.succeeded else None,
+        used_fallback=fallback_result.succeeded,
+        failures=preferred_result.failures + fallback_result.failures,
+    )
