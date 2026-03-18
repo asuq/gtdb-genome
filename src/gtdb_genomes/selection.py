@@ -98,8 +98,5 @@ def attach_taxon_slugs(
 
     slug_map = build_taxon_slug_map(requested_taxa)
     return selection_frame.with_columns(
-        pl.col("requested_taxon").map_elements(
-            lambda requested_taxon: slug_map[requested_taxon],
-            return_dtype=pl.String,
-        ).alias("taxon_slug"),
+        pl.col("requested_taxon").replace_strict(slug_map).alias("taxon_slug"),
     )
