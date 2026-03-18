@@ -127,3 +127,19 @@ This log records what was actually implemented while
   - the wrapper test asserts the wrapper command shape instead of invoking the
     full wrapper inside pytest, because the command-shape check is stable and
     avoids coupling the test suite to the caller's ambient `PATH`
+
+## Phase 2: Bundled GTDB release discovery and taxonomy data
+
+### Commit `bf88512` - `chore(data): allow bundled GTDB taxonomy in git`
+
+- Implemented:
+  - updated `.gitignore` so bundled GTDB taxonomy files can be tracked
+- Files:
+  - `.gitignore`
+- Checks run:
+  - none
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - this repo-level preparation commit was added before the manifest loader so
+    the later bundled-data commits can be tracked correctly
