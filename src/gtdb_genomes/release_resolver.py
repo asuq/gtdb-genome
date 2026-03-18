@@ -1,0 +1,101 @@
+"""Bundled GTDB release manifest loading."""
+
+from __future__ import annotations
+
+import csv
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class BundledDataError(Exception):
+    """Raised when bundled GTDB data cannot be loaded."""
+
+    message: str
+
+    def __str__(self) -> str:
+        """Return the error message."""
+        return self.message
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseManifestEntry:
+    """One row from the bundled GTDB release manifest."""
+
+    resolved_release: str
+    aliases: tuple[str, ...]
+    bacterial_taxonomy: str | None
+    archaeal_taxonomy: str | None
+    is_latest: bool
+
+
+def get_bundled_data_root() -> Path:
+    """Return the repository path for bundled GTDB taxonomy data."""
+
+    return Path(__file__).resolve().parents[2] / "data" / "gtdb_taxonomy"
+
+
+def get_release_manifest_path(data_root: Path | None = None) -> Path:
+    """Return the bundled release manifest path."""
+
+    root = get_bundled_data_root() if data_root is None else data_root
+    return root / "releases.tsv"
+
+
+def parse_aliases(raw_aliases: str) -> tuple[str, ...]:
+    """Parse the comma-separated aliases field."""
+
+    aliases = [alias.strip() for alias in raw_aliases.split(",") if alias.strip()]
+    if not aliases:
+        raise BundledDataError("Bundled release manifest row is missing aliases")
+    return tuple(aliases)
+
+
+def parse_optional_path(raw_path: str) -> str | None:
+    """Convert an optional TSV path field into a normalised value."""
+
+    value = raw_path.strip()
+    if not value:
+        return None
+    return value
+
+
+def parse_is_latest(raw_value: str) -> bool:
+    """Parse the manifest latest-release flag."""
+
+    value = raw_value.strip().lower()
+    if value not in {"true", "false"}:
+        raise BundledDataError(
+            "Bundled release manifest row has an invalid is_latest value",
+        )
+    return value == "true"
+
+
+def load_release_manifest(
+    manifest_path: Path | None = None,
+) -> tuple[ReleaseManifestEntry, ...]:
+    """Load the bundled GTDB release manifest from disk."""
+
+    path = get_release_manifest_path() if manifest_path is None else manifest_path
+    if not path.exists():
+        raise BundledDataError(
+            f"Bundled release manifest is missing: {path}",
+        )
+    try:
+        with path.open("r", encoding="ascii", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            entries = [
+                ReleaseManifestEntry(
+                    resolved_release=row["resolved_release"].strip(),
+                    aliases=parse_aliases(row["aliases"]),
+                    bacterial_taxonomy=parse_optional_path(row["bacterial_taxonomy"]),
+                    archaeal_taxonomy=parse_optional_path(row["archaeal_taxonomy"]),
+                    is_latest=parse_is_latest(row["is_latest"]),
+                )
+                for row in reader
+            ]
+    except OSError as error:
+        raise BundledDataError(
+            f"Bundled release manifest could not be read: {path}",
+        ) from error
+    return tuple(entries)
