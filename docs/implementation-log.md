@@ -158,3 +158,22 @@ This log records what was actually implemented while
   - yes
 - Deviations:
   - none
+
+### Commit `ac8b17c` - `feat(release): resolve release aliases and latest from bundled data`
+
+- Implemented:
+  - added release alias resolution against the bundled manifest
+  - added `latest` resolution through the `is_latest` manifest flag
+  - added the initial bundled release manifest for the supported GTDB releases
+- Files:
+  - `data/gtdb_taxonomy/releases.tsv`
+  - `src/gtdb_genomes/release_resolver.py`
+- Checks run:
+  - `PYTHONPATH=src /opt/homebrew/bin/python3.12 -c "from gtdb_genomes.release_resolver import resolve_release; result = resolve_release('latest'); print(result.resolved_release); print(result.bacterial_taxonomy); print(result.archaeal_taxonomy)"`
+  - `sed -n '1,200p' data/gtdb_taxonomy/releases.tsv`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - the manifest uses one row per resolved release with comma-separated aliases
+    rather than one row per alias, because that keeps the bundled file smaller
+    and easier to maintain when GTDB paths change
