@@ -272,3 +272,63 @@ def write_taxon_accessions(
         TAXON_ACCESSION_COLUMNS,
         rows,
     )
+
+
+def get_accession_output_directory(
+    run_directories: RunDirectories,
+    taxon_slug: str,
+    accession: str,
+) -> Path:
+    """Return the final output directory for one accession inside one taxon."""
+
+    return get_taxon_directory(run_directories, taxon_slug) / accession
+
+
+def copy_accession_payload(
+    source_directory: Path,
+    destination_directory: Path,
+) -> Path:
+    """Copy one extracted accession payload into its final taxon directory."""
+
+    if destination_directory.exists():
+        shutil.rmtree(destination_directory)
+    shutil.copytree(source_directory, destination_directory)
+    return destination_directory
+
+
+def get_duplicate_accessions(accession_rows: list[dict[str, object]]) -> set[str]:
+    """Return final accessions that occur in more than one requested taxon."""
+
+    taxon_sets: dict[str, set[str]] = {}
+    for row in accession_rows:
+        final_accession = str(row.get("final_accession", "")).strip()
+        taxon_slug = str(row.get("taxon_slug", "")).strip()
+        if not final_accession or not taxon_slug:
+            continue
+        taxon_sets.setdefault(final_accession, set()).add(taxon_slug)
+    return {
+        accession
+        for accession, taxon_slugs in taxon_sets.items()
+        if len(taxon_slugs) > 1
+    }
+
+
+def write_zero_match_outputs(
+    run_directories: RunDirectories,
+    requested_taxa: tuple[str, ...],
+    taxon_slug_map: dict[str, str],
+    run_summary_rows: list[dict[str, object]],
+    taxon_summary_rows: list[dict[str, object]],
+) -> None:
+    """Write the documented zero-match output tree."""
+
+    write_root_manifests(
+        run_directories,
+        run_summary_rows,
+        taxon_summary_rows,
+        [],
+        [],
+    )
+    for requested_taxon in requested_taxa:
+        taxon_slug = taxon_slug_map[requested_taxon]
+        write_taxon_accessions(run_directories, taxon_slug, [])
