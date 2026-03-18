@@ -455,3 +455,47 @@ This log records what was actually implemented while
   - yes
 - Deviations:
   - none
+
+### Commit `e8c2225` - `feat(download): add retry policy and preferred-gca download fallback`
+
+- Implemented:
+  - added the fixed retry schedule of one initial attempt plus retries after
+    5 s, 15 s, and 45 s
+  - added structured failure records with the documented `stage` and
+    `final_status` vocabulary
+  - added per-accession preferred-`GCA` download handling with fallback to the
+    original accession only after the preferred accession exhausts its retry
+    budget
+- Files:
+  - `src/gtdb_genomes/download.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev python - <<'PY'
+import subprocess
+from pathlib import Path
+from gtdb_genomes.download import download_with_accession_fallback
+
+calls = []
+results = [1, 1, 1, 1, 0]
+
+def runner(command, capture_output, text, check):
+    calls.append(command)
+    code = results.pop(0)
+    return subprocess.CompletedProcess(command, code, stdout='', stderr='failed')
+
+result = download_with_accession_fallback(
+    'GCA_1',
+    'GCF_1',
+    Path('/tmp/out.zip'),
+    'genome',
+    runner=runner,
+    sleep_func=lambda seconds: None,
+)
+print(result)
+print(len(calls))
+PY`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - the retry runner emits an internal `CommandFailureRecord` structure now so
+    the later TSV-writing phase can serialise the documented failure schema
+    directly instead of reconstructing retry history from raw stderr text
