@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -11,6 +12,8 @@ import subprocess
 
 DEHYDRATE_ACCESSION_THRESHOLD = 1000
 DEHYDRATE_SIZE_GB_THRESHOLD = 15.0
+DIRECT_DOWNLOAD_CONCURRENCY_CAP = 5
+REHYDRATE_WORKER_CAP = 30
 SIZE_PATTERN = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*([KMGT]?B)\b")
 SIZE_UNITS = {
     "B": 1,
@@ -212,3 +215,38 @@ def select_download_method(
         accession_count=accession_count,
         preview_size_bytes=preview_size_bytes,
     )
+
+
+def get_direct_download_concurrency(threads: int, accession_count: int) -> int:
+    """Return the allowed direct-download job concurrency for a request."""
+
+    if accession_count <= 0:
+        return 0
+    return min(threads, DIRECT_DOWNLOAD_CONCURRENCY_CAP, accession_count)
+
+
+def get_rehydrate_workers(threads: int) -> int:
+    """Return the allowed datasets rehydrate worker count."""
+
+    return max(1, min(threads, REHYDRATE_WORKER_CAP))
+
+
+def split_direct_download_batches(
+    accessions: Iterable[str],
+    threads: int,
+) -> tuple[tuple[str, ...], ...]:
+    """Split accessions into deterministic direct-download batches."""
+
+    ordered_accessions = tuple(dict.fromkeys(accessions))
+    if not ordered_accessions:
+        return ()
+    concurrency = get_direct_download_concurrency(
+        threads,
+        len(ordered_accessions),
+    )
+    chunk_size = math.ceil(len(ordered_accessions) / concurrency)
+    batches = [
+        ordered_accessions[index : index + chunk_size]
+        for index in range(0, len(ordered_accessions), chunk_size)
+    ]
+    return tuple(batches)
