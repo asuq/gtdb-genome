@@ -1,0 +1,26 @@
+# Implementation Log
+
+This log records what was actually implemented while
+`docs/development-plan.md` remains frozen during coding.
+
+## Phase 1: Project scaffold and tooling
+
+### Commit `1d20a9f` - `chore(build): initialise uv project metadata`
+
+- Implemented:
+  - initialised the project with `uv init`
+  - added `pyproject.toml` with `hatchling` as the build backend
+  - created the initial package directory at `src/gtdb_genomes/`
+  - added a `dev` dependency group for `pytest`
+  - aligned the generated package entrypoint with the repo coding rules by
+    adding module and function docstrings
+- Files:
+  - `pyproject.toml`
+  - `src/gtdb_genomes/__init__.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv init --package --app --build-backend hatch --name gtdb-genomes --no-readme --vcs none --no-pin-python --author-from none --description "Download NCBI genomes by GTDB taxon and GTDB release" -p /opt/homebrew/bin/python3.12 .`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - `uv.lock` was intentionally deferred until the test tooling is synced, so
+    the first metadata commit stays network-free and reviewable
