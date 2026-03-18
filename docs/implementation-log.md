@@ -245,3 +245,19 @@ This log records what was actually implemented while
   - yes
 - Deviations:
   - none beyond the grouped data-batch approach already recorded above
+
+### Commit `92a6771` - `test(release): cover offline release resolution and bundled-data failures`
+
+- Implemented:
+  - added tests for the real bundled manifest
+  - added tests for `latest` resolution and validated bundled taxonomy paths
+  - added negative tests for missing manifests, unknown aliases, and missing
+    taxonomy files
+- Files:
+  - `tests/test_release_resolver.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
