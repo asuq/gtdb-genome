@@ -1,0 +1,18 @@
+[project]
+name = "gtdb-genomes"
+version = "0.1.0"
+description = "Download NCBI genomes by GTDB taxon and GTDB release"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0,<10.0.0",
+]
+
+[project.scripts]
+gtdb-genomes = "gtdb_genomes:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
