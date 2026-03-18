@@ -24,3 +24,22 @@ This log records what was actually implemented while
 - Deviations:
   - `uv.lock` was intentionally deferred until the test tooling is synced, so
     the first metadata commit stays network-free and reviewable
+
+### Commit `0d410ae` - `feat(cli): add module entrypoint and argparse skeleton`
+
+- Implemented:
+  - moved the console entrypoint to `gtdb_genomes.cli:main`
+  - added a minimal `argparse` parser in `src/gtdb_genomes/cli.py`
+  - added `src/gtdb_genomes/__main__.py` so `python -m gtdb_genomes` works
+  - reduced `src/gtdb_genomes/__init__.py` to a package marker
+- Files:
+  - `pyproject.toml`
+  - `src/gtdb_genomes/__init__.py`
+  - `src/gtdb_genomes/cli.py`
+  - `src/gtdb_genomes/__main__.py`
+- Checks run:
+  - `PYTHONPATH=src /opt/homebrew/bin/python3.12 -m gtdb_genomes --help`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
