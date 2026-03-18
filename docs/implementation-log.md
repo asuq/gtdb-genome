@@ -793,3 +793,22 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `bce388b` - `chore(bioconda): update recipe template for shipped layout`
+
+- Implemented:
+  - aligned the Bioconda template comments with the shipped Hatch-based
+    package layout
+  - reduced the template runtime dependency list to the libraries actually used
+    by the current implementation
+  - clarified that the future Conda package installs the normal console
+    entrypoint and bundles GTDB taxonomy data inside the package
+- Files:
+  - `packaging/bioconda/meta.yaml`
+- Checks run:
+  - `sed -n '1,240p' packaging/bioconda/meta.yaml`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - the recipe now reflects the current implementation dependencies rather than
+    the earlier speculative dependency list from the documentation phase.
