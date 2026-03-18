@@ -499,3 +499,19 @@ PY`
   - the retry runner emits an internal `CommandFailureRecord` structure now so
     the later TSV-writing phase can serialise the documented failure schema
     directly instead of reconstructing retry history from raw stderr text
+
+### Commit `7afd9d0` - `test(download): cover preview, retries, and concurrency limits`
+
+- Implemented:
+  - added tests for include validation and command construction
+  - added threshold tests for auto direct-versus-dehydrate selection
+  - added tests for batching, worker caps, retry records, and preferred-`GCA`
+    full-budget fallback
+- Files:
+  - `tests/test_download.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --python /opt/homebrew/bin/python3.12 --group dev pytest`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
