@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import hashlib
+import re
 
 import polars as pl
+
+
+UNSAFE_TAXON_CHARACTER_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
+EXCESS_UNDERSCORE_PATTERN = re.compile(r"_{3,}")
 
 
 def add_lineage_tokens(frame: pl.DataFrame) -> pl.DataFrame:
@@ -52,4 +58,48 @@ def get_unique_accessions(selection_frame: pl.DataFrame) -> pl.DataFrame:
         subset=["gtdb_accession"],
         keep="first",
         maintain_order=True,
+    )
+
+
+def build_base_taxon_slug(requested_taxon: str) -> str:
+    """Build a filesystem-safe slug while preserving GTDB rank markers."""
+
+    slug = UNSAFE_TAXON_CHARACTER_PATTERN.sub("_", requested_taxon.strip())
+    slug = EXCESS_UNDERSCORE_PATTERN.sub("_", slug)
+    return slug or "_"
+
+
+def build_taxon_slug_map(requested_taxa: Sequence[str]) -> dict[str, str]:
+    """Build deterministic taxon slugs with collision handling."""
+
+    base_slugs = {
+        requested_taxon: build_base_taxon_slug(requested_taxon)
+        for requested_taxon in requested_taxa
+    }
+    slug_counts: dict[str, int] = {}
+    for slug in base_slugs.values():
+        slug_counts[slug] = slug_counts.get(slug, 0) + 1
+
+    slug_map: dict[str, str] = {}
+    for requested_taxon, slug in base_slugs.items():
+        if slug_counts[slug] == 1:
+            slug_map[requested_taxon] = slug
+            continue
+        slug_hash = hashlib.sha1(requested_taxon.encode("ascii")).hexdigest()[:8]
+        slug_map[requested_taxon] = f"{slug}__{slug_hash}"
+    return slug_map
+
+
+def attach_taxon_slugs(
+    selection_frame: pl.DataFrame,
+    requested_taxa: Sequence[str],
+) -> pl.DataFrame:
+    """Attach the deterministic taxon slug for each selected row."""
+
+    slug_map = build_taxon_slug_map(requested_taxa)
+    return selection_frame.with_columns(
+        pl.col("requested_taxon").map_elements(
+            lambda requested_taxon: slug_map[requested_taxon],
+            return_dtype=pl.String,
+        ).alias("taxon_slug"),
     )
