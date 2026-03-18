@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import logging
+from pathlib import Path
 import shlex
 
 
@@ -59,3 +60,32 @@ def configure_console_logging(debug: bool = False) -> logging.Logger:
     handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
     logger.addHandler(handler)
     return logger
+
+
+def configure_logging(
+    debug: bool = False,
+    dry_run: bool = False,
+    output_root: Path | None = None,
+) -> tuple[logging.Logger, Path | None]:
+    """Configure console logging and, when allowed, the debug log file."""
+
+    logger = configure_console_logging(debug=debug)
+    debug_log_path: Path | None = None
+    if debug and not dry_run and output_root is not None:
+        debug_log_path = output_root / "debug.log"
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(debug_log_path, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s"),
+        )
+        logger.addHandler(file_handler)
+    return logger, debug_log_path
+
+
+def close_logger(logger: logging.Logger) -> None:
+    """Close and detach all handlers from the package logger."""
+
+    for handler in tuple(logger.handlers):
+        handler.close()
+        logger.removeHandler(handler)
