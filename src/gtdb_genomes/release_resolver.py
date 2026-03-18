@@ -29,6 +29,16 @@ class ReleaseManifestEntry:
     is_latest: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ReleaseResolution:
+    """Resolved bundled release information for a user request."""
+
+    requested_release: str
+    resolved_release: str
+    bacterial_taxonomy: Path | None
+    archaeal_taxonomy: Path | None
+
+
 def get_bundled_data_root() -> Path:
     """Return the repository path for bundled GTDB taxonomy data."""
 
@@ -99,3 +109,55 @@ def load_release_manifest(
             f"Bundled release manifest could not be read: {path}",
         ) from error
     return tuple(entries)
+
+
+def find_manifest_entry(
+    requested_release: str,
+    entries: tuple[ReleaseManifestEntry, ...],
+) -> ReleaseManifestEntry:
+    """Find the manifest entry for a requested release alias."""
+
+    release = requested_release.strip()
+    if not release:
+        raise BundledDataError("Requested release must not be empty")
+    for entry in entries:
+        if release in entry.aliases:
+            return entry
+    raise BundledDataError(f"Bundled release is not available: {release}")
+
+
+def build_taxonomy_path(
+    data_root: Path,
+    resolved_release: str,
+    relative_path: str | None,
+) -> Path | None:
+    """Build the absolute taxonomy path for a bundled manifest field."""
+
+    if relative_path is None:
+        return None
+    return data_root / resolved_release / relative_path
+
+
+def resolve_release(
+    requested_release: str,
+    data_root: Path | None = None,
+) -> ReleaseResolution:
+    """Resolve a release alias against the bundled GTDB manifest."""
+
+    root = get_bundled_data_root() if data_root is None else data_root
+    entries = load_release_manifest(get_release_manifest_path(root))
+    entry = find_manifest_entry(requested_release, entries)
+    return ReleaseResolution(
+        requested_release=requested_release.strip(),
+        resolved_release=entry.resolved_release,
+        bacterial_taxonomy=build_taxonomy_path(
+            root,
+            entry.resolved_release,
+            entry.bacterial_taxonomy,
+        ),
+        archaeal_taxonomy=build_taxonomy_path(
+            root,
+            entry.resolved_release,
+            entry.archaeal_taxonomy,
+        ),
+    )
