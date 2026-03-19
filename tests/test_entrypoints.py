@@ -54,8 +54,8 @@ def test_installed_console_script_help_runs() -> None:
     assert "--gtdb-release" in result.stdout
 
 
-def test_runtime_docs_split_readme_and_usage_details() -> None:
-    """The docs should keep the README concise and move details into usage details."""
+def test_runtime_docs_match_current_readme_and_usage_details() -> None:
+    """The docs should preserve the current README and detailed usage reference."""
 
     readme_text = Path("README.md").read_text(encoding="utf-8")
     usage_details_text = Path("docs/usage-details.md").read_text(encoding="utf-8")
@@ -78,8 +78,8 @@ def test_runtime_docs_split_readme_and_usage_details() -> None:
     assert "development tool only" in readme_text
     assert "Runtime Contract" not in readme_text
     assert "Retry Policy" not in readme_text
-    assert "Output Layout" not in readme_text
-    assert "Summary Files" not in readme_text
+    assert "Output Layout" in readme_text
+    assert "Summary Files" in readme_text
     assert "NCBI datasets CLI" not in readme_text
 
     assert "Runtime Contract" in usage_details_text
@@ -102,7 +102,7 @@ def test_runtime_docs_split_readme_and_usage_details() -> None:
     assert "img.shields.io/badge/python-" in readme_text
     assert "img.shields.io/github/v/release/asuq/gtdb-genome" in readme_text
     assert "img.shields.io/badge/license-MIT" in readme_text
-    assert "> [!CAUTION]" in readme_text
+    assert "> [!NOTE]" in readme_text
     assert "PRJNA417962" in readme_text
     assert "unsupported_input" in usage_details_text
     assert "Real-data validation guide" in readme_text
