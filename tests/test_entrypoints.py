@@ -74,3 +74,25 @@ def test_runtime_docs_mark_uv_as_development_only() -> None:
     assert "The planned workflow is:" not in readme_text
     assert "- ncbi-datasets-cli" in bioconda_text
     assert "get_release_manifest_path" in bioconda_text
+
+
+def test_real_data_validation_guide_describes_local_requirements() -> None:
+    """The real-data guide should document the local runner environment split."""
+
+    guide_text = Path("docs/real-data-validation.md").read_text(
+        encoding="utf-8",
+    )
+
+    assert "uv run --no-sync gtdb-genomes" in guide_text
+    assert "LOCAL_LAUNCHER_MODE=module" in guide_text
+    assert "A1`, `A2`, `A3`, `A4`, `A5`, `A7`, `A8`, `A9`: `uv` only" in (
+        guide_text
+    )
+    assert "A6`: `uv` plus `datasets`" in guide_text
+    assert "B1` to `B6`: `uv`, `datasets`, and `unzip`" in guide_text
+    assert "offline bundled-data dry-runs remain valid without NCBI access" in (
+        guide_text
+    )
+    assert "debug output can print the raw API-key header" in (
+        guide_text
+    )

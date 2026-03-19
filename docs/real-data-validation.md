@@ -59,13 +59,24 @@ bin/run-real-data-tests-remote.sh C1 C4 C5
 
 ## Local Prerequisites
 
-Local validation assumes source-checkout execution through `uv`.
+Local validation assumes source-checkout execution through a prepared local
+project environment.
 
-Required commands:
+The local runner defaults to:
 
-- `uv`
-- `datasets`
-- `unzip`
+- `UV_CACHE_DIR=/tmp/gtdb_uv_cache`
+- `uv run --no-sync gtdb-genomes ...`
+
+Optional local launcher fallback:
+
+- `LOCAL_LAUNCHER_MODE=module` to run
+  `${REPO_ROOT}/.venv/bin/python -m gtdb_genomes ...`
+
+Required commands by case family:
+
+- `A1`, `A2`, `A3`, `A4`, `A5`, `A7`, `A8`, `A9`: `uv` only
+- `A6`: `uv` plus `datasets`
+- `B1` to `B6`: `uv`, `datasets`, and `unzip`
 
 Required environment:
 
@@ -74,6 +85,14 @@ Required environment:
 The local runner uses:
 
 - `LOCAL_TEST_ROOT`, default `/tmp/gtdb-realtests/local-YYYYMMDD`
+
+Local environment notes:
+
+- offline bundled-data dry-runs remain valid without NCBI access
+- `A6` and all `B*` cases require outbound DNS and network access to
+  `api.ncbi.nlm.nih.gov`
+- the default runner does not add `--debug` to `A6`, because upstream
+  `datasets` debug output can print the raw API-key header
 
 ## Remote Prerequisites
 
@@ -125,6 +144,8 @@ Acceptance:
 - no output tree
 - only `A1` should warn about `PRJNA417962`
 - only `A6` is expected to need preview
+- `A1`, `A2`, `A3`, `A4`, `A5`, `A7`, `A8`, and `A9` are valid offline local
+  checks when the prepared local launcher is available
 
 ### Local real runs
 
@@ -200,6 +221,10 @@ Interpretation:
 - `5`: preflight or environment failure
 - `6`: partial success, must be audited
 - `7`: matches existed but no usable genomes were produced
+
+When `A6` or any `B*` case fails with DNS or connection errors before download
+work starts, treat that as an external environment problem rather than a
+runner bug.
 
 ## Capacity Guidance
 
