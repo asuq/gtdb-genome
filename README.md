@@ -233,9 +233,10 @@ otherwise collide.
   - records lineage, original GTDB accession, final accession, conversion
     status, final method used, output path, and download status
 - `download_failures.tsv`
-  - one row per accession attempt
-  - records collapsed taxon context, attempted accession, final accession,
-    stage, retry counters, redacted error message, and final failure status
+  - one row per recorded failed attempt
+  - records collapsed taxon context, the attempted accession or accession set,
+    final accession when one unambiguous final accession exists, stage, retry
+    counters, redacted error message, and final failure status
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - one row per accession assigned to that taxon
   - records lineage, accession mapping, output path, and whether the accession
