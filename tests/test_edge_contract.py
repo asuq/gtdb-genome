@@ -366,7 +366,7 @@ def test_auto_preview_uses_accession_input_file_and_keeps_output_absent(
     def fake_run_preview_command(
         accession_file: Path,
         include: str,
-        api_key: str | None = None,
+        ncbi_api_key: str | None = None,
         datasets_bin: str = "datasets",
         debug: bool = False,
         sleep_func=None,
@@ -374,7 +374,7 @@ def test_auto_preview_uses_accession_input_file_and_keeps_output_absent(
     ) -> str:
         """Capture the preview input file used by auto mode."""
 
-        del api_key, datasets_bin, debug, sleep_func, runner
+        del ncbi_api_key, datasets_bin, debug, sleep_func, runner
         preview_inputs.append(accession_file)
         preview_contents.append(accession_file.read_text(encoding="ascii"))
         assert include == "genome"
@@ -861,7 +861,7 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
         prefer_genbank=True,
         download_method="dehydrate",
         threads=4,
-        api_key=None,
+        ncbi_api_key=None,
         include="genome",
         debug=False,
         keep_temp=False,

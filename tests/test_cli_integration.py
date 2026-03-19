@@ -58,7 +58,7 @@ def test_main_passes_normalised_arguments_into_workflow(
             prefer_genbank=True,
             download_method="direct",
             threads=3,
-            api_key=None,
+            ncbi_api_key=None,
             include="genome,gff3",
             debug=True,
             keep_temp=False,

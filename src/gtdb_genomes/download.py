@@ -98,7 +98,7 @@ def validate_include_value(include: str) -> str:
 def build_preview_command(
     accession_file: Path,
     include: str,
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
 ) -> list[str]:
@@ -115,8 +115,8 @@ def build_preview_command(
         validate_include_value(include),
         "--preview",
     ]
-    if api_key:
-        command.extend(["--api-key", api_key])
+    if ncbi_api_key:
+        command.extend(["--api-key", ncbi_api_key])
     if debug:
         command.append("--debug")
     return command
@@ -126,7 +126,7 @@ def build_download_command(
     accessions: Iterable[str],
     archive_path: Path,
     include: str,
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
 ) -> list[str]:
@@ -143,8 +143,8 @@ def build_download_command(
         "--include",
         validate_include_value(include),
     ]
-    if api_key:
-        command.extend(["--api-key", api_key])
+    if ncbi_api_key:
+        command.extend(["--api-key", ncbi_api_key])
     if debug:
         command.append("--debug")
     return command
@@ -154,7 +154,7 @@ def build_batch_dehydrate_command(
     accession_file: Path,
     archive_path: Path,
     include: str,
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
 ) -> list[str]:
@@ -173,8 +173,8 @@ def build_batch_dehydrate_command(
         validate_include_value(include),
         "--dehydrated",
     ]
-    if api_key:
-        command.extend(["--api-key", api_key])
+    if ncbi_api_key:
+        command.extend(["--api-key", ncbi_api_key])
     if debug:
         command.append("--debug")
     return command
@@ -198,7 +198,7 @@ def write_accession_input_file(
 def run_preview_command(
     accession_file: Path,
     include: str,
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
     sleep_func: Callable[[float], None] = time.sleep,
@@ -209,7 +209,7 @@ def run_preview_command(
     command = build_preview_command(
         accession_file,
         include,
-        api_key=api_key,
+        ncbi_api_key=ncbi_api_key,
         datasets_bin=datasets_bin,
         debug=debug,
     )
@@ -232,7 +232,7 @@ def run_preview_command(
 def build_rehydrate_command(
     directory: Path,
     max_workers: int,
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
 ) -> list[str]:
@@ -246,8 +246,8 @@ def build_rehydrate_command(
         "--max-workers",
         str(max_workers),
     ]
-    if api_key:
-        command.extend(["--api-key", api_key])
+    if ncbi_api_key:
+        command.extend(["--api-key", ncbi_api_key])
     if debug:
         command.append("--debug")
     return command
@@ -405,7 +405,7 @@ def download_with_accession_fallback(
     fallback_accession: str | None,
     archive_path: Path,
     include: str,
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
     sleep_func: Callable[[float], None] = time.sleep,
@@ -418,7 +418,7 @@ def download_with_accession_fallback(
             [preferred_accession],
             archive_path,
             include,
-            api_key=api_key,
+            ncbi_api_key=ncbi_api_key,
             datasets_bin=datasets_bin,
             debug=debug,
         ),
@@ -446,7 +446,7 @@ def download_with_accession_fallback(
             [fallback_accession],
             archive_path,
             include,
-            api_key=api_key,
+            ncbi_api_key=ncbi_api_key,
             datasets_bin=datasets_bin,
             debug=debug,
         ),

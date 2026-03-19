@@ -16,12 +16,12 @@ from gtdb_genomes.metadata import (
 )
 
 
-def test_build_summary_command_includes_api_key() -> None:
+def test_build_summary_command_includes_ncbi_api_key() -> None:
     """The summary command should pass the requested API key through."""
 
     command = build_summary_command(
         ["GCF_000001.1"],
-        api_key="secret",
+        ncbi_api_key="secret",
         datasets_bin="datasets",
     )
 

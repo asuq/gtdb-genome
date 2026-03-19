@@ -20,7 +20,7 @@ def test_help_includes_documented_flags() -> None:
     assert "--prefer-genbank" in help_text
     assert "--download-method" in help_text
     assert "--threads" in help_text
-    assert "--api-key" in help_text
+    assert "--ncbi-api-key" in help_text
     assert "--include" in help_text
     assert "--debug" in help_text
     assert "--keep-temp" in help_text
@@ -150,6 +150,48 @@ def test_parse_args_rejects_non_empty_output_directory(tmp_path: Path) -> None:
                 "g__Escherichia",
                 "--output",
                 str(output_dir),
+            ],
+        )
+    assert error.value.code == 2
+
+
+def test_parse_args_accepts_ncbi_api_key_flag(tmp_path: Path) -> None:
+    """The renamed NCBI API key flag should parse into the normalised args."""
+
+    parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "--release",
+            "latest",
+            "--taxon",
+            "g__Escherichia",
+            "--output",
+            str(tmp_path),
+            "--ncbi-api-key",
+            "secret",
+        ],
+    )
+
+    assert args.ncbi_api_key == "secret"
+
+
+def test_parse_args_rejects_legacy_api_key_flag(tmp_path: Path) -> None:
+    """The removed legacy API key flag should be rejected."""
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as error:
+        parse_args(
+            parser,
+            [
+                "--release",
+                "latest",
+                "--taxon",
+                "g__Escherichia",
+                "--output",
+                str(tmp_path),
+                "--api-key",
+                "secret",
             ],
         )
     assert error.value.code == 2

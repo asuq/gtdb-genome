@@ -28,7 +28,7 @@ class CliArgs:
     prefer_genbank: bool
     download_method: str
     threads: int
-    api_key: str | None
+    ncbi_api_key: str | None
     include: str
     debug: bool
     keep_temp: bool
@@ -115,7 +115,7 @@ def parse_args(
         prefer_genbank=namespace.prefer_genbank,
         download_method=namespace.download_method,
         threads=namespace.threads,
-        api_key=namespace.api_key,
+        ncbi_api_key=namespace.ncbi_api_key,
         include=normalise_include(parser, namespace.include),
         debug=namespace.debug,
         keep_temp=namespace.keep_temp,
@@ -164,8 +164,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Worker count to use; defaults to all available CPU threads.",
     )
     parser.add_argument(
-        "--api-key",
-        help="NCBI API key. The tool never stores or logs it.",
+        "--ncbi-api-key",
+        help="NCBI API key used only for datasets commands. The tool never stores or logs it.",
     )
     parser.add_argument(
         "--include",

@@ -370,7 +370,7 @@ def execute_direct_accession_plan(
         fallback_accession=fallback_accession,
         archive_path=archive_path,
         include=args.include,
-        api_key=args.api_key,
+        ncbi_api_key=args.ncbi_api_key,
         debug=args.debug,
     )
     if not download_result.succeeded or download_result.used_accession is None:
@@ -498,7 +498,7 @@ def execute_batch_dehydrate_plans(
         accession_file,
         archive_path,
         args.include,
-        api_key=args.api_key,
+        ncbi_api_key=args.ncbi_api_key,
         debug=args.debug,
     )
     logger.debug("Running %s", redact_command(download_command, secrets))
@@ -540,7 +540,7 @@ def execute_batch_dehydrate_plans(
     rehydrate_command = build_rehydrate_command(
         extraction_root,
         rehydrate_workers,
-        api_key=args.api_key,
+        ncbi_api_key=args.ncbi_api_key,
         debug=args.debug,
     )
     logger.debug("Running %s", redact_command(rehydrate_command, secrets))
@@ -881,7 +881,7 @@ def run_workflow(args: CliArgs) -> int:
     """Run the documented workflow and return the process exit code."""
 
     logger, _ = configure_logging(debug=args.debug, dry_run=args.dry_run)
-    secrets = tuple(secret for secret in (args.api_key,) if secret)
+    secrets = tuple(secret for secret in (args.ncbi_api_key,) if secret)
     started_at = datetime.now(UTC).isoformat()
 
     try:
@@ -968,13 +968,13 @@ def run_workflow(args: CliArgs) -> int:
     if not supported_selected_frame.is_empty() and args.prefer_genbank:
         metadata_command = build_summary_command(
             supported_selected_frame.get_column("ncbi_accession").unique().to_list(),
-            api_key=args.api_key,
+            ncbi_api_key=args.ncbi_api_key,
         )
         logger.debug("Running %s", redact_command(metadata_command, secrets))
         try:
             summary_lookup = run_summary_lookup_with_retries(
                 supported_selected_frame.get_column("ncbi_accession").unique().to_list(),
-                api_key=args.api_key,
+                ncbi_api_key=args.ncbi_api_key,
             )
             summary_map = summary_lookup.summary_map
             metadata_failures = summary_lookup.failures
@@ -1016,7 +1016,7 @@ def run_workflow(args: CliArgs) -> int:
             preview_command = build_preview_command(
                 preview_accession_file,
                 args.include,
-                api_key=args.api_key,
+                ncbi_api_key=args.ncbi_api_key,
                 debug=args.debug,
             )
             logger.debug("Running %s", redact_command(preview_command, secrets))
@@ -1024,7 +1024,7 @@ def run_workflow(args: CliArgs) -> int:
                 preview_text = run_preview_command(
                     preview_accession_file,
                     args.include,
-                    api_key=args.api_key,
+                    ncbi_api_key=args.ncbi_api_key,
                     debug=args.debug,
                 )
             except PreviewError as error:

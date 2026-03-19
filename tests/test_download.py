@@ -42,27 +42,27 @@ def test_command_builders_match_datasets_cli_shape() -> None:
     preview_command = build_preview_command(
         Path("/tmp/accessions.txt"),
         "genome,gff3",
-        api_key="secret",
+        ncbi_api_key="secret",
         debug=True,
     )
     download_command = build_download_command(
         ["GCA_1", "GCF_2"],
         Path("/tmp/out.zip"),
         "genome",
-        api_key="secret",
+        ncbi_api_key="secret",
         debug=True,
     )
     rehydrate_command = build_rehydrate_command(
         Path("/tmp/bag"),
         7,
-        api_key="secret",
+        ncbi_api_key="secret",
         debug=True,
     )
     batch_dehydrate_command = build_batch_dehydrate_command(
         Path("/tmp/accessions.txt"),
         Path("/tmp/out.zip"),
         "genome",
-        api_key="secret",
+        ncbi_api_key="secret",
         debug=True,
     )
 

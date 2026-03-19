@@ -51,7 +51,7 @@ class SummaryLookupResult:
 
 def build_summary_command(
     accessions: Iterable[str],
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
 ) -> list[str]:
     """Build the datasets summary command for assembly accessions."""
@@ -64,8 +64,8 @@ def build_summary_command(
         *accessions,
         "--as-json-lines",
     ]
-    if api_key:
-        command.extend(["--api-key", api_key])
+    if ncbi_api_key:
+        command.extend(["--api-key", ncbi_api_key])
     return command
 
 
@@ -85,7 +85,7 @@ def parse_assembly_accession(accession: str) -> AssemblyAccession | None:
 
 def run_summary_lookup_with_retries(
     accessions: Iterable[str],
-    api_key: str | None = None,
+    ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     sleep_func: Callable[[float], None] = time.sleep,
 ) -> SummaryLookupResult:
@@ -96,7 +96,7 @@ def run_summary_lookup_with_retries(
         return SummaryLookupResult(summary_map={}, failures=())
     command = build_summary_command(
         ordered_accessions,
-        api_key=api_key,
+        ncbi_api_key=ncbi_api_key,
         datasets_bin=datasets_bin,
     )
     max_attempts = len(RETRY_DELAYS_SECONDS) + 1
