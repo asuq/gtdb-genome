@@ -71,16 +71,6 @@ class RetryableCommandResult:
     failures: tuple[CommandFailureRecord, ...]
 
 
-@dataclass(slots=True)
-class AccessionDownloadResult:
-    """The result of downloading one accession with optional fallback."""
-
-    succeeded: bool
-    used_accession: str | None
-    used_fallback: bool
-    failures: tuple[CommandFailureRecord, ...]
-
-
 def get_ordered_unique_accessions(
     accessions: Iterable[str],
 ) -> tuple[str, ...]:
@@ -262,7 +252,7 @@ def build_rehydrate_command(
 
 
 def parse_preview_size_bytes(preview_text: str) -> int | None:
-    """Extract the largest size value from preview output."""
+    """Extract the package or download size from preview output."""
 
     stripped_preview = preview_text.strip()
     if not stripped_preview:
@@ -278,26 +268,39 @@ def parse_preview_size_bytes(preview_text: str) -> int | None:
         estimated_size_mb = preview_payload.get("estimated_file_size_mb")
         if isinstance(estimated_size_mb, int | float):
             json_sizes_mb.append(float(estimated_size_mb))
+            continue
         included_data_files = preview_payload.get("included_data_files", {})
         if not isinstance(included_data_files, dict):
             continue
+        record_total_mb = 0.0
+        found_file_size = False
         for file_metadata in included_data_files.values():
             if not isinstance(file_metadata, dict):
                 continue
             size_mb = file_metadata.get("size_mb")
             if isinstance(size_mb, int | float):
-                json_sizes_mb.append(float(size_mb))
+                record_total_mb += float(size_mb)
+                found_file_size = True
+        if found_file_size:
+            json_sizes_mb.append(record_total_mb)
     if json_sizes_mb:
         return int(max(json_sizes_mb) * SIZE_UNITS["MB"])
 
+    labelled_matches = re.findall(
+        r"(?im)^\s*(?:package|download)\s+size\s*:\s*(\d+(?:\.\d+)?)\s*([KMGT]?B)\b",
+        preview_text,
+    )
+    if labelled_matches:
+        return max(
+            int(float(size_value) * SIZE_UNITS[size_unit.upper()])
+            for size_value, size_unit in labelled_matches
+        )
+
     matches = SIZE_PATTERN.findall(preview_text)
-    if not matches:
+    if len(matches) != 1:
         return None
-    sizes = [
-        int(float(size_value) * SIZE_UNITS[size_unit.upper()])
-        for size_value, size_unit in matches
-    ]
-    return max(sizes)
+    size_value, size_unit = matches[0]
+    return int(float(size_value) * SIZE_UNITS[size_unit.upper()])
 
 
 def select_download_method(
@@ -406,67 +409,3 @@ def run_retryable_command(
             failures=tuple(failures),
         )
     raise AssertionError("retry loop terminated unexpectedly")
-
-
-def download_with_accession_fallback(
-    preferred_accession: str,
-    fallback_accession: str | None,
-    archive_path: Path,
-    include: str,
-    ncbi_api_key: str | None = None,
-    datasets_bin: str = "datasets",
-    debug: bool = False,
-    sleep_func: Callable[[float], None] = time.sleep,
-    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-) -> AccessionDownloadResult:
-    """Download one accession and fall back to the original if needed."""
-
-    preferred_result = run_retryable_command(
-        build_download_command(
-            [preferred_accession],
-            archive_path,
-            include,
-            ncbi_api_key=ncbi_api_key,
-            datasets_bin=datasets_bin,
-            debug=debug,
-        ),
-        stage="preferred_download",
-        attempted_accession=preferred_accession,
-        sleep_func=sleep_func,
-        runner=runner,
-    )
-    if preferred_result.succeeded:
-        return AccessionDownloadResult(
-            succeeded=True,
-            used_accession=preferred_accession,
-            used_fallback=False,
-            failures=preferred_result.failures,
-        )
-    if fallback_accession is None or fallback_accession == preferred_accession:
-        return AccessionDownloadResult(
-            succeeded=False,
-            used_accession=None,
-            used_fallback=False,
-            failures=preferred_result.failures,
-        )
-    fallback_result = run_retryable_command(
-        build_download_command(
-            [fallback_accession],
-            archive_path,
-            include,
-            ncbi_api_key=ncbi_api_key,
-            datasets_bin=datasets_bin,
-            debug=debug,
-        ),
-        stage="fallback_download",
-        final_failure_status="fallback_exhausted",
-        attempted_accession=fallback_accession,
-        sleep_func=sleep_func,
-        runner=runner,
-    )
-    return AccessionDownloadResult(
-        succeeded=fallback_result.succeeded,
-        used_accession=fallback_accession if fallback_result.succeeded else None,
-        used_fallback=fallback_result.succeeded,
-        failures=preferred_result.failures + fallback_result.failures,
-    )

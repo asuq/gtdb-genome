@@ -15,7 +15,6 @@ from gtdb_genomes.download import (
     build_download_command,
     build_preview_command,
     build_rehydrate_command,
-    download_with_accession_fallback,
     get_direct_download_concurrency,
     get_rehydrate_workers,
     parse_preview_size_bytes,
@@ -131,8 +130,10 @@ def test_select_download_method_uses_preview_size_and_count_thresholds() -> None
 
     small_preview = "Package size: 1.0 GB\n"
     large_preview = f"Package size: {DEHYDRATE_SIZE_GB_THRESHOLD + 1.0} GB\n"
+    mixed_preview = "Download size: 1.0 GB\nUncompressed size: 16.0 GB\n"
 
     assert select_download_method("auto", 5, small_preview).method_used == "direct"
+    assert select_download_method("auto", 5, mixed_preview).method_used == "direct"
     assert (
         select_download_method("auto", DEHYDRATE_ACCESSION_THRESHOLD, small_preview)
         .method_used
@@ -146,13 +147,20 @@ def test_select_download_method_uses_preview_size_and_count_thresholds() -> None
     with pytest.raises(PreviewError, match="could not parse"):
         select_download_method("auto", 5, "No size here")
 
+    with pytest.raises(PreviewError, match="could not parse"):
+        select_download_method(
+            "auto",
+            5,
+            "Estimated size: 850 MB\nUncompressed size: 2.5 GB\n",
+        )
 
-def test_parse_preview_size_bytes_uses_largest_size_value() -> None:
-    """Preview parsing should prefer the largest observed size token."""
+
+def test_parse_preview_size_bytes_prefers_package_or_download_size() -> None:
+    """Preview parsing should use the labelled package or download size."""
 
     preview = "Download size: 850 MB\nUncompressed size: 2.5 GB\n"
 
-    assert parse_preview_size_bytes(preview) == int(2.5 * 1024**3)
+    assert parse_preview_size_bytes(preview) == int(850 * 1024**2)
 
 
 def test_parse_preview_size_bytes_accepts_json_preview_output() -> None:
@@ -166,7 +174,26 @@ def test_parse_preview_size_bytes_accepts_json_preview_output() -> None:
         '"size_mb":1556.5991}}}\n'
     )
 
-    assert parse_preview_size_bytes(preview) == int(1556.5991 * 1024**2)
+    assert parse_preview_size_bytes(preview) == int(1556 * 1024**2)
+
+
+def test_parse_preview_size_bytes_sums_json_file_sizes_when_needed() -> None:
+    """Preview parsing should sum JSON file sizes without an estimate field."""
+
+    preview = (
+        '{"included_data_files":{"genome":{"size_mb":512.0},'
+        '"annotation":{"size_mb":128.5}}}\n'
+    )
+
+    assert parse_preview_size_bytes(preview) == int(640.5 * 1024**2)
+
+
+def test_parse_preview_size_bytes_rejects_ambiguous_unlabelled_sizes() -> None:
+    """Preview parsing should reject multi-size text without package labels."""
+
+    preview = "Estimated size: 850 MB\nUncompressed size: 2.5 GB\n"
+
+    assert parse_preview_size_bytes(preview) is None
 
 
 def test_worker_caps_and_accession_input_file_follow_documented_limits(
@@ -218,52 +245,6 @@ def test_run_retryable_command_records_retries_before_success() -> None:
         "retry_scheduled",
         "retry_scheduled",
     ]
-
-
-def test_preferred_gca_download_uses_full_retry_budget_before_fallback() -> None:
-    """Fallback should start only after the preferred accession exhausts retries."""
-
-    attempts = iter([1, 1, 1, 1, 0])
-    sleep_calls: list[float] = []
-    commands: list[list[str]] = []
-
-    def runner(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-    ) -> subprocess.CompletedProcess[str]:
-        """Return a fake preferred-failure then fallback-success sequence."""
-
-        commands.append(command)
-        return subprocess.CompletedProcess(
-            command,
-            next(attempts),
-            stdout="",
-            stderr="download failed",
-        )
-
-    result = download_with_accession_fallback(
-        preferred_accession="GCA_000001.1",
-        fallback_accession="GCF_000001.1",
-        archive_path=Path("/tmp/out.zip"),
-        include="genome",
-        sleep_func=sleep_calls.append,
-        runner=runner,
-    )
-
-    assert result.succeeded is True
-    assert result.used_accession == "GCF_000001.1"
-    assert result.used_fallback is True
-    assert sleep_calls == [5, 15, 45]
-    assert [command[4] for command in commands] == [
-        "GCA_000001.1",
-        "GCA_000001.1",
-        "GCA_000001.1",
-        "GCA_000001.1",
-        "GCF_000001.1",
-    ]
-    assert result.failures[-1].final_status == "retry_exhausted"
 
 
 def test_preview_command_uses_full_retry_budget(
