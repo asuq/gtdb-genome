@@ -20,6 +20,14 @@ def normalise_gtdb_accession(gtdb_accession: str) -> str:
     return gtdb_accession
 
 
+def get_logical_taxonomy_filename(path: Path) -> str:
+    """Return a stable taxonomy filename for manifests and output tables."""
+
+    if path.name.endswith(".gz"):
+        return path.name[:-3]
+    return path.name
+
+
 def load_taxonomy_table(path: Path) -> pl.DataFrame:
     """Load one bundled GTDB taxonomy table."""
 
@@ -34,7 +42,7 @@ def load_taxonomy_table(path: Path) -> pl.DataFrame:
             normalise_gtdb_accession,
             return_dtype=pl.String,
         ).alias("ncbi_accession"),
-        pl.lit(path.name).alias("taxonomy_file"),
+        pl.lit(get_logical_taxonomy_filename(path)).alias("taxonomy_file"),
     )
 
 

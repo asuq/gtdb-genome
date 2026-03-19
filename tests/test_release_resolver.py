@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,14 @@ def write_manifest(manifest_path: Path, row: str) -> None:
         + "\n",
         encoding="ascii",
     )
+
+
+def write_gzip_text(path: Path, content: str) -> None:
+    """Write one gzipped text file for a bundled-data test case."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", encoding="ascii", newline="") as handle:
+        handle.write(content)
 
 
 def test_load_release_manifest_reads_real_bundled_manifest() -> None:
@@ -81,8 +90,41 @@ def test_resolve_and_validate_release_uses_bundled_taxonomy_files() -> None:
     assert resolution.resolved_release == "95.0"
     assert resolution.bacterial_taxonomy is not None
     assert resolution.bacterial_taxonomy.is_file()
+    assert resolution.bacterial_taxonomy.name.endswith(".tsv.gz")
     assert resolution.archaeal_taxonomy is not None
     assert resolution.archaeal_taxonomy.is_file()
+    assert resolution.archaeal_taxonomy.name.endswith(".tsv.gz")
+
+
+def test_load_release_taxonomy_reads_gzipped_tables_and_keeps_logical_names(
+    tmp_path: Path,
+) -> None:
+    """Gzipped taxonomy tables should load without changing output filenames."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest(
+        get_release_manifest_path(data_root),
+        "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\ttrue",
+    )
+    release_dir = data_root / "95.0"
+    write_gzip_text(
+        release_dir / "bac.tsv.gz",
+        "RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
+    )
+    write_gzip_text(
+        release_dir / "ar.tsv.gz",
+        "GB_GCA_000002.1\td__Archaea;g__Methanobrevibacter\n",
+    )
+
+    taxonomy_frame = load_release_taxonomy(
+        resolve_and_validate_release("95", data_root=data_root),
+    )
+
+    assert taxonomy_frame["taxonomy_file"].to_list() == ["bac.tsv", "ar.tsv"]
+    assert taxonomy_frame["ncbi_accession"].to_list() == [
+        "GCF_000001.1",
+        "GCA_000002.1",
+    ]
 
 
 def test_legacy_release_contains_real_uba_accessions() -> None:
@@ -126,11 +168,11 @@ def test_resolve_and_validate_release_raises_for_missing_taxonomy_file(
     data_root = tmp_path / "gtdb_taxonomy"
     write_manifest(
         get_release_manifest_path(data_root),
-        "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue",
+        "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\ttrue",
     )
     release_dir = data_root / "95.0"
     release_dir.mkdir(parents=True, exist_ok=True)
-    (release_dir / "bac.tsv").write_text("acc\tlineage\n", encoding="ascii")
+    write_gzip_text(release_dir / "bac.tsv.gz", "acc\tlineage\n")
 
     with pytest.raises(BundledDataError):
         resolve_and_validate_release("95", data_root=data_root)

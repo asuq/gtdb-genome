@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -188,9 +189,13 @@ def validate_taxonomy_file(path: Path | None) -> None:
     if not path.is_file():
         raise BundledDataError(f"Bundled taxonomy path is not a file: {path}")
     try:
-        with path.open("r", encoding="ascii", errors="ignore"):
-            pass
-    except OSError as error:
+        if path.name.endswith(".gz"):
+            with gzip.open(path, "rt", encoding="ascii", errors="ignore") as handle:
+                handle.read(1)
+        else:
+            with path.open("r", encoding="ascii", errors="ignore") as handle:
+                handle.read(1)
+    except (OSError, gzip.BadGzipFile) as error:
         raise BundledDataError(
             f"Bundled taxonomy file could not be read: {path}",
         ) from error
