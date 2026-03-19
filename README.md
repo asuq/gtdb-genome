@@ -235,8 +235,9 @@ otherwise collide.
 - `download_failures.tsv`
   - one row per recorded failed attempt
   - records collapsed taxon context, the attempted accession or accession set,
-    final accession when one unambiguous final accession exists, stage, retry
-    counters, redacted error message, and final failure status
+    the final accession or accession set when the failed step has a known final
+    outcome, stage, retry counters, redacted error message, and final failure
+    status
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - one row per accession assigned to that taxon
   - records lineage, accession mapping, output path, and whether the accession
