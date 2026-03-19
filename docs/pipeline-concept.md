@@ -84,7 +84,7 @@ This design eliminates GTDB runtime access failures. Dry-run and normal executio
 
 ### 3. Taxon descendant matching
 
-The user will provide one or more GTDB taxa with repeatable `--taxon`.
+The user will provide one or more GTDB taxa with repeatable `--gtdb-taxon`.
 
 The planned matching rule is descendant membership:
 
@@ -158,7 +158,7 @@ This keeps large transfers aligned with the intended `datasets` workflow and avo
 
 The raw `datasets` package layout is useful internally, but not ideal as the final user-facing layout.
 
-Before writing output, the tool must check `--output` and fail fast if the directory already exists and is non-empty.
+Before writing output, the tool must check `--outdir` and fail fast if the directory already exists and is non-empty.
 
 The planned output structure is:
 
