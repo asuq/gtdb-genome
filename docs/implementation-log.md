@@ -1023,6 +1023,25 @@ PY`
     metadata lookup retries are now represented once per failed lookup attempt
     with collapsed context instead of being repeated once per accession
 
+### Commit `323513c` - `docs(readme): clarify failure manifest semantics`
+
+- Implemented:
+  - updated the runtime README so `download_failures.tsv` is described as one
+    row per recorded failed attempt rather than one row per accession attempt
+  - clarified that the attempted accession field may contain an accession set
+    when one failed network step covered multiple accessions
+  - tightened the entrypoint documentation test to reject the old wording
+- Files:
+  - `README.md`
+  - `tests/test_entrypoints.py`
+- Checks run:
+  - `.venv/bin/pytest -q`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the README now reflects the actual manifest behaviour after the shared
+    metadata failure cleanup rather than the earlier simplified wording
+
 ### Commit `093d3d6` - `fix(metadata): preserve native GenBank status on lookup fallback`
 
 - Implemented:
