@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, UTC
 import logging
 from pathlib import Path
@@ -97,6 +97,7 @@ class DownloadExecutionResult:
     method_used: str
     download_concurrency_used: int
     rehydrate_workers_used: int
+    shared_failures: tuple[CommandFailureRecord, ...] = ()
 
 
 def build_accession_plans(mapped_frame: pl.DataFrame) -> tuple[AccessionPlan, ...]:
@@ -119,25 +120,6 @@ def build_accession_plans(mapped_frame: pl.DataFrame) -> tuple[AccessionPlan, ..
     )
 
 
-def clone_failures_for_accession(
-    failures: tuple[CommandFailureRecord, ...],
-    attempted_accession: str,
-) -> tuple[CommandFailureRecord, ...]:
-    """Attach an accession identifier to failure records when needed."""
-
-    return tuple(
-        replace(
-            failure,
-            attempted_accession=(
-                failure.attempted_accession
-                if failure.attempted_accession is not None
-                else attempted_accession
-            ),
-        )
-        for failure in failures
-    )
-
-
 def locate_accession_payload_directory(
     extraction_root: Path,
     accession: str,
@@ -152,6 +134,42 @@ def locate_accession_payload_directory(
             return candidate
     raise LayoutError(
         f"Could not locate extracted payload directory for accession {accession}",
+    )
+
+
+def locate_batch_payload_directories(
+    extraction_root: Path,
+    accessions: tuple[str, ...],
+) -> dict[str, Path]:
+    """Locate extracted payload directories for a batch of accessions."""
+
+    payload_directories: dict[str, Path] = {}
+    data_root = extraction_root / "ncbi_dataset" / "data"
+    missing_accessions: set[str] = set()
+    for accession in accessions:
+        direct_candidate = data_root / accession
+        if direct_candidate.is_dir():
+            payload_directories[accession] = direct_candidate
+            continue
+        missing_accessions.add(accession)
+
+    if not missing_accessions:
+        return payload_directories
+
+    for candidate in extraction_root.rglob("*"):
+        if not candidate.is_dir():
+            continue
+        candidate_name = candidate.name
+        if candidate_name in missing_accessions:
+            payload_directories[candidate_name] = candidate
+            missing_accessions.remove(candidate_name)
+            if not missing_accessions:
+                return payload_directories
+
+    missing_text = ", ".join(sorted(missing_accessions))
+    raise LayoutError(
+        "Could not locate extracted payload directories for accessions: "
+        f"{missing_text}",
     )
 
 
@@ -175,33 +193,14 @@ def extract_download_payload(
     accession: str,
     archive_path: Path,
     run_directories: RunDirectories,
-    args: CliArgs,
-    decision_method: str,
-    logger: logging.Logger,
-    secrets: tuple[str, ...],
 ) -> tuple[Path | None, tuple[CommandFailureRecord, ...]]:
-    """Extract one downloaded archive and optionally rehydrate it."""
+    """Extract one downloaded archive and locate its payload directory."""
 
     extraction_root = run_directories.extracted_root / accession
     try:
         extract_archive(archive_path, extraction_root)
     except LayoutError as error:
         return None, (build_layout_failure(error),)
-
-    if decision_method == "dehydrate":
-        rehydrate_command = build_rehydrate_command(
-            extraction_root,
-            get_rehydrate_workers(args.threads),
-            api_key=args.api_key,
-            debug=args.debug,
-        )
-        logger.debug("Running %s", redact_command(rehydrate_command, secrets))
-        rehydrate_result = run_retryable_command(
-            rehydrate_command,
-            stage="rehydrate",
-        )
-        if not rehydrate_result.succeeded:
-            return None, rehydrate_result.failures
 
     try:
         payload_directory = locate_accession_payload_directory(
@@ -213,15 +212,13 @@ def extract_download_payload(
     return payload_directory, ()
 
 
-def execute_accession_plan(
+def execute_direct_accession_plan(
     plan: AccessionPlan,
     args: CliArgs,
-    decision_method: str,
     run_directories: RunDirectories,
     logger: logging.Logger,
-    secrets: tuple[str, ...],
 ) -> AccessionExecution:
-    """Download and extract one accession plan."""
+    """Download and extract one accession plan through direct mode."""
 
     archive_path = run_directories.downloads_root / f"{plan.original_accession}.zip"
     fallback_accession = None
@@ -238,7 +235,6 @@ def execute_accession_plan(
         archive_path=archive_path,
         include=args.include,
         api_key=args.api_key,
-        dehydrated=decision_method == "dehydrate",
         debug=args.debug,
     )
     if not download_result.succeeded or download_result.used_accession is None:
@@ -255,10 +251,6 @@ def execute_accession_plan(
         download_result.used_accession,
         archive_path,
         run_directories,
-        args,
-        decision_method,
-        logger,
-        secrets,
     )
     if payload_directory is None:
         return AccessionExecution(
@@ -300,19 +292,18 @@ def execute_direct_accession_plans(
             method_used="direct",
             download_concurrency_used=0,
             rehydrate_workers_used=0,
+            shared_failures=(),
         )
     max_workers = max(1, get_direct_download_concurrency(args.threads, len(plans)))
     executions: dict[str, AccessionExecution] = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map = {
             executor.submit(
-                execute_accession_plan,
+                execute_direct_accession_plan,
                 plan,
                 args,
-                "direct",
                 run_directories,
                 logger,
-                secrets,
             ): plan.original_accession
             for plan in plans
         }
@@ -323,6 +314,7 @@ def execute_direct_accession_plans(
         method_used="direct",
         download_concurrency_used=max_workers,
         rehydrate_workers_used=0,
+        shared_failures=(),
     )
 
 
@@ -356,8 +348,12 @@ def execute_batch_dehydrate_plans(
             method_used="dehydrate",
             download_concurrency_used=0,
             rehydrate_workers_used=0,
+            shared_failures=(),
         )
 
+    batch_attempted_accessions = ";".join(
+        dict.fromkeys(plan.preferred_accession for plan in plans),
+    )
     accession_file = write_accession_input_file(
         run_directories.working_root / "dehydrate_accessions.txt",
         (plan.preferred_accession for plan in plans),
@@ -374,6 +370,7 @@ def execute_batch_dehydrate_plans(
     batch_download = run_retryable_command(
         download_command,
         stage="preferred_download",
+        attempted_accession=batch_attempted_accessions,
     )
     if not batch_download.succeeded:
         return fallback_batch_to_direct(
@@ -414,6 +411,7 @@ def execute_batch_dehydrate_plans(
     rehydrate_result = run_retryable_command(
         rehydrate_command,
         stage="rehydrate",
+        attempted_accession=batch_attempted_accessions,
     )
     if not rehydrate_result.succeeded:
         return fallback_batch_to_direct(
@@ -429,21 +427,18 @@ def execute_batch_dehydrate_plans(
     shared_failures = batch_download.failures + rehydrate_result.failures
     executions: dict[str, AccessionExecution] = {}
     try:
+        payload_directories = locate_batch_payload_directories(
+            extraction_root,
+            tuple(plan.preferred_accession for plan in plans),
+        )
         for plan in plans:
-            payload_directory = locate_accession_payload_directory(
-                extraction_root,
-                plan.preferred_accession,
-            )
             executions[plan.original_accession] = AccessionExecution(
                 original_accession=plan.original_accession,
                 final_accession=plan.preferred_accession,
                 conversion_status=plan.conversion_status,
                 download_status="downloaded",
-                payload_directory=payload_directory,
-                failures=clone_failures_for_accession(
-                    shared_failures,
-                    plan.preferred_accession,
-                ),
+                payload_directory=payload_directories[plan.preferred_accession],
+                failures=(),
             )
     except LayoutError as error:
         return fallback_batch_to_direct(
@@ -461,6 +456,7 @@ def execute_batch_dehydrate_plans(
         method_used="dehydrate",
         download_concurrency_used=1,
         rehydrate_workers_used=rehydrate_workers,
+        shared_failures=shared_failures,
     )
 
 
@@ -485,26 +481,12 @@ def fallback_batch_to_direct(
         logger,
         secrets,
     )
-    executions: dict[str, AccessionExecution] = {}
-    for plan in plans:
-        direct_execution = direct_result.executions[plan.original_accession]
-        executions[plan.original_accession] = AccessionExecution(
-            original_accession=direct_execution.original_accession,
-            final_accession=direct_execution.final_accession,
-            conversion_status=direct_execution.conversion_status,
-            download_status=direct_execution.download_status,
-            payload_directory=direct_execution.payload_directory,
-            failures=clone_failures_for_accession(
-                batch_failures,
-                plan.preferred_accession,
-            )
-            + direct_execution.failures,
-        )
     return DownloadExecutionResult(
-        executions=executions,
+        executions=direct_result.executions,
         method_used="dehydrate_fallback_direct",
         download_concurrency_used=direct_result.download_concurrency_used,
         rehydrate_workers_used=rehydrate_workers_used,
+        shared_failures=batch_failures,
     )
 
 
@@ -647,21 +629,26 @@ def build_failure_rows(
     enriched_rows: list[dict[str, Any]],
     executions: dict[str, AccessionExecution],
     metadata_failures: tuple[CommandFailureRecord, ...],
+    shared_failures: tuple[CommandFailureRecord, ...],
     secrets: tuple[str, ...],
 ) -> list[dict[str, Any]]:
     """Build attempt-centric `download_failures.tsv` rows."""
 
     failure_rows: list[dict[str, Any]] = []
+    failure_rows.extend(
+        build_shared_failure_rows(enriched_rows, metadata_failures, secrets),
+    )
+    failure_rows.extend(
+        build_shared_failure_rows(enriched_rows, shared_failures, secrets),
+    )
+
     rows_by_accession: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in enriched_rows:
         rows_by_accession[row["ncbi_accession"]].append(row)
 
     for accession, rows in rows_by_accession.items():
         execution = executions[accession]
-        accession_failures = clone_failures_for_accession(
-            metadata_failures,
-            accession,
-        ) + execution.failures
+        accession_failures = execution.failures
         requested_taxa = ";".join(
             sorted({row["requested_taxon"] for row in rows}),
         )

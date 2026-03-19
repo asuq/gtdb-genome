@@ -50,7 +50,6 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         Path("/tmp/out.zip"),
         "genome",
         api_key="secret",
-        dehydrated=True,
         debug=True,
     )
     rehydrate_command = build_rehydrate_command(
@@ -92,7 +91,6 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         "/tmp/out.zip",
         "--include",
         "genome",
-        "--dehydrated",
         "--api-key",
         "secret",
         "--debug",

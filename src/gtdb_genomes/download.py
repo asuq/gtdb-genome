@@ -126,10 +126,9 @@ def build_download_command(
     include: str,
     api_key: str | None = None,
     datasets_bin: str = "datasets",
-    dehydrated: bool = False,
     debug: bool = False,
 ) -> list[str]:
-    """Build a direct or dehydrated datasets genome download command."""
+    """Build a direct datasets genome download command."""
 
     command = [
         datasets_bin,
@@ -142,8 +141,6 @@ def build_download_command(
         "--include",
         validate_include_value(include),
     ]
-    if dehydrated:
-        command.append("--dehydrated")
     if api_key:
         command.extend(["--api-key", api_key])
     if debug:
@@ -382,7 +379,6 @@ def download_with_accession_fallback(
     include: str,
     api_key: str | None = None,
     datasets_bin: str = "datasets",
-    dehydrated: bool = False,
     debug: bool = False,
     sleep_func: Callable[[float], None] = time.sleep,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
@@ -396,7 +392,6 @@ def download_with_accession_fallback(
             include,
             api_key=api_key,
             datasets_bin=datasets_bin,
-            dehydrated=dehydrated,
             debug=debug,
         ),
         stage="preferred_download",
@@ -425,7 +420,6 @@ def download_with_accession_fallback(
             include,
             api_key=api_key,
             datasets_bin=datasets_bin,
-            dehydrated=dehydrated,
             debug=debug,
         ),
         stage="fallback_download",

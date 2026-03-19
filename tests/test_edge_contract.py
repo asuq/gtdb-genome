@@ -20,6 +20,7 @@ from gtdb_genomes.workflow import (
     AccessionExecution,
     AccessionPlan,
     DownloadExecutionResult,
+    build_failure_rows,
     execute_batch_dehydrate_plans,
 )
 
@@ -288,6 +289,77 @@ def test_failure_manifest_collapses_shared_accession_taxa(
     failure = dict(zip(failure_header, failure_rows[0], strict=True))
     assert failure["requested_taxon"] == "g__Escherichia;s__Escherichia coli"
     assert failure["attempted_accession"] == "GCF_000001.1"
+
+
+def test_failure_manifest_collapses_shared_metadata_attempts() -> None:
+    """Shared metadata retries should be written once per command attempt."""
+
+    enriched_rows = [
+        {
+            "requested_taxon": "g__Escherichia",
+            "taxon_slug": "g__Escherichia",
+            "gtdb_accession": "RS_GCF_000001.1",
+            "ncbi_accession": "GCF_000001.1",
+        },
+        {
+            "requested_taxon": "s__Escherichia coli",
+            "taxon_slug": "s__Escherichia_coli",
+            "gtdb_accession": "RS_GCF_000002.1",
+            "ncbi_accession": "GCF_000002.1",
+        },
+    ]
+    executions = {
+        "GCF_000001.1": AccessionExecution(
+            original_accession="GCF_000001.1",
+            final_accession="GCF_000001.1",
+            conversion_status="unchanged_original",
+            download_status="downloaded",
+            payload_directory=None,
+            failures=(),
+        ),
+        "GCF_000002.1": AccessionExecution(
+            original_accession="GCF_000002.1",
+            final_accession="GCF_000002.1",
+            conversion_status="unchanged_original",
+            download_status="downloaded",
+            payload_directory=None,
+            failures=(),
+        ),
+    }
+    metadata_failures = (
+        CommandFailureRecord(
+            stage="metadata_lookup",
+            attempt_index=1,
+            max_attempts=4,
+            error_type="metadata_lookup",
+            error_message="temporary failure",
+            final_status="retry_scheduled",
+        ),
+        CommandFailureRecord(
+            stage="metadata_lookup",
+            attempt_index=2,
+            max_attempts=4,
+            error_type="metadata_lookup",
+            error_message="temporary failure",
+            final_status="retry_exhausted",
+        ),
+    )
+
+    failure_rows = build_failure_rows(
+        enriched_rows,
+        executions,
+        metadata_failures,
+        (),
+    )
+
+    assert len(failure_rows) == 2
+    assert failure_rows[0]["requested_taxon"] == (
+        "g__Escherichia;s__Escherichia coli"
+    )
+    assert failure_rows[0]["attempted_accession"] == (
+        "GCF_000001.1;GCF_000002.1"
+    )
+    assert failure_rows[0]["final_accession"] == ""
 
 
 def test_batch_dehydrate_failure_falls_back_to_direct(
