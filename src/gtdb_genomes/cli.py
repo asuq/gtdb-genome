@@ -10,11 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gtdb_genomes.download import validate_include_value
-from gtdb_genomes.preflight import (
-    PreflightError,
-    check_required_tools,
-    get_required_tools,
-)
+from gtdb_genomes.preflight import PreflightError
 from gtdb_genomes.workflow import run_workflow
 
 
@@ -194,17 +190,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parse_args(parser, argv)
     try:
-        check_required_tools(
-            get_required_tools(
-                download_method=args.download_method,
-                dry_run=args.dry_run,
-                prefer_genbank=args.prefer_genbank,
-            ),
-        )
+        return run_workflow(args)
     except PreflightError as error:
         print(f"gtdb-genomes: error: {error}", file=sys.stderr)
         return 5
-    return run_workflow(args)
 
 
 if __name__ == "__main__":

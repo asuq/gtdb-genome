@@ -17,6 +17,7 @@ from gtdb_genomes.download import (
 )
 from gtdb_genomes.layout import initialise_run_directories
 from gtdb_genomes.metadata import SummaryLookupResult
+from gtdb_genomes.preflight import PreflightError
 from gtdb_genomes.release_resolver import resolve_release
 from gtdb_genomes.taxonomy import load_release_taxonomy
 from gtdb_genomes.workflow import (
@@ -173,8 +174,10 @@ def test_zero_match_run_writes_header_only_outputs(
     """Zero matches should create the documented output tree and exit 4."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
-        lambda required_tools: None,
+        "gtdb_genomes.workflow.check_required_tools",
+        lambda required_tools: (_ for _ in ()).throw(
+            AssertionError("preflight should not run"),
+        ),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.load_release_taxonomy",
@@ -211,8 +214,10 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
 
     warning_stream = install_capture_logger(monkeypatch)
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
-        lambda required_tools: None,
+        "gtdb_genomes.workflow.check_required_tools",
+        lambda required_tools: (_ for _ in ()).throw(
+            AssertionError("preflight should not run"),
+        ),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.load_release_taxonomy",
@@ -264,8 +269,10 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
 
     warning_stream = install_capture_logger(monkeypatch)
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
-        lambda required_tools: None,
+        "gtdb_genomes.workflow.check_required_tools",
+        lambda required_tools: (_ for _ in ()).throw(
+            AssertionError("preflight should not run"),
+        ),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.load_release_taxonomy",
@@ -306,6 +313,92 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
     warning_text = warning_stream.getvalue()
     assert warning_text.count("unsupported legacy GTDB UBA accessions") == 1
     assert "PRJNA417962" in warning_text
+
+
+def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Supported prefer-GenBank dry-runs should still enforce datasets."""
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+
+    def raise_preflight_error(required_tools: tuple[str, ...]) -> None:
+        """Fail when the workflow reaches the supported dry-run path."""
+
+        assert required_tools == ("datasets",)
+        raise PreflightError("Missing required external tools: datasets")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.check_required_tools",
+        raise_preflight_error,
+    )
+
+    output_dir = tmp_path / "prefer-genbank-dry-run-preflight"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+            "--download-method",
+            "direct",
+            "--prefer-genbank",
+            "--dry-run",
+        ],
+    )
+
+    assert exit_code == 5
+    assert not output_dir.exists()
+
+
+def test_supported_real_run_missing_tools_returns_exit_five(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Supported non-dry runs should still enforce datasets and unzip."""
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+
+    def raise_preflight_error(required_tools: tuple[str, ...]) -> None:
+        """Fail when the workflow reaches the supported real-run path."""
+
+        assert required_tools == ("datasets", "unzip")
+        raise PreflightError("Missing required external tools: datasets, unzip")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.check_required_tools",
+        raise_preflight_error,
+    )
+
+    output_dir = tmp_path / "real-run-preflight"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+            "--download-method",
+            "direct",
+        ],
+    )
+
+    assert exit_code == 5
+    assert not output_dir.exists()
 
 
 def test_build_unsupported_uba_warning_mentions_examples_and_bioproject() -> None:
@@ -542,7 +635,7 @@ def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
     """Preview failures in auto mode should stop before output creation."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
+        "gtdb_genomes.workflow.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
@@ -607,7 +700,7 @@ def test_auto_preview_uses_accession_input_file_and_keeps_output_absent(
         return "Package size: 1.0 GB\n"
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
+        "gtdb_genomes.workflow.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
@@ -674,7 +767,7 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
         return SummaryLookupResult(summary_map={}, failures=())
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
+        "gtdb_genomes.workflow.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
@@ -718,7 +811,7 @@ def test_total_runtime_failure_leaves_final_accession_blank(
     """Total failure should blank `final_accession` and exit 7."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
+        "gtdb_genomes.workflow.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
@@ -804,7 +897,7 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
     (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
+        "gtdb_genomes.workflow.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
@@ -914,8 +1007,10 @@ def test_uba_only_real_run_writes_failed_manifests_and_exits_seven(
     """UBA-only real runs should skip downloads but still write audit manifests."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
-        lambda required_tools: None,
+        "gtdb_genomes.workflow.check_required_tools",
+        lambda required_tools: (_ for _ in ()).throw(
+            AssertionError("preflight should not run"),
+        ),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.load_release_taxonomy",
@@ -971,7 +1066,7 @@ def test_failure_manifest_collapses_shared_accession_taxa(
     """One shared failed accession should yield one root failure row."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.cli.check_required_tools",
+        "gtdb_genomes.workflow.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(

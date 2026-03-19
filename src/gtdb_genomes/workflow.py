@@ -54,6 +54,7 @@ from gtdb_genomes.metadata import (
     build_summary_command,
     run_summary_lookup_with_retries,
 )
+from gtdb_genomes.preflight import check_required_tools, get_required_tools
 from gtdb_genomes.release_resolver import (
     BundledDataError,
     resolve_and_validate_release,
@@ -994,6 +995,19 @@ def build_failure_rows(
     return failure_rows
 
 
+def ensure_required_tools_for_supported_selection(args: CliArgs) -> None:
+    """Validate external-tool requirements for the supported execution path."""
+
+    required_tools = get_required_tools(
+        download_method=args.download_method,
+        dry_run=args.dry_run,
+        prefer_genbank=args.prefer_genbank,
+        has_supported_accessions=True,
+    )
+    if required_tools:
+        check_required_tools(required_tools)
+
+
 def run_workflow(args: CliArgs) -> int:
     """Run the documented workflow and return the process exit code."""
 
@@ -1079,6 +1093,8 @@ def run_workflow(args: CliArgs) -> int:
     )
     if not unsupported_selected_frame.is_empty():
         logger.warning(build_unsupported_uba_warning(unsupported_selected_frame))
+    if not supported_selected_frame.is_empty():
+        ensure_required_tools_for_supported_selection(args)
 
     summary_map: dict[str, set[str]] = {}
     metadata_failures: tuple[CommandFailureRecord, ...] = ()

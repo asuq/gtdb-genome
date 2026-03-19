@@ -22,9 +22,12 @@ def get_required_tools(
     download_method: str,
     dry_run: bool,
     prefer_genbank: bool,
+    has_supported_accessions: bool = True,
 ) -> tuple[str, ...]:
     """Return the external tools required for the requested execution path."""
 
+    if not has_supported_accessions:
+        return ()
     if dry_run:
         required_tools: list[str] = []
         if prefer_genbank or download_method == "auto":

@@ -227,13 +227,13 @@ def test_main_returns_preflight_error_code(
 ) -> None:
     """Missing external tools should return exit code 5."""
 
-    def raise_preflight_error(required_tools: tuple[str, ...]) -> None:
+    def raise_preflight_error(args: CliArgs) -> int:
         """Raise a preflight error for the test."""
 
-        assert required_tools == ("datasets", "unzip")
+        assert args.gtdb_release == "latest"
         raise PreflightError("Missing required external tools: datasets")
 
-    monkeypatch.setattr("gtdb_genomes.cli.check_required_tools", raise_preflight_error)
+    monkeypatch.setattr("gtdb_genomes.cli.run_workflow", raise_preflight_error)
     exit_code = main(
         [
             "--gtdb-release",
