@@ -128,19 +128,13 @@ def split_selected_rows_by_accession_support(
     )
 
 
-def get_ordered_unique_values(values: list[str]) -> tuple[str, ...]:
-    """Return deterministic first-seen unique values from a string list."""
-
-    return tuple(dict.fromkeys(values))
-
-
 def build_unsupported_uba_warning(unsupported_frame: pl.DataFrame) -> str:
     """Build the documented run-level warning for unsupported `UBA*` accessions."""
 
-    unique_accessions = get_ordered_unique_values(
+    unique_accessions = get_ordered_unique_accessions(
         unsupported_frame.get_column("ncbi_accession").to_list(),
     )
-    affected_taxa = get_ordered_unique_values(
+    affected_taxa = get_ordered_unique_accessions(
         unsupported_frame.get_column("requested_taxon").to_list(),
     )
     example_text = ", ".join(unique_accessions[:UNSUPPORTED_UBA_WARNING_EXAMPLES])
