@@ -992,6 +992,37 @@ PY`
     forward-looking design text, which intentionally supersedes the stale
     planning wording left from the first implementation pass
 
+### Commit `d4c91db` - `refactor(core): streamline failure tracking and extraction paths`
+
+- Implemented:
+  - removed the dead direct-download code path that still carried
+    per-accession dehydrated extraction behaviour after the batch dehydrate
+    refactor
+  - simplified direct accession execution so it only builds direct download
+    commands and only performs local archive extraction
+  - indexed batch payload directories once per dehydrated extraction tree
+    instead of locating each accession with a fresh recursive scan
+  - changed failure-manifest generation so shared metadata lookup retries are
+    written once per failed command attempt instead of being duplicated for
+    every accession in the run
+  - updated the edge-contract tests to lock the new shared-metadata failure
+    behaviour
+- Files:
+  - `src/gtdb_genomes/download.py`
+  - `src/gtdb_genomes/workflow.py`
+  - `tests/test_download.py`
+  - `tests/test_edge_contract.py`
+- Checks run:
+  - `.venv/bin/pytest -q`
+  - `python3 -m compileall src`
+  - `.venv/bin/python -m gtdb_genomes --release 95 --taxon "s__Thermoflexus hugenholtzii" --output "$(mktemp -d /tmp/gtdb_review_dry_run.XXXXXX)" --download-method direct --no-prefer-genbank --dry-run`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - `download_failures.tsv` still remains attempt-centric, but shared
+    metadata lookup retries are now represented once per failed lookup attempt
+    with collapsed context instead of being repeated once per accession
+
 ### Commit `093d3d6` - `fix(metadata): preserve native GenBank status on lookup fallback`
 
 - Implemented:
