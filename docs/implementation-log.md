@@ -856,3 +856,37 @@ PY`
 - Deviations:
   - the documentation now reflects the shipped runtime policy rather than the
     earlier source-checkout wrapper model from the first implementation pass
+
+## Post-review remediation
+
+### Commit `09c3a2f` - `feat(cli): rename GenBank preference and relax dry-run preflight`
+
+- Implemented:
+  - renamed the public CLI switch from `--prefer-gca` to
+    `--prefer-genbank` across the runtime path
+  - changed release resolution so `latest` is resolved through the manifest
+    `is_latest` marker and now fails if the manifest marks zero or multiple
+    latest rows
+  - made preflight conditional so bundled-data-only dry-runs can run without
+    `datasets` or `unzip`
+  - renamed the run summary field from `prefer_gca` to `prefer_genbank`
+- Files:
+  - `src/gtdb_genomes/cli.py`
+  - `src/gtdb_genomes/preflight.py`
+  - `src/gtdb_genomes/release_resolver.py`
+  - `src/gtdb_genomes/workflow.py`
+  - `src/gtdb_genomes/layout.py`
+  - `src/gtdb_genomes/metadata.py`
+  - `tests/test_cli.py`
+  - `tests/test_cli_integration.py`
+  - `tests/test_edge_contract.py`
+  - `tests/test_metadata.py`
+  - `tests/test_release_resolver.py`
+- Checks run:
+  - `.venv/bin/pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_release_resolver.py tests/test_edge_contract.py tests/test_metadata.py`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the runtime column name in `run_summary.tsv` now uses
+    `prefer_genbank` instead of the earlier `prefer_gca` wording so the
+    shipped output matches the renamed CLI flag
