@@ -90,6 +90,24 @@ def test_resolve_release_requires_one_latest_marker(tmp_path: Path) -> None:
         resolve_release("latest", data_root=data_root)
 
 
+def test_load_release_manifest_rejects_duplicate_aliases(tmp_path: Path) -> None:
+    """A CLI alias should not resolve silently to multiple release rows."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest(
+        get_release_manifest_path(data_root),
+        "\n".join(
+            [
+                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue",
+                "214.0\t95,214.0\tbac214.tsv\tar214.tsv\tfalse",
+            ],
+        ),
+    )
+
+    with pytest.raises(BundledDataError, match="duplicate alias"):
+        load_release_manifest(get_release_manifest_path(data_root))
+
+
 def test_resolve_and_validate_release_uses_bundled_taxonomy_files() -> None:
     """A known release should validate against the bundled payload."""
 

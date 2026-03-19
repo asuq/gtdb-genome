@@ -194,6 +194,25 @@ def parse_manifest_entry(
     )
 
 
+def validate_manifest_aliases(
+    entries: Sequence[ReleaseManifestEntry],
+    path: Path,
+) -> None:
+    """Validate that manifest aliases are unique across release rows."""
+
+    alias_map: dict[str, str] = {}
+    for entry in entries:
+        for alias in entry.aliases:
+            existing_release = alias_map.get(alias)
+            if existing_release is not None:
+                raise BundledDataError(
+                    "Bundled release manifest defines duplicate alias "
+                    f"{alias!r} for releases {existing_release} and "
+                    f"{entry.resolved_release}: {path}",
+                )
+            alias_map[alias] = entry.resolved_release
+
+
 def load_release_manifest(
     manifest_path: Path | None = None,
 ) -> tuple[ReleaseManifestEntry, ...]:
@@ -212,6 +231,7 @@ def load_release_manifest(
                 parse_manifest_entry(row, path, line_number)
                 for line_number, row in enumerate(reader, start=2)
             ]
+            validate_manifest_aliases(entries, path)
     except (OSError, UnicodeDecodeError, csv.Error) as error:
         raise BundledDataError(
             f"Bundled release manifest could not be read: {path}",
