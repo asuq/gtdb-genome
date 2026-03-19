@@ -112,9 +112,9 @@ real_data_tsv_value() {
 
     awk -F '\t' -v column_name="${column_name}" '
         NR == 1 {
-            for (index = 1; index <= NF; index += 1) {
-                if ($index == column_name) {
-                    column_index = index
+            for (field_index = 1; field_index <= NF; field_index += 1) {
+                if ($field_index == column_name) {
+                    column_index = field_index
                 }
             }
         }
@@ -194,9 +194,9 @@ real_data_assert_any_row_column_matches() {
     fi
     if ! awk -F '\t' -v column_name="${column_name}" -v pattern="${pattern}" '
         NR == 1 {
-            for (index = 1; index <= NF; index += 1) {
-                if ($index == column_name) {
-                    column_index = index
+            for (field_index = 1; field_index <= NF; field_index += 1) {
+                if ($field_index == column_name) {
+                    column_index = field_index
                 }
             }
         }

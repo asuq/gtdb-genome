@@ -36,7 +36,7 @@ local_check_duplicate_success() {
     local_check_direct_success "${output_root}" || return 1
     real_data_assert_any_taxon_manifest_contains \
         "${output_root}" \
-        '\ttrue$' \
+        '\ttrue\r?$' \
         "duplicate-across-taxa flag" || return 1
     real_data_assert_any_row_column_matches \
         "${output_root}/taxon_summary.tsv" \
