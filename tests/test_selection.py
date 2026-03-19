@@ -7,7 +7,6 @@ import polars as pl
 from gtdb_genomes.selection import (
     attach_taxon_slugs,
     build_taxon_slug_map,
-    get_unique_accessions,
     select_taxa,
 )
 
@@ -67,22 +66,6 @@ def test_select_taxa_matches_lineage_tokens() -> None:
         "g__Escherichia",
         "s__Escherichia coli",
     ]
-
-
-def test_get_unique_accessions_deduplicates_selected_rows() -> None:
-    """Unique accessions should deduplicate repeated taxon matches."""
-
-    selected = select_taxa(
-        build_test_frame(),
-        ["g__Escherichia", "s__Escherichia coli"],
-    )
-    unique_accessions = get_unique_accessions(selected)
-
-    assert unique_accessions["gtdb_accession"].to_list() == [
-        "RS_GCF_000001.1",
-        "GB_GCA_000002.1",
-    ]
-
 
 def test_build_taxon_slug_map_handles_collisions() -> None:
     """Colliding taxon slugs should receive deterministic hash suffixes."""

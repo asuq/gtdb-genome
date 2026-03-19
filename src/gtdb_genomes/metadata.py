@@ -23,6 +23,7 @@ class MetadataLookupError(Exception):
     """Raised when `datasets summary genome accession` fails."""
 
     message: str
+    failures: tuple[CommandFailureRecord, ...] = ()
 
     def __str__(self) -> str:
         """Return the human-readable exception message."""
@@ -174,7 +175,7 @@ def run_summary_lookup_with_retries(
                 final_status="retry_exhausted",
             ),
         )
-        raise MetadataLookupError(error_message)
+        raise MetadataLookupError(error_message, failures=tuple(failures))
     raise AssertionError("metadata retry loop terminated unexpectedly")
 
 

@@ -18,7 +18,6 @@ from gtdb_genomes.download import (
     CommandFailureRecord,
     PreviewError,
     build_batch_dehydrate_command,
-    build_download_command,
     build_preview_command,
     build_rehydrate_command,
     download_with_accession_fallback,
@@ -229,28 +228,9 @@ def execute_accession_plan(
     if plan.preferred_accession != plan.original_accession:
         fallback_accession = plan.original_accession
 
-    preferred_command = build_download_command(
-        [plan.preferred_accession],
-        archive_path,
-        args.include,
-        api_key=args.api_key,
-        dehydrated=decision_method == "dehydrate",
-        debug=args.debug,
-    )
-    logger.debug("Running %s", redact_command(preferred_command, secrets))
+    logger.debug("Downloading preferred accession %s", plan.preferred_accession)
     if fallback_accession is not None:
-        fallback_command = build_download_command(
-            [fallback_accession],
-            archive_path,
-            args.include,
-            api_key=args.api_key,
-            dehydrated=decision_method == "dehydrate",
-            debug=args.debug,
-        )
-        logger.debug(
-            "Prepared fallback %s",
-            redact_command(fallback_command, secrets),
-        )
+        logger.debug("Prepared fallback accession %s", fallback_accession)
 
     download_result: AccessionDownloadResult = download_with_accession_fallback(
         preferred_accession=plan.preferred_accession,

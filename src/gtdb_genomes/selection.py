@@ -49,18 +49,6 @@ def select_taxa(
     return pl.concat(selections, how="vertical")
 
 
-def get_unique_accessions(selection_frame: pl.DataFrame) -> pl.DataFrame:
-    """Return the deduplicated accession set for downstream planning."""
-
-    if selection_frame.is_empty():
-        return selection_frame.select("gtdb_accession", "ncbi_accession")
-    return selection_frame.select("gtdb_accession", "ncbi_accession").unique(
-        subset=["gtdb_accession"],
-        keep="first",
-        maintain_order=True,
-    )
-
-
 def build_base_taxon_slug(requested_taxon: str) -> str:
     """Build a filesystem-safe slug while preserving GTDB rank markers."""
 
