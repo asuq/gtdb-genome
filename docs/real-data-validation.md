@@ -119,9 +119,13 @@ gtdb-genomes --help
 python -c "from gtdb_genomes.release_resolver import get_release_manifest_path; path = get_release_manifest_path(); assert path.is_file(), path"
 ```
 
+If the remote environment exposes `python3` rather than `python`, the remote
+runner uses that automatically.
+
 The remote runner uses:
 
-- `REMOTE_TEST_ROOT`, default `/tmp/gtdb-realtests/remote-YYYYMMDD`
+- `REMOTE_TEST_ROOT`, default a unique path such as
+  `/tmp/gtdb-realtests/remote-YYYYMMDD-XXXXXX`
 - `RUN_OPTIONAL_LARGE=1` to include the optional `C7` stress case
 
 Required environment:

@@ -67,6 +67,19 @@ real_data_default_suite_root() {
 }
 
 
+real_data_detect_python_bin() {
+    if command -v python >/dev/null 2>&1; then
+        command -v python
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        command -v python3
+        return 0
+    fi
+    return 1
+}
+
+
 real_data_redact_value() {
     local value=$1
 
@@ -136,10 +149,8 @@ real_data_record_tool_versions() {
     mkdir -p "${evidence_root}"
     if [ -n "${python_bin}" ] && [ -x "${python_bin}" ]; then
         detected_python="${python_bin}"
-    elif command -v python >/dev/null 2>&1; then
-        detected_python=$(command -v python)
-    elif command -v python3 >/dev/null 2>&1; then
-        detected_python=$(command -v python3)
+    elif detected_python=$(real_data_detect_python_bin); then
+        :
     fi
 
     {

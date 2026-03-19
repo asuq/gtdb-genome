@@ -97,10 +97,8 @@ local_initialise_launcher() {
             real_data_require_command uv
             export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/gtdb_uv_cache}"
             LOCAL_LAUNCHER=(uv run gtdb-genomes)
-            if command -v python >/dev/null 2>&1; then
-                REAL_DATA_PYTHON_VERSION_BIN=$(command -v python)
-            elif command -v python3 >/dev/null 2>&1; then
-                REAL_DATA_PYTHON_VERSION_BIN=$(command -v python3)
+            if REAL_DATA_PYTHON_VERSION_BIN=$(real_data_detect_python_bin); then
+                :
             else
                 REAL_DATA_PYTHON_VERSION_BIN=""
             fi

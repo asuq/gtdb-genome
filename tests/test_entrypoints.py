@@ -130,6 +130,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert "does not download genomes directly from Python code" in usage_details_text
     assert "may differ from the RefSeq version" in readme_text
     assert "may differ from the RefSeq version" in usage_details_text
+    assert "exact token passed to `datasets`" in usage_details_text
+    assert "realised versioned accession" in usage_details_text
     assert "GTDB release resolution and GTDB taxonomy loading remain local" in (
         usage_details_text
     )
@@ -153,6 +155,8 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
         guide_text
     )
     assert "unique path such as" in guide_text
+    assert "remote environment exposes `python3`" in guide_text
+    assert "/tmp/gtdb-realtests/remote-YYYYMMDD-XXXXXX" in guide_text
     assert "debug output can print the raw API-key header" in (
         guide_text
     )

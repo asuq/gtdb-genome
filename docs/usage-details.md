@@ -285,10 +285,15 @@ Fixed TSV columns:
     `accession_type_original`, `accession_type_final`, `conversion_status`,
     `download_method_used`, `download_batch`, `output_relpath`,
     `download_status`
+    `final_accession` is the realised versioned accession from the extracted
+    payload on successful downloads.
 - `download_failures.tsv`
   - `requested_taxon`, `taxon_slug`, `gtdb_accession`,
     `attempted_accession`, `final_accession`, `stage`, `attempt_index`,
     `max_attempts`, `error_type`, `error_message_redacted`, `final_status`
+    `attempted_accession` records the exact token passed to `datasets`, which
+    may be an unversioned accession stem when `--prefer-genbank` latest-mode is
+    active.
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - `requested_taxon`, `taxon_slug`, `lineage`, `gtdb_accession`,
     `final_accession`, `conversion_status`, `output_relpath`,

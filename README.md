@@ -73,10 +73,6 @@ gtdb-genomes \
 
 Prefer paired GenBank accessions and request extra annotation:
 
-By default, `--prefer-genbank` asks `datasets` for the latest available
-revision in the chosen accession family, which may not match the RefSeq version
-number.
-
 ```bash
 gtdb-genomes \
   --gtdb-release latest \
@@ -150,7 +146,9 @@ The tool:
 2. Loads the bundled GTDB taxonomy tables for that release.
 3. Selects genomes whose lineage contains one or more requested GTDB taxa.
 4. Starts from the accession recorded in the GTDB taxonomy table.
-5. Optionally prefers paired GenBank assemblies when `--prefer-genbank` is set.
+5. Optionally prefers the paired GenBank family when `--prefer-genbank` is set,
+   then requests either the latest revision in that family or the exact
+   selected version when `--version-fixed` is also set.
 6. Uses the NCBI `datasets` command for metadata lookup and genome download.
 7. Chooses direct download or batch dehydrate/rehydrate based on request size.
 8. Unzips and reorganises the downloaded payload into per-taxon folders.

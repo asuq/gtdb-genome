@@ -9,7 +9,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=bin/real-data-test-common.sh
 . "${SCRIPT_DIR}/real-data-test-common.sh"
 
-REMOTE_TEST_ROOT="${REMOTE_TEST_ROOT:-/tmp/gtdb-realtests/remote-$(real_data_today)}"
+REMOTE_TEST_ROOT="${REMOTE_TEST_ROOT:-$(real_data_default_suite_root remote)}"
 
 
 remote_check_direct_success() {
@@ -164,10 +164,11 @@ main() {
     local selected_cases=("$@")
 
     real_data_require_command gtdb-genomes
-    real_data_require_command python
     real_data_require_command datasets
     real_data_require_command unzip
-    REAL_DATA_PYTHON_VERSION_BIN=$(command -v python)
+    if ! REAL_DATA_PYTHON_VERSION_BIN=$(real_data_detect_python_bin); then
+        real_data_die "Required command not found on PATH: python or python3"
+    fi
     real_data_initialise_suite "${REMOTE_TEST_ROOT}"
     real_data_record_tool_versions \
         "${REMOTE_TEST_ROOT}" \
@@ -187,7 +188,7 @@ main() {
         "${REMOTE_TEST_ROOT}" \
         "C0-manifest" \
         0 \
-        python -c \
+        "${REAL_DATA_PYTHON_VERSION_BIN}" -c \
         "from gtdb_genomes.release_resolver import get_release_manifest_path; path = get_release_manifest_path(); assert path.is_file(), path"
 
     if [ "${#selected_cases[@]}" -eq 0 ]; then

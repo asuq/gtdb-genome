@@ -77,6 +77,28 @@ def test_real_data_default_suite_root_creates_unique_directories(
     assert roots[1].startswith(str(tmp_path))
 
 
+def test_real_data_detect_python_bin_falls_back_to_python3(
+    tmp_path: Path,
+) -> None:
+    """The shared helper should detect `python3` when `python` is absent."""
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    fake_python3 = fake_bin_dir / "python3"
+    fake_python3.write_text("#!/usr/bin/env bash\nprintf 'python3-bin\\n'\n", encoding="utf-8")
+    fake_python3.chmod(0o755)
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        f"export PATH={shlex.quote(str(fake_bin_dir))}\n"
+        "real_data_detect_python_bin\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == str(fake_python3)
+
+
 def test_real_data_run_command_check_redacts_logs_and_records_versions(
     tmp_path: Path,
 ) -> None:
@@ -146,3 +168,14 @@ def test_real_data_run_command_check_removes_raw_temp_directory(
 
     assert result.returncode == 0
     assert not list(temp_dir.glob("gtdb_real_command.*"))
+
+
+def test_remote_runner_uses_shared_defaults() -> None:
+    """The remote runner should share unique-root and Python-detection helpers."""
+
+    remote_script = Path("bin/run-real-data-tests-remote.sh").read_text(
+        encoding="utf-8",
+    )
+
+    assert "real_data_default_suite_root remote" in remote_script
+    assert "real_data_detect_python_bin" in remote_script
