@@ -26,6 +26,7 @@ from gtdb_genomes.workflow import (
     DownloadExecutionResult,
     build_unsupported_uba_warning,
     build_failure_rows,
+    create_staging_directory,
     execute_batch_dehydrate_plans,
     execute_direct_accession_plans,
     extract_download_payload,
@@ -667,6 +668,112 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
     assert result.executions["GCA_001881595.3"].download_status == "failed"
 
 
+def test_direct_mode_records_failed_fallback_when_extraction_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Fallback extraction failure should yield a failed execution rather than crash."""
+
+    download_calls: list[tuple[str, str]] = []
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Return a preferred failure followed by one fallback download success."""
+
+        del command, sleep_func, runner
+        download_calls.append((stage, attempted_accession or ""))
+        if stage == "preferred_download":
+            return RetryableCommandResult(
+                succeeded=False,
+                stdout="",
+                stderr="preferred failed",
+                failures=(
+                    CommandFailureRecord(
+                        stage="preferred_download",
+                        attempt_index=4,
+                        max_attempts=4,
+                        error_type="subprocess",
+                        error_message="preferred failed",
+                        final_status=final_failure_status,
+                        attempted_accession=attempted_accession,
+                    ),
+                ),
+            )
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(),
+        )
+
+    def fake_extract_download_payload(
+        accession: str,
+        archive_path: Path,
+        run_directories,
+    ) -> tuple[Path | None, tuple[CommandFailureRecord, ...]]:
+        """Return a layout failure for the fallback extraction step."""
+
+        del accession, archive_path, run_directories
+        return None, (
+            CommandFailureRecord(
+                stage="layout",
+                attempt_index=1,
+                max_attempts=1,
+                error_type="LayoutError",
+                error_message="archive extraction failed",
+                final_status="retry_exhausted",
+            ),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.extract_download_payload",
+        fake_extract_download_payload,
+    )
+
+    run_directories = initialise_run_directories(tmp_path / "direct-fallback-layout")
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_001881595.2",
+                preferred_accession="GCA_001881595.3",
+                conversion_status="paired_to_gca",
+            ),
+            AccessionPlan(
+                original_accession="GCA_001881595.3",
+                preferred_accession="GCA_001881595.3",
+                conversion_status="unchanged_original",
+            ),
+        ),
+        build_cli_args(tmp_path / "out"),
+        run_directories,
+        logging.getLogger("test-direct-fallback-layout"),
+    )
+
+    assert download_calls == [
+        ("preferred_download", "GCA_001881595.3"),
+        ("fallback_download", "GCF_001881595.2"),
+    ]
+    assert result.executions["GCF_001881595.2"].final_accession is None
+    assert result.executions["GCF_001881595.2"].download_batch == "GCF_001881595.2"
+    assert result.executions["GCF_001881595.2"].download_status == "failed"
+    assert [failure.stage for failure in result.executions["GCF_001881595.2"].failures] == [
+        "preferred_download",
+        "layout",
+    ]
+    assert result.executions["GCA_001881595.3"].final_accession is None
+    assert result.executions["GCA_001881595.3"].download_status == "failed"
+
+
 def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -735,7 +842,7 @@ def test_auto_preview_uses_accession_input_file_and_keeps_output_absent(
         preview_contents.append(accession_file.read_text(encoding="ascii"))
         assert include == "genome"
         assert accession_file.is_file()
-        assert str(accession_file).startswith("/tmp/gtdb_genomes_preview_")
+        assert accession_file.parent.name.startswith("gtdb_genomes_preview_")
         return "Package size: 1.0 GB\n"
 
     monkeypatch.setattr(
@@ -802,7 +909,7 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
         metadata_contents.append(accession_file.read_text(encoding="ascii"))
         assert tuple(accessions) == ("GCF_000001.1", "GCF_000002.1")
         assert accession_file.is_file()
-        assert str(accession_file).startswith("/tmp/gtdb_genomes_metadata_")
+        assert accession_file.parent.name.startswith("gtdb_genomes_metadata_")
         return SummaryLookupResult(summary_map={}, failures=())
 
     monkeypatch.setattr(
@@ -841,6 +948,23 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
     assert len(metadata_inputs) == 1
     assert metadata_contents == ["GCF_000001.1\nGCF_000002.1\n"]
     assert not metadata_inputs[0].exists()
+
+
+def test_create_staging_directory_uses_tmpdir_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Workflow staging directories should respect the configured temp root."""
+
+    temp_root = tmp_path / "custom-temp-root"
+    monkeypatch.setenv("TMPDIR", str(temp_root))
+
+    with create_staging_directory("gtdb_genomes_test_") as staging_directory:
+        staging_path = Path(staging_directory)
+        assert staging_path.parent == temp_root
+        assert staging_path.name.startswith("gtdb_genomes_test_")
+
+    assert not staging_path.exists()
 
 
 def test_total_runtime_failure_leaves_final_accession_blank(

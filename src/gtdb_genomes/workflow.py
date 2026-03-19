@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 import logging
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
@@ -460,6 +461,7 @@ def execute_direct_group_fallbacks(
             executions[plan.original_accession] = build_failed_execution(
                 plan.original_accession,
                 combined_failures,
+                plan.original_accession,
             )
             continue
 
@@ -1020,6 +1022,121 @@ def ensure_required_tools_for_supported_selection(args: CliArgs) -> None:
         check_required_tools(required_tools)
 
 
+def get_staging_directory_root() -> Path | None:
+    """Return the configured temporary root for workflow staging files."""
+
+    temp_root = os.environ.get("TMPDIR")
+    if not temp_root:
+        return None
+    path = Path(temp_root)
+    if path.exists() and not path.is_dir():
+        return None
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def create_staging_directory(prefix: str) -> TemporaryDirectory[str]:
+    """Create one temporary workflow staging directory."""
+
+    temp_root = get_staging_directory_root()
+    if temp_root is None:
+        return TemporaryDirectory(prefix=prefix)
+    return TemporaryDirectory(prefix=prefix, dir=temp_root)
+
+
+def resolve_supported_accession_preferences(
+    supported_selected_frame: pl.DataFrame,
+    args: CliArgs,
+    logger: logging.Logger,
+    secrets: tuple[str, ...],
+) -> tuple[pl.DataFrame, tuple[CommandFailureRecord, ...]]:
+    """Resolve preferred accessions for supported selected rows."""
+
+    summary_map: dict[str, set[str]] = {}
+    metadata_failures: tuple[CommandFailureRecord, ...] = ()
+    supported_accessions = get_ordered_unique_accessions(
+        supported_selected_frame.get_column("ncbi_accession").to_list(),
+    )
+    if not supported_selected_frame.is_empty() and args.prefer_genbank:
+        with create_staging_directory("gtdb_genomes_metadata_") as metadata_directory:
+            metadata_accession_file = write_accession_input_file(
+                Path(metadata_directory) / "accessions.txt",
+                supported_accessions,
+            )
+            metadata_command = build_summary_command(
+                metadata_accession_file,
+                ncbi_api_key=args.ncbi_api_key,
+            )
+            logger.debug("Running %s", redact_command(metadata_command, secrets))
+            try:
+                summary_lookup = run_summary_lookup_with_retries(
+                    supported_accessions,
+                    metadata_accession_file,
+                    ncbi_api_key=args.ncbi_api_key,
+                )
+                summary_map = summary_lookup.summary_map
+                metadata_failures = summary_lookup.failures
+            except MetadataLookupError as error:
+                metadata_failures = error.failures
+                logger.warning(
+                    "Metadata lookup failed; falling back to original accessions: %s",
+                    redact_text(str(error), secrets),
+                )
+                summary_map = {}
+    return (
+        apply_accession_preferences(
+            supported_selected_frame,
+            summary_map,
+            prefer_genbank=args.prefer_genbank,
+        ),
+        metadata_failures,
+    )
+
+
+def plan_supported_downloads(
+    supported_mapped_frame: pl.DataFrame,
+    args: CliArgs,
+    logger: logging.Logger,
+    secrets: tuple[str, ...],
+) -> tuple[tuple[AccessionPlan, ...], str]:
+    """Build supported-accession plans and resolve the effective method."""
+
+    accession_plans = build_accession_plans(supported_mapped_frame)
+    if not accession_plans:
+        return (), args.download_method
+
+    preview_text: str | None = None
+    if args.download_method == "auto":
+        preview_accessions = get_ordered_unique_accessions(
+            plan.preferred_accession for plan in accession_plans
+        )
+        with create_staging_directory("gtdb_genomes_preview_") as preview_directory:
+            preview_accession_file = write_accession_input_file(
+                Path(preview_directory) / "accessions.txt",
+                preview_accessions,
+            )
+            preview_command = build_preview_command(
+                preview_accession_file,
+                args.include,
+                ncbi_api_key=args.ncbi_api_key,
+                debug=args.debug,
+            )
+            logger.debug("Running %s", redact_command(preview_command, secrets))
+            preview_text = run_preview_command(
+                preview_accession_file,
+                args.include,
+                ncbi_api_key=args.ncbi_api_key,
+                debug=args.debug,
+            )
+
+    decision = select_download_method(
+        args.download_method,
+        len(accession_plans),
+        preview_text=preview_text,
+    )
+    return accession_plans, decision.method_used
+
+
 def run_workflow(args: CliArgs) -> int:
     """Run the documented workflow and return the process exit code."""
 
@@ -1108,45 +1225,11 @@ def run_workflow(args: CliArgs) -> int:
     if not supported_selected_frame.is_empty():
         ensure_required_tools_for_supported_selection(args)
 
-    summary_map: dict[str, set[str]] = {}
-    metadata_failures: tuple[CommandFailureRecord, ...] = ()
-    supported_accessions = get_ordered_unique_accessions(
-        supported_selected_frame.get_column("ncbi_accession").to_list(),
-    )
-    if not supported_selected_frame.is_empty() and args.prefer_genbank:
-        with TemporaryDirectory(
-            prefix="gtdb_genomes_metadata_",
-            dir="/tmp",
-        ) as metadata_directory:
-            metadata_accession_file = write_accession_input_file(
-                Path(metadata_directory) / "accessions.txt",
-                supported_accessions,
-            )
-            metadata_command = build_summary_command(
-                metadata_accession_file,
-                ncbi_api_key=args.ncbi_api_key,
-            )
-            logger.debug("Running %s", redact_command(metadata_command, secrets))
-            try:
-                summary_lookup = run_summary_lookup_with_retries(
-                    supported_accessions,
-                    metadata_accession_file,
-                    ncbi_api_key=args.ncbi_api_key,
-                )
-                summary_map = summary_lookup.summary_map
-                metadata_failures = summary_lookup.failures
-            except MetadataLookupError as error:
-                metadata_failures = error.failures
-                logger.warning(
-                    "Metadata lookup failed; falling back to original accessions: %s",
-                    redact_text(str(error), secrets),
-                )
-                summary_map = {}
-
-    supported_mapped_frame = apply_accession_preferences(
+    supported_mapped_frame, metadata_failures = resolve_supported_accession_preferences(
         supported_selected_frame,
-        summary_map,
-        prefer_genbank=args.prefer_genbank,
+        args,
+        logger,
+        secrets,
     )
     unsupported_mapped_frame = build_unsupported_accession_frame(
         unsupported_selected_frame,
@@ -1159,52 +1242,17 @@ def run_workflow(args: CliArgs) -> int:
         ],
         how="vertical",
     )
-    accession_plans = build_accession_plans(supported_mapped_frame)
-    preview_text: str | None = None
-    if args.download_method == "auto" and accession_plans:
-        preview_accessions = get_ordered_unique_accessions(
-            plan.preferred_accession for plan in accession_plans
+    try:
+        accession_plans, decision_method = plan_supported_downloads(
+            supported_mapped_frame,
+            args,
+            logger,
+            secrets,
         )
-        with TemporaryDirectory(
-            prefix="gtdb_genomes_preview_",
-            dir="/tmp",
-        ) as preview_directory:
-            preview_accession_file = write_accession_input_file(
-                Path(preview_directory) / "accessions.txt",
-                preview_accessions,
-            )
-            preview_command = build_preview_command(
-                preview_accession_file,
-                args.include,
-                ncbi_api_key=args.ncbi_api_key,
-                debug=args.debug,
-            )
-            logger.debug("Running %s", redact_command(preview_command, secrets))
-            try:
-                preview_text = run_preview_command(
-                    preview_accession_file,
-                    args.include,
-                    ncbi_api_key=args.ncbi_api_key,
-                    debug=args.debug,
-                )
-            except PreviewError as error:
-                logger.error("%s", redact_text(str(error), secrets))
-                close_logger(logger)
-                return 5
-    if accession_plans:
-        try:
-            decision = select_download_method(
-                args.download_method,
-                len(accession_plans),
-                preview_text=preview_text,
-            )
-        except PreviewError as error:
-            logger.error("%s", redact_text(str(error), secrets))
-            close_logger(logger)
-            return 5
-        decision_method = decision.method_used
-    else:
-        decision_method = args.download_method
+    except PreviewError as error:
+        logger.error("%s", redact_text(str(error), secrets))
+        close_logger(logger)
+        return 5
 
     if args.dry_run:
         close_logger(logger)
