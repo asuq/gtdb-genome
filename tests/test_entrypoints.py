@@ -70,6 +70,7 @@ def test_runtime_docs_mark_uv_as_development_only() -> None:
     assert "> Caution" in readme_text
     assert "PRJNA417962" in readme_text
     assert "unsupported_input" in readme_text
+    assert "Real-data validation guide" in readme_text
     assert "The planned workflow is:" not in readme_text
     assert "- ncbi-datasets-cli" in bioconda_text
     assert "get_release_manifest_path" in bioconda_text

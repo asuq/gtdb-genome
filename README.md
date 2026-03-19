@@ -453,4 +453,5 @@ uses the standard console entrypoint and `conda-forge::ncbi-datasets-cli`.
 
 - [Pipeline concept](docs/pipeline-concept.md)
 - [Step-wise development plan](docs/development-plan.md)
+- [Real-data validation guide](docs/real-data-validation.md)
 - [Bioconda recipe template](packaging/bioconda/meta.yaml)
