@@ -1258,3 +1258,68 @@ PY`
   - the runners automate core acceptance checks but still preserve the full
     TSV evidence for manual review, instead of trying to encode every large
     scientific validation judgement into shell-only assertions
+
+### Commit `b390c89` - `fix(bin): stabilise local real-data runner`
+
+- Implemented:
+  - changed the local runner to launch the tool through
+    `uv run --no-sync gtdb-genomes`, with `UV_CACHE_DIR` defaulting to
+    `/tmp/gtdb_uv_cache`, so the runner no longer triggers a networked build
+    of the project before the real-data cases start
+  - made the local runner resolve the repository root and `cd` into it before
+    launching any case, so `uv` and the optional module fallback both run
+    against the checked-out project reliably
+  - added `LOCAL_LAUNCHER_MODE=module` support so the local matrix can still
+    be run from the prepared `.venv` if `uv` itself is not the preferred
+    launcher for a given debugging session
+  - replaced the global `datasets` and `unzip` preflight with case-aware
+    checks: offline dry-runs now require only the local launcher, `A6`
+    requires `datasets`, and the real-download `B*` cases require both
+    `datasets` and `unzip`
+  - removed the default `--debug` flag from `A6` so the runner does not
+    capture upstream `datasets` debug output that can include the raw
+    `Api-Key` header in evidence logs
+- Files:
+  - `bin/run-real-data-tests-local.sh`
+- Checks run:
+  - `bash -n bin/run-real-data-tests-local.sh bin/real-data-test-common.sh`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome/bin:/usr/bin:/bin LOCAL_TEST_ROOT=/tmp/gtdb-realtests/local-offline-a1 bin/run-real-data-tests-local.sh A1`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome/bin:/usr/bin:/bin LOCAL_TEST_ROOT=/tmp/gtdb-realtests/local-offline-a8 bin/run-real-data-tests-local.sh A8`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the original runner design assumed all local cases shared the same tool
+    requirements and could safely use plain `uv run`; real debugging showed
+    that this was false in three ways: offline dry-runs were blocked
+    unnecessarily, `uv` cache initialisation failed in the sandboxed home
+    directory, and plain `uv run` retried `hatchling` resolution over the
+    network even when the local environment was already prepared
+
+### Commit `c36936a` - `docs(testing): clarify local validation prerequisites`
+
+- Implemented:
+  - updated the real-data validation guide to document the actual local
+    launch path, including the default `uv run --no-sync` command and the
+    optional module fallback for prepared local environments
+  - documented the case-family-specific local command requirements so offline
+    dry-runs are clearly separated from preview and real-download cases
+  - documented that `A6` and all `B*` cases need outbound DNS and network
+    access to `api.ncbi.nlm.nih.gov`, and that DNS or connection failures in
+    those cases should be treated as external environment problems
+  - recorded why the default `A6` runner no longer uses `--debug`
+  - added a documentation test so the local validation guide must continue to
+    describe the runner environment split accurately
+- Files:
+  - `docs/real-data-validation.md`
+  - `tests/test_entrypoints.py`
+- Checks run:
+  - `.venv/bin/pytest -q tests/test_entrypoints.py`
+  - `bash -n bin/run-real-data-tests-local.sh bin/real-data-test-common.sh`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome/bin:/usr/bin:/bin LOCAL_TEST_ROOT=/tmp/gtdb-realtests/local-offline-a2 bin/run-real-data-tests-local.sh A2`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the original guide implied that `datasets` and `unzip` were uniform local
+    prerequisites, but live debugging showed that this overstated the real
+    requirements and hid the difference between valid offline dry-runs and
+    genuinely networked local cases
