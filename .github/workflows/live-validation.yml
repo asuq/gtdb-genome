@@ -1,0 +1,55 @@
+name: Live validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validation-live:
+    name: Live validation runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: ci-live
+          init-shell: bash
+          cache-downloads: true
+          cache-environment: false
+          create-args: >-
+            python=3.12
+            uv
+            ncbi-datasets-cli
+            unzip
+
+      - name: Sync project dependencies
+        shell: bash -el {0}
+        run: uv sync --locked --group dev
+
+      - name: Run live validation case B1
+        shell: bash -el {0}
+        env:
+          LOCAL_LAUNCHER_MODE: module
+          LOCAL_TEST_ROOT: /tmp/gtdb-realtests/ci-live
+        run: bin/run-real-data-tests-local.sh B1
+
+      - name: Upload live validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-validation-evidence
+          path: /tmp/gtdb-realtests/ci-live/_evidence
+          if-no-files-found: warn
