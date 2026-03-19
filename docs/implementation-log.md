@@ -965,3 +965,29 @@ PY`
 - Deviations:
   - none beyond the intended cleanup of code paths that no longer matched the
     shipped runtime behaviour
+
+### Commit `aebfa95` - `docs(readme): align runtime docs and Bioconda recipe`
+
+- Implemented:
+  - rewrote the root README from a design-state document into a runtime-facing
+    guide for the shipped tool
+  - documented the renamed `--prefer-genbank` flag, conditional dry-run
+    requirements, the uniform retry budget, and the actual direct versus batch
+    dehydrate workflow
+  - updated the Bioconda template to declare `ncbi-datasets-cli` as the runtime
+    dependency and to reflect the shipped console-entrypoint model
+  - tightened the entrypoint documentation test so it rejects stale
+    "planned-only" README wording
+- Files:
+  - `README.md`
+  - `packaging/bioconda/meta.yaml`
+  - `tests/test_entrypoints.py`
+- Checks run:
+  - `.venv/bin/pytest -q`
+  - `.venv/bin/python -m gtdb_genomes --release 95 --taxon "s__Thermoflexus hugenholtzii" --output "$(mktemp -d /tmp/gtdb_dry_smoke_check.XXXXXX)" --download-method direct --no-prefer-genbank --dry-run`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the README now documents the implemented runtime rather than the earlier
+    forward-looking design text, which intentionally supersedes the stale
+    planning wording left from the first implementation pass
