@@ -1,26 +1,35 @@
 # gtdb-genomes
 
-`gtdb-genomes` is a command-line tool for downloading genomes from NCBI based on GTDB taxa and GTDB release taxonomy tables.
+`gtdb-genomes` downloads NCBI genomes from GTDB taxon selections using bundled
+GTDB taxonomy tables and the NCBI `datasets` CLI.
 
-The project uses a split runtime model:
+The runtime model is split deliberately:
 
 - packaged and Conda-installed use runs the normal `gtdb-genomes` command
-- source-checkout development uses `uv` for local dependency management and execution
+- source-checkout development uses `uv` for local dependency management and
+  execution
 
-## What The Tool Will Do
+`uv` is a development tool only. End users of a packaged installation should
+not need `uv` at runtime.
 
-The planned workflow is:
+## Workflow
 
-1. Resolve a GTDB release, including historical GTDB release layouts.
-2. Load the relevant bundled GTDB taxonomy TSV files from the local data store.
-3. Select genomes whose GTDB lineage contains one or more requested taxa.
-4. Use the accession recorded in the GTDB TSV as the starting accession set.
-5. Prefer paired `GCA` accessions when NCBI metadata provides a GenBank counterpart.
-6. Download genomes from NCBI with the `datasets` command-line tool.
-7. Choose direct download or dehydrate/rehydrate based on request size.
-8. Unzip the downloaded archive and reorganise the output into per-taxon folders.
+The tool:
 
-Completeness has priority over strict `GCA` conversion. If a paired `GCA` accession is unavailable, the original accession is retained.
+1. Resolves a GTDB release from the bundled release manifest.
+2. Loads the bundled GTDB taxonomy TSV files for that release.
+3. Selects genomes whose lineage contains one or more requested GTDB taxa.
+4. Uses the accession recorded in the GTDB TSV as the starting accession set.
+5. Optionally prefers paired GenBank assemblies when a matching `GCA_*`
+   accession shares the same numeric assembly identifier as the original
+   `GCF_*` accession.
+6. Uses the NCBI `datasets` command to resolve metadata and download genomes.
+7. Chooses direct download or batch dehydrate/rehydrate based on request size.
+8. Unzips the downloaded payload and reorganises it into per-taxon folders.
+
+Completeness has priority over GenBank preference. If a paired GenBank
+accession is unavailable or metadata lookup exhausts its retry budget, the
+original accession is kept.
 
 ## Prerequisites
 
@@ -33,20 +42,18 @@ Source-checkout development additionally uses:
 
 - `uv`
 
-`uv` is a development tool only. End users of a packaged installation should not need `uv` at runtime.
-
 ## Command Form
 
 ```bash
 gtdb-genomes --release latest --taxon g__Escherichia --output results
 ```
 
-The interface includes:
+The CLI includes:
 
 - `--release`
 - repeatable `--taxon`
 - `--output`
-- `--prefer-gca` / `--no-prefer-gca`
+- `--prefer-genbank` / `--no-prefer-genbank`
 - `--download-method {auto,direct,dehydrate}`
 - `--threads`
 - `--api-key`
@@ -55,86 +62,95 @@ The interface includes:
 - `--keep-temp`
 - `--dry-run`
 
-The design explicitly does not include:
+The interface does not include:
 
 - `--taxa-file`
 - `--domain`
 - `--api-key-env`
 
-## Option Defaults
+## Option Notes
 
 ### `--release`
 
-Accepts values such as `latest`, `80`, `95`, `214`, `226`, `220.0`, or `release220/220.0`. The implementation will normalise these into a concrete GTDB release path.
+Accepts bundled aliases such as `latest`, `80`, `95`, `214`, `226`, `220.0`,
+or `release220/220.0`.
 
-`latest` is planned to resolve from a bundled local release manifest rather than from GTDB over the network.
+`latest` is resolved from the bundled manifest row marked with `is_latest=true`.
+GTDB release resolution never contacts GTDB over the network.
 
 ### `--taxon`
 
-Repeatable. Each requested taxon is matched by descendant membership. In practice, a genome is selected when its GTDB lineage contains the requested GTDB token.
+Repeatable. A row is selected when its GTDB lineage contains the requested GTDB
+token exactly after trimming. Matching is case-sensitive.
 
-### `--prefer-gca`
+### `--prefer-genbank`
 
-Enabled by default. The tool will try to replace `GCF_*` accessions with paired `GCA_*` accessions when NCBI metadata exposes that relationship. If no paired `GCA` accession exists, the original accession will still be downloaded.
+Enabled by default. When a requested accession is `GCF_*`, the tool inspects
+NCBI metadata and prefers a `GCA_*` accession only when it shares the same
+numeric assembly identifier. If several matching `GCA_*` versions exist, the
+highest version is chosen.
 
 ### `--download-method`
 
 Defaults to `auto`.
 
-The planned rules are:
+Rules:
 
-- use direct download for smaller requests
-- switch to dehydrate/rehydrate when the request contains at least 1,000 genomes
-- also switch to dehydrate/rehydrate when `datasets --preview` reports more than 15 GB
+- direct mode downloads one accession per `datasets download genome accession`
+  job, with concurrency limited to `min(threads, 5)`
+- dehydrate mode writes one accession file and runs one batch
+  `datasets download genome accession --inputfile ... --dehydrated` job
+- auto mode switches to dehydrate when the request contains at least 1,000
+  accessions or when `datasets --preview` reports more than 15 GB
 
-Only genome download operations are retried automatically. The planned retry policy is one initial attempt plus up to 3 retries for `datasets download genome accession` and `datasets rehydrate`, with fixed backoff delays of 5 s, 15 s, and 45 s.
+If a batch dehydrated download exhausts its retry budget, or if unzip or batch
+rehydrate fails, the tool falls back to per-accession direct downloads and
+records `dehydrate_fallback_direct` as the final method used.
 
 ### `--threads`
 
 Defaults to all available CPU threads.
 
-The planned concurrency rules are:
+Concurrency rules:
 
-- direct download may shard the accession list across multiple `datasets download genome accession` jobs
-- direct-mode network concurrency is `min(threads, 5)`
-- dehydrate mode uses one package download, then `datasets rehydrate --max-workers` for local file retrieval
-- rehydrate worker count is planned as `min(threads, 30)`
+- direct-mode network concurrency is `min(threads, 5, accession_count)`
+- batch dehydrated download concurrency is always `1`
+- `datasets rehydrate --max-workers` uses `min(threads, 30)`
 
 ### `--include`
 
 Defaults to `genome`.
 
-`--include` controls which file classes the upstream `datasets` command should fetch in addition to its standard metadata package. Planned examples include:
+`--include` is passed through to `datasets download genome accession --include`
+after light validation. `genome` is mandatory in every accepted value.
+
+Examples:
 
 - `genome`
 - `genome,gff3`
 - `genome,gff3,protein`
 
-The planned implementation will validate the argument lightly, then pass it through to `datasets download genome accession --include` rather than translating it into custom internal presets.
-
-`genome` is mandatory in every allowed `--include` value. Values such as `none` are intentionally not supported because the final output must remain genome-centric.
-
 ### `--debug`
 
-When enabled, the planned tool will:
+Debug mode:
 
-- log at debug level
-- record per-step timings
-- emit redacted command traces
-- write a redacted `OUTPUT/debug.log`
+- enables debug-level logging
+- emits redacted command traces
+- writes a redacted `OUTPUT/debug.log`
 
-Debug mode is separate from `--keep-temp`. Temporary files will still be removed unless `--keep-temp` is also set.
+`--debug --dry-run` is allowed, but dry-run keeps debug output on the console
+only and does not create `OUTPUT/debug.log`.
 
 ### `--dry-run`
 
-`--dry-run` is a resolution-only mode.
+`--dry-run` resolves inputs without creating the final output tree.
 
 It may:
 
-- resolve the requested GTDB release
-- read bundled GTDB taxonomy TSV files and the bundled local release manifest
-- perform NCBI metadata lookups needed for accession mapping
-- decide which download method would be used
+- resolve the bundled GTDB release
+- read bundled GTDB taxonomy TSVs and the local release manifest
+- perform NCBI metadata lookup when `--prefer-genbank` is enabled
+- run `datasets --preview` when `--download-method auto` is used
 
 It must not:
 
@@ -143,15 +159,34 @@ It must not:
 - run dehydrate or rehydrate
 - create the final `OUTPUT/` tree
 
+Dry-run tool requirements are conditional:
+
+- `--dry-run --no-prefer-genbank --download-method direct` can run from bundled
+  GTDB data only
+- dry-run with `--prefer-genbank` requires `datasets`
+- dry-run with `--download-method auto` requires `datasets`
+
 ### `--output`
 
-The output directory must either not exist or exist as an empty directory.
+The output directory must either not exist or exist as an empty directory. The
+tool does not merge into or overwrite a populated output tree.
 
-The planned implementation will fail fast when `--output` already exists and is non-empty. It will not merge into or overwrite an existing populated output tree.
+## Retry Policy
+
+Every internet-facing `datasets` step gets one initial attempt plus up to three
+retries, using fixed backoff delays of 5 s, 15 s, and 45 s.
+
+This applies to:
+
+- `datasets summary genome accession`
+- `datasets download genome accession --preview`
+- direct `datasets download genome accession`
+- batch dehydrated `datasets download genome accession --inputfile ...`
+- `datasets rehydrate`
+
+Local unzip, local file parsing, and manifest writing are not retried.
 
 ## Output Layout
-
-The planned output structure is:
 
 ```text
 OUTPUT/
@@ -163,85 +198,68 @@ OUTPUT/
 `-- taxa/
     |-- g__Escherichia/
     |   |-- taxon_accessions.tsv
-    |   |-- GCA_000005845.2/
-    |   `-- GCF_000026265.1/
+    |   `-- GCA_000005845.2/
     `-- s__Escherichia_coli/
         |-- taxon_accessions.tsv
         `-- GCA_000005845.2/
 ```
 
-Important layout decisions:
+Layout rules:
 
 - manifests are written directly under `OUTPUT/`
-- per-taxon manifest files are written directly under each taxon directory
-- taxon directories use a filesystem-safe taxon slug
+- per-taxon accession manifests are written directly under each taxon directory
 - there is no shared `OUTPUT/genomes/` directory
-- if the same genome belongs to more than one requested taxon, it is copied into each matching taxon directory
-- duplicate-copy events are planned to be logged explicitly
-- each `OUTPUT/taxa/<taxon_slug>/<assembly_accession>/` directory keeps the full downloaded accession payload requested through `datasets`, not only FASTA files
+- duplicate genomes across requested taxa are copied into each matching taxon
+  directory and logged
+- each accession directory keeps the full downloaded payload requested through
+  `datasets`
 
-Taxon slug rule:
+Taxon slugs preserve the GTDB token text where practical, replace unsafe
+characters with `_`, and append a short hash suffix only when two taxa would
+otherwise collide.
 
-- preserve the GTDB token text as far as practical
-- replace whitespace and characters outside `A-Za-z0-9._-` with `_`
-- collapse repeated underscores
-- append a short hash suffix only when two taxa would otherwise map to the same directory name
-
-The planned run will keep successful outputs when some genomes fail, but it will write failure records and exit non-zero for partial completion.
-
-### Summary Files
-
-The root TSV files are intended to be stable machine-readable outputs:
+## Summary Files
 
 - `run_summary.tsv`
-  - one row for the overall run
-  - records run metadata, chosen method, thread settings, counts, output path, and final exit code
+  - one row per run
+  - records requested and resolved release, chosen method, actual concurrency,
+    worker usage, counts, output path, and exit code
 - `taxon_summary.tsv`
   - one row per requested taxon
-  - records matched rows, accession counts, success and failure counts, duplicate-copy count, and output directory
+  - records matched rows, accession counts, duplicate-copy count, and output
+    directory
 - `accession_map.tsv`
   - one row per taxon-accession mapping
-  - records lineage, original GTDB accession, final accession, conversion status, download batch, output path, and download status
+  - records lineage, original GTDB accession, final accession, conversion
+    status, final method used, output path, and download status
 - `download_failures.tsv`
-  - one row per failed accession attempt
-  - records stage, attempt index, redacted error message, and final failure status
+  - one row per accession attempt
+  - records collapsed taxon context, attempted accession, final accession,
+    stage, retry counters, redacted error message, and final failure status
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - one row per accession assigned to that taxon
-  - records lineage, accession mapping, output path, and whether the accession is duplicated across taxa
+  - records lineage, accession mapping, output path, and whether the accession
+    is duplicated across taxa
 
-Fixed column sets are defined in [Step-wise development plan](docs/development-plan.md).
-
-Exact exit codes, fallback rules, zero-match behaviour, and fixed status values are defined in the `Edge-Case Contract` section of [Step-wise development plan](docs/development-plan.md).
+Exact fixed column sets, exit codes, and status values remain defined in the
+frozen [Step-wise development plan](docs/development-plan.md).
 
 ## Bundled GTDB Taxonomy
 
-GTDB taxonomy TSV files are planned to ship with the software rather than being downloaded at runtime.
+GTDB taxonomy TSVs ship with the software and are loaded from bundled data,
+not fetched at runtime.
 
-Planned bundled data location:
+Bundled data layout:
 
 ```text
 data/gtdb_taxonomy/<resolved_release>/
-```
-
-The design also includes a bundled local release manifest, for example:
-
-```text
 data/gtdb_taxonomy/releases.tsv
 ```
 
-This manifest is intended to map:
-
-- accepted release inputs such as `80`, `95`, `214`, `226`, and `220.0`
-- the canonical bundled release identifier
-- the bundled taxonomy file paths for that release
-
-The tool must resolve supported releases from this local manifest. First run is therefore not expected to contact GTDB.
-
-If bundled taxonomy data for a requested release is missing, that is treated as a local installation or packaging error rather than a trigger to fetch data from GTDB.
+First run does not contact GTDB. Missing bundled taxonomy for a requested
+release is treated as a local installation or packaging error.
 
 ## Representative Usage Examples
-
-These examples describe the intended interface. They do not work yet because the tool is not implemented.
 
 Small direct download:
 
@@ -252,7 +270,7 @@ gtdb-genomes \
   --output results/escherichia
 ```
 
-Large request expected to use dehydrate/rehydrate:
+Large request that is expected to use batch dehydrate mode:
 
 ```bash
 gtdb-genomes \
@@ -263,15 +281,27 @@ gtdb-genomes \
   --output results/bacteria
 ```
 
-Prefer paired `GCA` accessions and request extra annotation:
+Prefer paired GenBank accessions and request extra annotation:
 
 ```bash
 gtdb-genomes \
   --release latest \
-  --taxon s__Methanobrevibacter smithii \
-  --prefer-gca \
+  --taxon "s__Methanobrevibacter smithii" \
+  --prefer-genbank \
   --include genome,gff3 \
   --output results/methanobrevibacter
+```
+
+Bundled-data-only dry-run:
+
+```bash
+gtdb-genomes \
+  --release 95 \
+  --taxon "s__Thermoflexus hugenholtzii" \
+  --download-method direct \
+  --no-prefer-genbank \
+  --dry-run \
+  --output /tmp/gtdb_dry_run
 ```
 
 Enable debug logging:
@@ -284,7 +314,7 @@ gtdb-genomes \
   --output results/bacteroides
 ```
 
-Pass an NCBI API key directly to the planned command:
+Pass an NCBI API key directly to the command:
 
 ```bash
 gtdb-genomes \
@@ -296,47 +326,46 @@ gtdb-genomes \
 
 ## API Key Handling
 
-The planned implementation will accept `--api-key` and pass it to the upstream `datasets` command without writing it to project files.
+The tool passes `--api-key` through to the upstream `datasets` command without
+writing it to project files.
 
-The tool is intended to:
+It:
 
-- never print the API key in logs
-- never save the API key in manifests, bundled-data indexes, or debug output
-- redact the API key from recorded command traces and error messages
+- never prints the API key in logs
+- never writes the API key into manifests or debug output
+- redacts the API key from recorded command traces and error messages
 
 Known limitation:
 
-- if a user types the API key directly on the shell command line, the shell history or operating-system process inspection may still expose it outside the control of this tool
+- if a user types the API key directly on the shell command line, shell history
+  or process inspection may still expose it outside the control of this tool
 
 ## Failure Handling
 
-The planned behaviour is:
+The tool keeps successfully retrieved genomes and summary files even when some
+requested genomes fail. It records unsuccessful attempts in
+`download_failures.tsv` and exits non-zero for incomplete runs.
 
-- keep all successfully retrieved genomes and summary files
-- record unsuccessful resolutions or downloads in `download_failures.tsv`
-- exit with a non-zero status if any requested genome ultimately fails
+## Known Limitations
 
-This makes partial results usable without hiding incomplete runs.
-
-## Known Limitations In The Planned Design
-
-- the repository currently contains documents only, not executable code
-- GTDB release resolution must support historical naming changes across releases using bundled taxonomy metadata
-- `GCA` preference depends on paired accession metadata being available from NCBI
-- very large requests will still depend on upstream `datasets` performance and NCBI service availability
-- direct download concurrency is intentionally limited to `min(--threads, 5)` to avoid excessive server load
-- package size will grow because all supported GTDB taxonomy releases are bundled locally
+- GenBank preference depends on NCBI metadata exposing a matching assembly
+  identifier
+- very large requests still depend on upstream `datasets` performance and NCBI
+  availability
+- direct download concurrency is intentionally limited to `min(--threads, 5)`
+- package size grows because bundled GTDB taxonomy releases ship locally
 
 ## Development And Packaging
 
-Use cases supported by the project are:
+Supported workflows:
 
-- source-checkout development through `uv run gtdb-genomes ...` or `uv run python -m gtdb_genomes ...`
-- packaged installation, including Bioconda, through the normal `gtdb-genomes ...` command
+- source-checkout development through `uv run gtdb-genomes ...` or
+  `uv run python -m gtdb_genomes ...`
+- packaged installation, including future Bioconda packaging, through the
+  normal `gtdb-genomes ...` command
 
-Bioconda is expected to install a Conda-native `gtdb-genomes` command into the active environment so that activation is sufficient to place it on `PATH`.
-
-The current Bioconda material in this repository remains a template for future packaging work.
+The Bioconda recipe template in this repository assumes the packaged runtime
+uses the standard console entrypoint and `conda-forge::ncbi-datasets-cli`.
 
 ## Additional Documents
 

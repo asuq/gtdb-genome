@@ -62,3 +62,6 @@ def test_runtime_docs_mark_uv_as_development_only() -> None:
     assert "development tool only" in readme_text
     assert "uv run gtdb-genomes" in readme_text
     assert "must not depend on uv at runtime" in bioconda_text
+    assert "--prefer-genbank" in readme_text
+    assert "The planned workflow is:" not in readme_text
+    assert "- ncbi-datasets-cli" in bioconda_text
