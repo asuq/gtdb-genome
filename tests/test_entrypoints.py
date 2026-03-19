@@ -65,5 +65,8 @@ def test_runtime_docs_mark_uv_as_development_only() -> None:
     assert "--prefer-genbank" in readme_text
     assert "one row per recorded failed attempt" in readme_text
     assert "one row per accession attempt" not in readme_text
+    assert "Fixed TSV columns:" in readme_text
+    assert "attempted_accession" in readme_text
     assert "The planned workflow is:" not in readme_text
     assert "- ncbi-datasets-cli" in bioconda_text
+    assert "get_release_manifest_path" in bioconda_text
