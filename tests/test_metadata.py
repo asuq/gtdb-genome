@@ -11,8 +11,8 @@ from gtdb_genomes.metadata import (
     MetadataLookupError,
     apply_accession_preferences,
     build_summary_command,
-    run_summary_lookup,
     run_summary_lookup_with_retries,
+    choose_preferred_accession,
 )
 
 
@@ -37,7 +37,7 @@ def test_build_summary_command_includes_api_key() -> None:
     ]
 
 
-def test_run_summary_lookup_parses_requested_accessions(
+def test_run_summary_lookup_with_retries_parses_requested_accessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The lookup runner should parse JSON-lines output into accession sets."""
@@ -63,15 +63,16 @@ def test_run_summary_lookup_parses_requested_accessions(
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    summary_map = run_summary_lookup(["GCF_000001.1", "GCA_000002.1"])
+    result = run_summary_lookup_with_retries(["GCF_000001.1", "GCA_000002.1"])
 
-    assert summary_map == {
+    assert result.summary_map == {
         "GCF_000001.1": {"GCF_000001.1", "GCA_000001.1"},
         "GCA_000002.1": {"GCA_000002.1"},
     }
+    assert result.failures == ()
 
 
-def test_run_summary_lookup_raises_on_command_failure(
+def test_run_summary_lookup_with_retries_raises_on_command_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Lookup failures should raise a dedicated metadata error."""
@@ -94,7 +95,19 @@ def test_run_summary_lookup_raises_on_command_failure(
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(MetadataLookupError, match="metadata lookup failed"):
-        run_summary_lookup(["GCF_000001.1"])
+        run_summary_lookup_with_retries(
+            ["GCF_000001.1"],
+            sleep_func=lambda delay: None,
+        )
+
+
+def test_choose_preferred_accession_keeps_native_genbank_on_metadata_failure() -> None:
+    """A native GenBank accession should stay unchanged without metadata."""
+
+    assert choose_preferred_accession("GCA_000002.1", None) == (
+        "GCA_000002.1",
+        "unchanged_original",
+    )
 
 
 def test_apply_accession_preferences_emits_fixed_status_values() -> None:

@@ -83,35 +83,6 @@ def parse_assembly_accession(accession: str) -> AssemblyAccession | None:
     )
 
 
-def run_summary_lookup(
-    accessions: Iterable[str],
-    api_key: str | None = None,
-    datasets_bin: str = "datasets",
-) -> dict[str, set[str]]:
-    """Look up accession metadata through the datasets CLI."""
-
-    ordered_accessions = tuple(dict.fromkeys(accessions))
-    if not ordered_accessions:
-        return {}
-    command = build_summary_command(
-        ordered_accessions,
-        api_key=api_key,
-        datasets_bin=datasets_bin,
-    )
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        error_message = result.stderr.strip() or result.stdout.strip()
-        if not error_message:
-            error_message = "datasets summary genome accession failed"
-        raise MetadataLookupError(error_message)
-    return parse_summary_json_lines(result.stdout, ordered_accessions)
-
-
 def run_summary_lookup_with_retries(
     accessions: Iterable[str],
     api_key: str | None = None,
@@ -254,10 +225,10 @@ def choose_preferred_accession(
 
     if not prefer_genbank:
         return requested_accession, "unchanged_original"
-    if discovered_accessions is None:
-        return requested_accession, "metadata_lookup_failed_fallback_original"
     if requested_accession.startswith("GCA_"):
         return requested_accession, "unchanged_original"
+    if discovered_accessions is None:
+        return requested_accession, "metadata_lookup_failed_fallback_original"
     paired_genbank = find_matching_genbank_accessions(
         requested_accession,
         discovered_accessions,
