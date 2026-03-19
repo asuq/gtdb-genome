@@ -991,3 +991,22 @@ PY`
   - the README now documents the implemented runtime rather than the earlier
     forward-looking design text, which intentionally supersedes the stale
     planning wording left from the first implementation pass
+
+### Commit `093d3d6` - `fix(metadata): preserve native GenBank status on lookup fallback`
+
+- Implemented:
+  - fixed accession preference handling so a requested `GCA_*` accession keeps
+    the `unchanged_original` status even when metadata lookup fails
+  - removed the non-retry metadata helper that no longer participates in the
+    runtime path and consolidated coverage on the retrying lookup entrypoint
+  - added a regression test for native GenBank accessions under metadata
+    failure conditions
+- Files:
+  - `src/gtdb_genomes/metadata.py`
+  - `tests/test_metadata.py`
+- Checks run:
+  - `.venv/bin/pytest -q tests/test_metadata.py`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
