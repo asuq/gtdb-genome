@@ -291,23 +291,68 @@ def attach_attempted_accession(
     )
 
 
+def build_resolved_payload_directory(
+    candidate: Path,
+) -> ResolvedPayloadDirectory | None:
+    """Return one resolved payload directory when the path name is an accession."""
+
+    if not candidate.is_dir():
+        return None
+    parsed_accession = parse_assembly_accession(candidate.name)
+    if parsed_accession is None:
+        return None
+    return ResolvedPayloadDirectory(
+        final_accession=parsed_accession.accession,
+        directory=candidate,
+    )
+
+
+def collect_root_payload_directories(
+    root: Path,
+) -> tuple[ResolvedPayloadDirectory, ...]:
+    """Collect accession-named directories directly under one root."""
+
+    return tuple(
+        resolved_payload
+        for candidate in sorted(root.iterdir(), key=lambda path: path.name)
+        if (resolved_payload := build_resolved_payload_directory(candidate)) is not None
+    )
+
+
+def has_accession_named_parent(candidate: Path, root: Path) -> bool:
+    """Return whether a candidate is nested below another accession directory."""
+
+    for parent in candidate.parents:
+        if parent == root:
+            return False
+        if parse_assembly_accession(parent.name) is not None:
+            return True
+    return False
+
+
 def collect_payload_directories(
     extraction_root: Path,
 ) -> tuple[ResolvedPayloadDirectory, ...]:
     """Collect realised payload directories from one extracted archive."""
 
     data_root = extraction_root / "ncbi_dataset" / "data"
-    if not data_root.is_dir():
-        raise LayoutError("Could not locate extracted datasets data directory")
-    return tuple(
-        ResolvedPayloadDirectory(
-            final_accession=parsed_accession.accession,
-            directory=candidate,
+    if data_root.is_dir():
+        payload_directories = collect_root_payload_directories(data_root)
+        if payload_directories:
+            return payload_directories
+
+    payload_directories = tuple(
+        resolved_payload
+        for candidate in sorted(
+            extraction_root.rglob("*"),
+            key=lambda path: str(path.relative_to(extraction_root)),
         )
-        for candidate in data_root.rglob("*")
-        if candidate.is_dir()
-        and (parsed_accession := parse_assembly_accession(candidate.name)) is not None
+        if (resolved_payload := build_resolved_payload_directory(candidate)) is not None
+        and not has_accession_named_parent(candidate, extraction_root)
     )
+    if payload_directories:
+        return payload_directories
+    raise LayoutError("Could not locate extracted payload directories")
 
 
 def locate_accession_payload_directory(
@@ -454,7 +499,10 @@ def build_successful_execution(
     """Build a successful execution for one accession plan."""
 
     conversion_status = plan.conversion_status
-    if download_status == "downloaded_after_fallback":
+    if (
+        download_status == "downloaded_after_fallback"
+        and plan.conversion_status == "paired_to_gca"
+    ):
         conversion_status = "paired_to_gca_fallback_original_on_download_failure"
     return AccessionExecution(
         original_accession=plan.original_accession,
@@ -479,11 +527,7 @@ def execute_direct_group_fallbacks(
 
     executions: dict[str, AccessionExecution] = {}
     for plan in grouped_plans:
-        fallback_request_accession = build_download_request_accession(
-            plan.original_accession,
-            prefer_genbank=args.prefer_genbank,
-            version_fixed=args.version_fixed,
-        )
+        fallback_request_accession = plan.original_accession
         if fallback_request_accession == download_request_accession:
             executions[plan.original_accession] = build_failed_execution(
                 plan.original_accession,
@@ -1079,19 +1123,6 @@ def build_failure_rows(
     return failure_rows
 
 
-def ensure_required_tools_for_supported_selection(args: CliArgs) -> None:
-    """Validate external-tool requirements for the supported execution path."""
-
-    required_tools = get_required_tools(
-        download_method=args.download_method,
-        dry_run=args.dry_run,
-        prefer_genbank=args.prefer_genbank,
-        has_supported_accessions=True,
-    )
-    if required_tools:
-        check_required_tools(required_tools)
-
-
 def get_staging_directory_root() -> Path | None:
     """Return the configured temporary root for workflow staging files."""
 
@@ -1179,11 +1210,11 @@ def plan_supported_downloads(
     if not accession_plans:
         return (), args.download_method
 
+    preview_accessions = get_ordered_unique_accessions(
+        plan.download_request_accession for plan in accession_plans
+    )
     preview_text: str | None = None
     if args.download_method == "auto":
-        preview_accessions = get_ordered_unique_accessions(
-            plan.download_request_accession for plan in accession_plans
-        )
         with create_staging_directory("gtdb_genomes_preview_") as preview_directory:
             preview_accession_file = write_accession_input_file(
                 Path(preview_directory) / "accessions.txt",
@@ -1205,7 +1236,7 @@ def plan_supported_downloads(
 
     decision = select_download_method(
         args.download_method,
-        len(accession_plans),
+        len(preview_accessions),
         preview_text=preview_text,
     )
     return accession_plans, decision.method_used
@@ -1297,7 +1328,13 @@ def run_workflow(args: CliArgs) -> int:
     if not unsupported_selected_frame.is_empty():
         logger.warning(build_unsupported_uba_warning(unsupported_selected_frame))
     if not supported_selected_frame.is_empty():
-        ensure_required_tools_for_supported_selection(args)
+        required_tools = get_required_tools(
+            download_method=args.download_method,
+            dry_run=args.dry_run,
+            prefer_genbank=args.prefer_genbank,
+        )
+        if required_tools:
+            check_required_tools(required_tools)
 
     supported_mapped_frame, metadata_failures = resolve_supported_accession_preferences(
         supported_selected_frame,

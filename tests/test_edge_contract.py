@@ -12,6 +12,7 @@ import pytest
 from gtdb_genomes.cli import CliArgs, main
 from gtdb_genomes.download import (
     CommandFailureRecord,
+    DownloadMethodDecision,
     PreviewError,
     RetryableCommandResult,
 )
@@ -31,6 +32,7 @@ from gtdb_genomes.workflow import (
     execute_batch_dehydrate_plans,
     execute_direct_accession_plans,
     extract_download_payload,
+    plan_supported_downloads,
 )
 
 
@@ -507,6 +509,202 @@ def test_extract_download_payload_resolves_realised_version_from_stem_request(
     )
 
 
+def test_extract_download_payload_ignores_nested_accession_named_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Only top-level payload directories should be considered as assemblies."""
+
+    run_directories = initialise_run_directories(tmp_path / "layout-nested-accession")
+
+    def fake_extract_archive(archive_path: Path, extraction_root: Path) -> Path:
+        """Create one real payload and one nested accession-like directory."""
+
+        del archive_path
+        top_level_payload = extraction_root / "ncbi_dataset" / "data" / "GCA_000001.7"
+        nested_payload = (
+            top_level_payload / "annotation" / "GCA_000001.8"
+        )
+        top_level_payload.mkdir(parents=True, exist_ok=True)
+        nested_payload.mkdir(parents=True, exist_ok=True)
+        return extraction_root
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+
+    payload_directory, failures = extract_download_payload(
+        "GCA_000001",
+        tmp_path / "archive.zip",
+        run_directories,
+    )
+
+    assert failures == ()
+    assert payload_directory == ResolvedPayloadDirectory(
+        final_accession="GCA_000001.7",
+        directory=(
+            run_directories.extracted_root
+            / "GCA_000001"
+            / "ncbi_dataset"
+            / "data"
+            / "GCA_000001.7"
+        ),
+    )
+
+
+def test_extract_download_payload_falls_back_when_data_root_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A unique payload elsewhere in the tree should still be resolved."""
+
+    run_directories = initialise_run_directories(tmp_path / "layout-missing-data-root")
+
+    def fake_extract_archive(archive_path: Path, extraction_root: Path) -> Path:
+        """Create one unique accession directory outside the normal data root."""
+
+        del archive_path
+        payload_directory = extraction_root / "relocated" / "GCA_000001.7"
+        payload_directory.mkdir(parents=True, exist_ok=True)
+        return extraction_root
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+
+    payload_directory, failures = extract_download_payload(
+        "GCA_000001",
+        tmp_path / "archive.zip",
+        run_directories,
+    )
+
+    assert failures == ()
+    assert payload_directory == ResolvedPayloadDirectory(
+        final_accession="GCA_000001.7",
+        directory=(
+            run_directories.extracted_root
+            / "GCA_000001"
+            / "relocated"
+            / "GCA_000001.7"
+        ),
+    )
+
+
+def test_extract_download_payload_fallback_ignores_nested_accession_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Fallback payload discovery should ignore accession-like child directories."""
+
+    run_directories = initialise_run_directories(
+        tmp_path / "layout-fallback-nested-accession",
+    )
+
+    def fake_extract_archive(archive_path: Path, extraction_root: Path) -> Path:
+        """Create one relocated payload with a nested accession-like child."""
+
+        del archive_path
+        top_level_payload = extraction_root / "relocated" / "GCA_000001.7"
+        nested_payload = top_level_payload / "annotation" / "GCA_000001.8"
+        top_level_payload.mkdir(parents=True, exist_ok=True)
+        nested_payload.mkdir(parents=True, exist_ok=True)
+        return extraction_root
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+
+    payload_directory, failures = extract_download_payload(
+        "GCA_000001",
+        tmp_path / "archive.zip",
+        run_directories,
+    )
+
+    assert failures == ()
+    assert payload_directory == ResolvedPayloadDirectory(
+        final_accession="GCA_000001.7",
+        directory=(
+            run_directories.extracted_root
+            / "GCA_000001"
+            / "relocated"
+            / "GCA_000001.7"
+        ),
+    )
+
+
+def test_auto_method_uses_unique_download_request_count_after_stem_collapse(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Auto mode should size the request after collapsing to datasets tokens."""
+
+    supported_mapped_frame = pl.DataFrame(
+        {
+            "ncbi_accession": ["GCF_000001.1", "GCF_000001.2"],
+            "final_accession": ["GCA_000001.1", "GCA_000001.2"],
+            "conversion_status": ["paired_to_gca", "paired_to_gca"],
+        },
+    )
+    args = CliArgs(
+        gtdb_release="95",
+        gtdb_taxa=("g__Escherichia",),
+        outdir=tmp_path / "output",
+        prefer_genbank=True,
+        version_fixed=False,
+        download_method="auto",
+        threads=4,
+        ncbi_api_key=None,
+        include="genome",
+        debug=False,
+        keep_temp=False,
+        dry_run=False,
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
+
+    observed_counts: list[int] = []
+
+    def fake_select_download_method(
+        requested_method: str,
+        accession_count: int,
+        preview_text: str | None = None,
+    ) -> DownloadMethodDecision:
+        """Capture the accession count passed into method selection."""
+
+        observed_counts.append(accession_count)
+        assert requested_method == "auto"
+        assert preview_text == "Package size: 1.0 GB\n"
+        return DownloadMethodDecision(
+            requested_method="auto",
+            method_used="direct",
+            accession_count=accession_count,
+            preview_size_bytes=1024,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.select_download_method",
+        fake_select_download_method,
+    )
+
+    plans, decision_method = plan_supported_downloads(
+        supported_mapped_frame,
+        args,
+        logging.getLogger("test-auto-stem-collapse"),
+        (),
+    )
+
+    assert len(plans) == 2
+    assert {plan.download_request_accession for plan in plans} == {"GCA_000001"}
+    assert observed_counts == [1]
+    assert decision_method == "direct"
+
+
 def test_release_80_contains_the_real_shared_preferred_accession_pair() -> None:
     """Release 80 should retain the known GCF/GCA duplicate pair."""
 
@@ -621,7 +819,7 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A shared preferred failure should trigger fallback only where needed."""
+    """A shared preferred failure should retry each exact original accession."""
 
     payload_directory = tmp_path / "fallback-payload"
     payload_directory.mkdir()
@@ -636,7 +834,7 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
         sleep_func=None,
         runner=None,
     ) -> RetryableCommandResult:
-        """Return a failed shared preferred download and one fallback success."""
+        """Return a failed shared preferred download and exact fallback successes."""
 
         del command, sleep_func, runner
         download_calls.append((stage, attempted_accession or ""))
@@ -671,14 +869,14 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
         *,
         extraction_key: str | None = None,
     ) -> tuple[ResolvedPayloadDirectory | None, tuple[CommandFailureRecord, ...]]:
-        """Return a payload only for the original-family fallback request."""
+        """Return a payload for each exact original fallback request."""
 
         del run_directories
         del extraction_key
         extraction_calls.append((accession, archive_path))
         return (
             ResolvedPayloadDirectory(
-                final_accession="GCF_001881595.4",
+                final_accession=accession,
                 directory=payload_directory,
             ),
             (),
@@ -717,28 +915,44 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
     assert result.download_concurrency_used == 1
     assert download_calls == [
         ("preferred_download", "GCA_001881595"),
-        ("fallback_download", "GCF_001881595"),
+        ("fallback_download", "GCF_001881595.2"),
+        ("fallback_download", "GCA_001881595.3"),
     ]
     assert extraction_calls == [
         (
-            "GCF_001881595",
+            "GCF_001881595.2",
             run_directories.downloads_root / "GCF_001881595.2.zip",
         ),
+        (
+            "GCA_001881595.3",
+            run_directories.downloads_root / "GCA_001881595.3.zip",
+        ),
     ]
-    assert result.executions["GCF_001881595.2"].final_accession == "GCF_001881595.4"
+    assert result.executions["GCF_001881595.2"].final_accession == "GCF_001881595.2"
     assert (
         result.executions["GCF_001881595.2"].download_status
         == "downloaded_after_fallback"
     )
-    assert result.executions["GCA_001881595.3"].final_accession is None
-    assert result.executions["GCA_001881595.3"].download_status == "failed"
+    assert (
+        result.executions["GCF_001881595.2"].conversion_status
+        == "paired_to_gca_fallback_original_on_download_failure"
+    )
+    assert result.executions["GCA_001881595.3"].final_accession == "GCA_001881595.3"
+    assert (
+        result.executions["GCA_001881595.3"].download_status
+        == "downloaded_after_fallback"
+    )
+    assert (
+        result.executions["GCA_001881595.3"].conversion_status
+        == "unchanged_original"
+    )
 
 
 def test_direct_mode_records_failed_fallback_when_extraction_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Fallback extraction failure should yield a failed execution rather than crash."""
+    """Fallback extraction failure should keep the exact original accession."""
 
     download_calls: list[tuple[str, str]] = []
 
@@ -831,10 +1045,11 @@ def test_direct_mode_records_failed_fallback_when_extraction_fails(
 
     assert download_calls == [
         ("preferred_download", "GCA_001881595"),
-        ("fallback_download", "GCF_001881595"),
+        ("fallback_download", "GCF_001881595.2"),
+        ("fallback_download", "GCA_001881595.3"),
     ]
     assert result.executions["GCF_001881595.2"].final_accession is None
-    assert result.executions["GCF_001881595.2"].download_batch == "GCF_001881595"
+    assert result.executions["GCF_001881595.2"].download_batch == "GCF_001881595.2"
     assert result.executions["GCF_001881595.2"].download_status == "failed"
     assert [failure.stage for failure in result.executions["GCF_001881595.2"].failures] == [
         "preferred_download",
@@ -842,6 +1057,7 @@ def test_direct_mode_records_failed_fallback_when_extraction_fails(
     ]
     assert result.executions["GCA_001881595.3"].final_accession is None
     assert result.executions["GCA_001881595.3"].download_status == "failed"
+    assert result.executions["GCA_001881595.3"].download_batch == "GCA_001881595.3"
 
 
 def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
