@@ -1230,3 +1230,31 @@ PY`
   - case outputs still live at `/tmp/gtdb-realtests/.../<case-id>` as planned,
     but captured evidence is written under a sibling `_evidence/` tree so the
     case output directories remain valid empty targets before each run
+
+### Commit `b197142` - `chore(bin): add real-data validation runners`
+
+- Implemented:
+  - added a shared bash helper library for real-data validation runs, covering
+    evidence capture, exit-code checks, root TSV collection, simple manifest
+    assertions, and suite-level result summaries
+  - added a local runner for the release-coverage dry-run sweep plus the local
+    real-download matrix, using `uv run gtdb-genomes`
+  - added a remote runner for packaged-runtime validation, including the
+    installed-command smoke checks and the optional large stress case gate via
+    `RUN_OPTIONAL_LARGE=1`
+  - automated the most important acceptance checks directly in bash:
+    expected exit codes, output presence or absence, `unsupported_input`
+    legacy failures, duplicate-across-taxa evidence, and the dehydrate method
+    outcome for the heavy auto cases
+- Files:
+  - `bin/real-data-test-common.sh`
+  - `bin/run-real-data-tests-local.sh`
+  - `bin/run-real-data-tests-remote.sh`
+- Checks run:
+  - `bash -n bin/real-data-test-common.sh bin/run-real-data-tests-local.sh bin/run-real-data-tests-remote.sh`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - the runners automate core acceptance checks but still preserve the full
+    TSV evidence for manual review, instead of trying to encode every large
+    scientific validation judgement into shell-only assertions
