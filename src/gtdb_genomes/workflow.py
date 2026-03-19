@@ -100,6 +100,122 @@ class DownloadExecutionResult:
     shared_failures: tuple[CommandFailureRecord, ...] = ()
 
 
+UNSUPPORTED_UBA_PREFIX = "UBA"
+UNSUPPORTED_UBA_BIOPROJECT = "PRJNA417962"
+UNSUPPORTED_UBA_WARNING_EXAMPLES = 5
+
+
+def is_unsupported_uba_accession(accession: str) -> bool:
+    """Return whether one legacy GTDB accession starts with `UBA`."""
+
+    return accession.startswith(UNSUPPORTED_UBA_PREFIX)
+
+
+def split_selected_rows_by_accession_support(
+    selected_frame: pl.DataFrame,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Split selected rows into supported and unsupported accession groups."""
+
+    if selected_frame.is_empty():
+        return selected_frame, selected_frame
+    unsupported_mask = pl.col("ncbi_accession").str.starts_with(
+        UNSUPPORTED_UBA_PREFIX,
+    )
+    return (
+        selected_frame.filter(~unsupported_mask),
+        selected_frame.filter(unsupported_mask),
+    )
+
+
+def get_ordered_unique_values(values: list[str]) -> tuple[str, ...]:
+    """Return deterministic first-seen unique values from a string list."""
+
+    return tuple(dict.fromkeys(values))
+
+
+def build_unsupported_uba_warning(unsupported_frame: pl.DataFrame) -> str:
+    """Build the documented run-level warning for unsupported `UBA*` accessions."""
+
+    unique_accessions = get_ordered_unique_values(
+        unsupported_frame.get_column("ncbi_accession").to_list(),
+    )
+    affected_taxa = get_ordered_unique_values(
+        unsupported_frame.get_column("requested_taxon").to_list(),
+    )
+    example_text = ", ".join(unique_accessions[:UNSUPPORTED_UBA_WARNING_EXAMPLES])
+    taxa_text = ";".join(affected_taxa)
+    return (
+        f"Skipping {len(unique_accessions)} unsupported legacy GTDB UBA accessions "
+        f"from requested taxa {taxa_text}: {example_text}. These genome accessions "
+        "are not supported by NCBI and will not be downloaded. Check BioProject "
+        f"{UNSUPPORTED_UBA_BIOPROJECT}, as most UBA genomes are assigned through "
+        "that bioproject."
+    )
+
+
+def build_unsupported_uba_error_message(accession: str) -> str:
+    """Build the manifest error message for one unsupported `UBA*` accession."""
+
+    return (
+        f"Legacy GTDB accession {accession} is not supported by NCBI and was "
+        f"skipped. Check BioProject {UNSUPPORTED_UBA_BIOPROJECT}, as most UBA "
+        "genomes are assigned through that bioproject."
+    )
+
+
+def build_unsupported_accession_frame(selection_frame: pl.DataFrame) -> pl.DataFrame:
+    """Attach fixed unsupported-accession fields to legacy `UBA*` rows."""
+
+    if selection_frame.is_empty():
+        return selection_frame.with_columns(
+            pl.lit("").alias("final_accession"),
+            pl.lit("").alias("accession_type_original"),
+            pl.lit("").alias("accession_type_final"),
+            pl.lit("").alias("conversion_status"),
+        )
+    return selection_frame.with_columns(
+        pl.lit("").alias("final_accession"),
+        pl.lit("unknown").alias("accession_type_original"),
+        pl.lit("").alias("accession_type_final"),
+        pl.lit("failed_no_usable_accession").alias("conversion_status"),
+    )
+
+
+def build_unsupported_executions(
+    unsupported_frame: pl.DataFrame,
+) -> dict[str, AccessionExecution]:
+    """Build synthetic failed executions for unsupported `UBA*` accessions."""
+
+    executions: dict[str, AccessionExecution] = {}
+    if unsupported_frame.is_empty():
+        return executions
+    for row in unsupported_frame.unique(
+        subset=["ncbi_accession"],
+        keep="first",
+        maintain_order=True,
+    ).rows(named=True):
+        accession = row["ncbi_accession"]
+        executions[accession] = AccessionExecution(
+            original_accession=accession,
+            final_accession=None,
+            conversion_status="failed_no_usable_accession",
+            download_status="failed",
+            payload_directory=None,
+            failures=(
+                CommandFailureRecord(
+                    stage="preflight",
+                    attempt_index=1,
+                    max_attempts=1,
+                    error_type="unsupported_accession",
+                    error_message=build_unsupported_uba_error_message(accession),
+                    final_status="unsupported_input",
+                    attempted_accession=accession,
+                ),
+            ),
+        )
+    return executions
+
+
 def build_accession_plans(mapped_frame: pl.DataFrame) -> tuple[AccessionPlan, ...]:
     """Build one unique download plan per original NCBI accession."""
 
@@ -708,15 +824,17 @@ def build_failure_rows(
     metadata_failures: tuple[CommandFailureRecord, ...],
     shared_failures: tuple[CommandFailureRecord, ...],
     secrets: tuple[str, ...],
+    shared_context_rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build attempt-centric `download_failures.tsv` rows."""
 
+    context_rows = enriched_rows if shared_context_rows is None else shared_context_rows
     failure_rows: list[dict[str, Any]] = []
     failure_rows.extend(
-        build_shared_failure_rows(enriched_rows, metadata_failures, secrets),
+        build_shared_failure_rows(context_rows, metadata_failures, secrets),
     )
     failure_rows.extend(
-        build_shared_failure_rows(enriched_rows, shared_failures, secrets),
+        build_shared_failure_rows(context_rows, shared_failures, secrets),
     )
 
     rows_by_accession: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -778,34 +896,6 @@ def run_workflow(args: CliArgs) -> int:
         args.taxa,
     )
 
-    summary_map: dict[str, set[str]] = {}
-    metadata_failures: tuple[CommandFailureRecord, ...] = ()
-    if not selected_frame.is_empty() and args.prefer_genbank:
-        metadata_command = build_summary_command(
-            selected_frame.get_column("ncbi_accession").unique().to_list(),
-            api_key=args.api_key,
-        )
-        logger.debug("Running %s", redact_command(metadata_command, secrets))
-        try:
-            summary_lookup = run_summary_lookup_with_retries(
-                selected_frame.get_column("ncbi_accession").unique().to_list(),
-                api_key=args.api_key,
-            )
-            summary_map = summary_lookup.summary_map
-            metadata_failures = summary_lookup.failures
-        except MetadataLookupError as error:
-            metadata_failures = error.failures
-            logger.warning(
-                "Metadata lookup failed; falling back to original accessions: %s",
-                redact_text(str(error), secrets),
-            )
-            summary_map = {}
-
-    mapped_frame = apply_accession_preferences(
-        selected_frame,
-        summary_map,
-        prefer_genbank=args.prefer_genbank,
-    )
     if selected_frame.is_empty():
         if args.dry_run:
             logger.warning("No genomes matched the requested taxa")
@@ -866,7 +956,52 @@ def run_workflow(args: CliArgs) -> int:
             cleanup_working_directories(run_directories)
         return exit_code
 
-    accession_plans = build_accession_plans(mapped_frame)
+    supported_selected_frame, unsupported_selected_frame = (
+        split_selected_rows_by_accession_support(selected_frame)
+    )
+    if not unsupported_selected_frame.is_empty():
+        logger.warning(build_unsupported_uba_warning(unsupported_selected_frame))
+
+    summary_map: dict[str, set[str]] = {}
+    metadata_failures: tuple[CommandFailureRecord, ...] = ()
+    if not supported_selected_frame.is_empty() and args.prefer_genbank:
+        metadata_command = build_summary_command(
+            supported_selected_frame.get_column("ncbi_accession").unique().to_list(),
+            api_key=args.api_key,
+        )
+        logger.debug("Running %s", redact_command(metadata_command, secrets))
+        try:
+            summary_lookup = run_summary_lookup_with_retries(
+                supported_selected_frame.get_column("ncbi_accession").unique().to_list(),
+                api_key=args.api_key,
+            )
+            summary_map = summary_lookup.summary_map
+            metadata_failures = summary_lookup.failures
+        except MetadataLookupError as error:
+            metadata_failures = error.failures
+            logger.warning(
+                "Metadata lookup failed; falling back to original accessions: %s",
+                redact_text(str(error), secrets),
+            )
+            summary_map = {}
+
+    supported_mapped_frame = apply_accession_preferences(
+        supported_selected_frame,
+        summary_map,
+        prefer_genbank=args.prefer_genbank,
+    )
+    unsupported_mapped_frame = build_unsupported_accession_frame(
+        unsupported_selected_frame,
+    )
+    mapped_frame = pl.concat(
+        [
+            frame
+            for frame in (supported_mapped_frame, unsupported_mapped_frame)
+            if not frame.is_empty()
+        ],
+        how="vertical",
+    )
+    accession_plans = build_accession_plans(supported_mapped_frame)
     preview_text: str | None = None
     if args.download_method == "auto" and accession_plans:
         preview_command = build_preview_command(
@@ -887,16 +1022,20 @@ def run_workflow(args: CliArgs) -> int:
             logger.error("%s", redact_text(str(error), secrets))
             close_logger(logger)
             return 5
-    try:
-        decision = select_download_method(
-            args.download_method,
-            len(accession_plans),
-            preview_text=preview_text,
-        )
-    except PreviewError as error:
-        logger.error("%s", redact_text(str(error), secrets))
-        close_logger(logger)
-        return 5
+    if accession_plans:
+        try:
+            decision = select_download_method(
+                args.download_method,
+                len(accession_plans),
+                preview_text=preview_text,
+            )
+        except PreviewError as error:
+            logger.error("%s", redact_text(str(error), secrets))
+            close_logger(logger)
+            return 5
+        decision_method = decision.method_used
+    else:
+        decision_method = args.download_method
 
     if args.dry_run:
         close_logger(logger)
@@ -910,19 +1049,34 @@ def run_workflow(args: CliArgs) -> int:
         output_root=run_directories.output_root,
     )
 
-    execution_result = execute_accession_plans(
-        accession_plans,
-        args,
-        decision.method_used,
-        run_directories,
-        logger,
-        secrets,
-    )
+    if accession_plans:
+        execution_result = execute_accession_plans(
+            accession_plans,
+            args,
+            decision_method,
+            run_directories,
+            logger,
+            secrets,
+        )
+    else:
+        execution_result = DownloadExecutionResult(
+            executions={},
+            method_used=args.download_method,
+            download_concurrency_used=0,
+            rehydrate_workers_used=0,
+            shared_failures=(),
+        )
+    executions = {
+        **execution_result.executions,
+        **build_unsupported_executions(unsupported_selected_frame),
+    }
 
     enriched_rows: list[dict[str, Any]] = []
+    supported_enriched_rows: list[dict[str, Any]] = []
     for row in mapped_frame.rows(named=True):
-        execution = execution_result.executions[row["ncbi_accession"]]
+        execution = executions[row["ncbi_accession"]]
         final_accession = execution.final_accession or ""
+        unsupported_accession = is_unsupported_uba_accession(row["ncbi_accession"])
         enriched_rows.append(
             {
                 "requested_taxon": row["requested_taxon"],
@@ -942,7 +1096,9 @@ def run_workflow(args: CliArgs) -> int:
                 "conversion_status": execution.conversion_status,
                 "download_method_used": execution_result.method_used,
                 "download_batch": (
-                    "dehydrated_batch"
+                    row["ncbi_accession"]
+                    if unsupported_accession
+                    else "dehydrated_batch"
                     if execution_result.method_used == "dehydrate"
                     else row["ncbi_accession"]
                 ),
@@ -951,6 +1107,8 @@ def run_workflow(args: CliArgs) -> int:
                 "duplicate_across_taxa": False,
             },
         )
+        if not unsupported_accession:
+            supported_enriched_rows.append(enriched_rows[-1])
 
     duplicate_accessions = get_duplicate_accessions(enriched_rows)
     seen_taxon_accessions: set[tuple[str, str]] = set()
@@ -968,9 +1126,7 @@ def run_workflow(args: CliArgs) -> int:
                     row["taxon_slug"],
                     row["final_accession"],
                 )
-                payload_directory = execution_result.executions[
-                    row["ncbi_accession"]
-                ].payload_directory
+                payload_directory = executions[row["ncbi_accession"]].payload_directory
                 if payload_directory is None:
                     raise AssertionError("successful accessions must have payloads")
                 copy_accession_payload(payload_directory, destination_directory)
@@ -1012,10 +1168,11 @@ def run_workflow(args: CliArgs) -> int:
 
     failure_rows = build_failure_rows(
         enriched_rows,
-        execution_result.executions,
+        executions,
         metadata_failures,
         execution_result.shared_failures,
         secrets,
+        shared_context_rows=supported_enriched_rows,
     )
     taxon_summary_rows = build_taxon_summary_rows(
         enriched_rows,

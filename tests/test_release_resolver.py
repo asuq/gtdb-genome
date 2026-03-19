@@ -13,6 +13,7 @@ from gtdb_genomes.release_resolver import (
     resolve_and_validate_release,
     resolve_release,
 )
+from gtdb_genomes.taxonomy import load_release_taxonomy
 
 
 def write_manifest(manifest_path: Path, row: str) -> None:
@@ -82,6 +83,17 @@ def test_resolve_and_validate_release_uses_bundled_taxonomy_files() -> None:
     assert resolution.bacterial_taxonomy.is_file()
     assert resolution.archaeal_taxonomy is not None
     assert resolution.archaeal_taxonomy.is_file()
+
+
+def test_legacy_release_contains_real_uba_accessions() -> None:
+    """Legacy bundled releases should retain unsupported UBA accession rows."""
+
+    resolution = resolve_and_validate_release("80")
+    taxonomy_frame = load_release_taxonomy(resolution)
+
+    assert taxonomy_frame.filter(
+        taxonomy_frame.get_column("ncbi_accession").str.starts_with("UBA"),
+    ).height > 0
 
 
 def test_load_release_manifest_raises_for_missing_manifest(tmp_path: Path) -> None:

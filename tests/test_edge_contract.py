@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from gtdb_genomes.workflow import (
     AccessionExecution,
     AccessionPlan,
     DownloadExecutionResult,
+    build_unsupported_uba_warning,
     build_failure_rows,
     execute_batch_dehydrate_plans,
 )
@@ -36,6 +38,77 @@ def build_taxonomy_frame(lineage: str) -> pl.DataFrame:
             "taxonomy_file": ["bac120_taxonomy_r95.tsv"],
         },
     )
+
+
+def build_mixed_uba_taxonomy_frame(lineage: str) -> pl.DataFrame:
+    """Build a taxonomy frame with one supported and one legacy UBA accession."""
+
+    return pl.DataFrame(
+        {
+            "gtdb_accession": ["RS_GCF_000001.1", "UBA11131"],
+            "lineage": [lineage, lineage],
+            "ncbi_accession": ["GCF_000001.1", "UBA11131"],
+            "taxonomy_file": [
+                "bac120_taxonomy_r80.tsv",
+                "bac120_taxonomy_r80.tsv",
+            ],
+        },
+    )
+
+
+def build_uba_only_taxonomy_frame(lineage: str) -> pl.DataFrame:
+    """Build a taxonomy frame containing only unsupported UBA accessions."""
+
+    return pl.DataFrame(
+        {
+            "gtdb_accession": ["UBA11131"],
+            "lineage": [lineage],
+            "ncbi_accession": ["UBA11131"],
+            "taxonomy_file": ["bac120_taxonomy_r80.tsv"],
+        },
+    )
+
+
+def install_capture_logger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> io.StringIO:
+    """Patch workflow logging to capture warning text for assertions."""
+
+    stream = io.StringIO()
+
+    def fake_configure_logging(
+        debug: bool = False,
+        dry_run: bool = False,
+        output_root: Path | None = None,
+    ) -> tuple[logging.Logger, Path | None]:
+        """Return a predictable test logger backed by one string buffer."""
+
+        del dry_run, output_root
+        logger = logging.getLogger(f"test-workflow-{id(stream)}")
+        logger.handlers.clear()
+        logger.setLevel(logging.DEBUG if debug else logging.INFO)
+        logger.propagate = False
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        logger.addHandler(handler)
+        return logger, None
+
+    def fake_close_logger(logger: logging.Logger) -> None:
+        """Flush and detach handlers without closing the shared string buffer."""
+
+        for handler in tuple(logger.handlers):
+            handler.flush()
+            logger.removeHandler(handler)
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.configure_logging",
+        fake_configure_logging,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.close_logger",
+        fake_close_logger,
+    )
+    return stream
 
 
 def parse_tsv(path: Path) -> tuple[list[str], list[list[str]]]:
@@ -82,6 +155,135 @@ def test_zero_match_run_writes_header_only_outputs(
     assert (
         output_dir / "taxa" / "g__Escherichia" / "taxon_accessions.tsv"
     ).exists()
+
+
+def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Mixed supported and UBA dry-runs should warn once and exit cleanly."""
+
+    warning_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.cli.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.load_release_taxonomy",
+        lambda resolution: build_mixed_uba_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("metadata lookup should not run"),
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("preview should not run"),
+        ),
+    )
+
+    output_dir = tmp_path / "mixed-uba-dry-run"
+    exit_code = main(
+        [
+            "--release",
+            "80",
+            "--taxon",
+            "g__Escherichia",
+            "--output",
+            str(output_dir),
+            "--download-method",
+            "direct",
+            "--no-prefer-genbank",
+            "--dry-run",
+        ],
+    )
+
+    assert exit_code == 0
+    assert not output_dir.exists()
+    warning_text = warning_stream.getvalue()
+    assert warning_text.count("unsupported legacy GTDB UBA accessions") == 1
+    assert "PRJNA417962" in warning_text
+    assert "GCF_000001.1" not in warning_text
+
+
+def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """UBA-only dry-runs should warn and avoid metadata or preview calls."""
+
+    warning_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.cli.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.load_release_taxonomy",
+        lambda resolution: build_uba_only_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("metadata lookup should not run"),
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("preview should not run"),
+        ),
+    )
+
+    output_dir = tmp_path / "uba-only-dry-run"
+    exit_code = main(
+        [
+            "--release",
+            "80",
+            "--taxon",
+            "g__Escherichia",
+            "--output",
+            str(output_dir),
+            "--download-method",
+            "direct",
+            "--no-prefer-genbank",
+            "--dry-run",
+        ],
+    )
+
+    assert exit_code == 0
+    assert not output_dir.exists()
+    warning_text = warning_stream.getvalue()
+    assert warning_text.count("unsupported legacy GTDB UBA accessions") == 1
+    assert "PRJNA417962" in warning_text
+
+
+def test_build_unsupported_uba_warning_mentions_examples_and_bioproject() -> None:
+    """The UBA warning builder should produce deterministic user guidance."""
+
+    warning_text = build_unsupported_uba_warning(
+        pl.DataFrame(
+            {
+                "requested_taxon": [
+                    "g__Escherichia",
+                    "g__Escherichia",
+                    "s__Escherichia coli",
+                ],
+                "ncbi_accession": ["UBA11131", "UBA11131", "UBA22222"],
+            },
+        ),
+    )
+
+    assert "Skipping 2 unsupported legacy GTDB UBA accessions" in warning_text
+    assert "g__Escherichia;s__Escherichia coli" in warning_text
+    assert "UBA11131, UBA22222" in warning_text
+    assert "PRJNA417962" in warning_text
 
 
 def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
@@ -207,6 +409,179 @@ def test_total_runtime_failure_leaves_final_accession_blank(
     run_summary = dict(zip(run_summary_header, run_summary_rows[0], strict=True))
     assert run_summary["download_concurrency_used"] == "1"
     assert run_summary["rehydrate_workers_used"] == "0"
+
+
+def test_mixed_uba_real_run_records_failed_unsupported_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Mixed supported and UBA runs should keep successes and audit skipped UBA rows."""
+
+    payload_directory = tmp_path / "payload"
+    payload_directory.mkdir()
+    (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.cli.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.load_release_taxonomy",
+        lambda resolution: build_mixed_uba_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("metadata lookup should not run"),
+        ),
+    )
+
+    def fake_execute_accession_plans(
+        plans: tuple[AccessionPlan, ...],
+        args: CliArgs,
+        decision_method: str,
+        run_directories,
+        logger,
+        secrets: tuple[str, ...],
+    ) -> DownloadExecutionResult:
+        """Return one successful direct execution for the supported accession."""
+
+        del args, run_directories, logger, secrets
+        assert decision_method == "direct"
+        assert [plan.original_accession for plan in plans] == ["GCF_000001.1"]
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    payload_directory=payload_directory,
+                    failures=(),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "mixed-uba-real"
+    exit_code = main(
+        [
+            "--release",
+            "80",
+            "--taxon",
+            "g__Escherichia",
+            "--output",
+            str(output_dir),
+            "--download-method",
+            "direct",
+            "--no-prefer-genbank",
+        ],
+    )
+
+    assert exit_code == 6
+    accession_header, accession_rows = parse_tsv(output_dir / "accession_map.tsv")
+    accession_maps = [
+        dict(zip(accession_header, row, strict=True))
+        for row in accession_rows
+    ]
+    unsupported_row = next(
+        row for row in accession_maps if row["gtdb_accession"] == "UBA11131"
+    )
+    assert unsupported_row["final_accession"] == ""
+    assert unsupported_row["accession_type_original"] == "unknown"
+    assert unsupported_row["accession_type_final"] == ""
+    assert unsupported_row["conversion_status"] == "failed_no_usable_accession"
+    assert unsupported_row["download_batch"] == "UBA11131"
+    assert unsupported_row["download_status"] == "failed"
+
+    taxon_header, taxon_rows = parse_tsv(
+        output_dir / "taxa" / "g__Escherichia" / "taxon_accessions.tsv",
+    )
+    taxon_maps = [dict(zip(taxon_header, row, strict=True)) for row in taxon_rows]
+    unsupported_taxon_row = next(
+        row for row in taxon_maps if row["gtdb_accession"] == "UBA11131"
+    )
+    assert unsupported_taxon_row["final_accession"] == ""
+    assert unsupported_taxon_row["download_status"] == "failed"
+    assert unsupported_taxon_row["duplicate_across_taxa"] == "false"
+
+    failure_header, failure_rows = parse_tsv(output_dir / "download_failures.tsv")
+    assert len(failure_rows) == 1
+    failure = dict(zip(failure_header, failure_rows[0], strict=True))
+    assert failure["gtdb_accession"] == "UBA11131"
+    assert failure["attempted_accession"] == "UBA11131"
+    assert failure["final_accession"] == ""
+    assert failure["stage"] == "preflight"
+    assert failure["error_type"] == "unsupported_accession"
+    assert failure["final_status"] == "unsupported_input"
+    assert "PRJNA417962" in failure["error_message_redacted"]
+
+
+def test_uba_only_real_run_writes_failed_manifests_and_exits_seven(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """UBA-only real runs should skip downloads but still write audit manifests."""
+
+    monkeypatch.setattr(
+        "gtdb_genomes.cli.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.load_release_taxonomy",
+        lambda resolution: build_uba_only_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.execute_accession_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("supported download execution should not run"),
+        ),
+    )
+
+    output_dir = tmp_path / "uba-only-real"
+    exit_code = main(
+        [
+            "--release",
+            "80",
+            "--taxon",
+            "g__Escherichia",
+            "--output",
+            str(output_dir),
+            "--download-method",
+            "direct",
+            "--no-prefer-genbank",
+        ],
+    )
+
+    assert exit_code == 7
+    accession_header, accession_rows = parse_tsv(output_dir / "accession_map.tsv")
+    accession_map = dict(zip(accession_header, accession_rows[0], strict=True))
+    assert accession_map["gtdb_accession"] == "UBA11131"
+    assert accession_map["final_accession"] == ""
+    assert accession_map["download_method_used"] == "direct"
+    assert accession_map["download_status"] == "failed"
+
+    failure_header, failure_rows = parse_tsv(output_dir / "download_failures.tsv")
+    failure = dict(zip(failure_header, failure_rows[0], strict=True))
+    assert failure["stage"] == "preflight"
+    assert failure["error_type"] == "unsupported_accession"
+    assert failure["final_status"] == "unsupported_input"
+
+    run_summary_header, run_summary_rows = parse_tsv(output_dir / "run_summary.tsv")
+    run_summary = dict(zip(run_summary_header, run_summary_rows[0], strict=True))
+    assert run_summary["download_method_used"] == "direct"
+    assert run_summary["download_concurrency_used"] == "0"
 
 
 def test_failure_manifest_collapses_shared_accession_taxa(

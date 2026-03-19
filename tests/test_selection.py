@@ -88,3 +88,28 @@ def test_attach_taxon_slugs_adds_slug_column() -> None:
 
     assert "taxon_slug" in with_slugs.columns
     assert with_slugs["taxon_slug"].to_list() == ["g__Escherichia", "g__Escherichia"]
+
+
+def test_select_taxa_does_not_treat_uba_taxon_names_as_uba_accessions() -> None:
+    """UBA taxon names should not be confused with unsupported UBA accessions."""
+
+    frame = pl.DataFrame(
+        {
+            "gtdb_accession": ["GB_GCA_123456789.1"],
+            "lineage": [
+                (
+                    "d__Bacteria;p__Proteobacteria;c__Gammaproteobacteria;"
+                    "o__Enterobacterales;f__UBA509aceae;g__UBA509;"
+                    "s__UBA509 bacterium"
+                ),
+            ],
+            "ncbi_accession": ["GCA_123456789.1"],
+            "taxonomy_file": ["bac120_taxonomy_r95.tsv"],
+        },
+    )
+
+    selected = select_taxa(frame, ["g__UBA509"])
+
+    assert selected.height == 1
+    assert selected["requested_taxon"].to_list() == ["g__UBA509"]
+    assert selected["ncbi_accession"].to_list() == ["GCA_123456789.1"]
