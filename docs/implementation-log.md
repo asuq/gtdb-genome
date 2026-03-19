@@ -1060,3 +1060,30 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `45e7e02` - `fix(workflow): keep batch failures shared`
+
+- Implemented:
+  - stopped cloning batch-scoped dehydrate and rehydrate retry records into
+    every accession execution, so shared network attempts are recorded once in
+    the root failure manifest
+  - kept per-accession direct-download failures accession-scoped while moving
+    shared batch failures into the run-level execution result
+  - simplified the direct-download path by removing the leftover
+    per-accession dehydrate branch and the unused shared-secrets parameter from
+    the direct executor
+  - added regression coverage for shared metadata failure rows and for
+    dehydrate-to-direct fallback preserving a single shared attempted-accession
+    record
+- Files:
+  - `src/gtdb_genomes/workflow.py`
+  - `tests/test_edge_contract.py`
+- Checks run:
+  - `.venv/bin/pytest -q tests/test_download.py tests/test_edge_contract.py tests/test_metadata.py`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - shared batch and metadata retries now collapse affected accession sets into
+    semicolon-joined manifest values instead of being repeated once per
+    accession, because that is a more faithful record of the commands that
+    actually ran
