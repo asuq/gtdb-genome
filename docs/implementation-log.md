@@ -1705,3 +1705,25 @@ PY`
   - the live workflow intentionally does not use an NCBI API-key secret, so it
     validates a smaller non-secret case rather than one of the metadata-heavy
     `--prefer-genbank` scenarios
+
+### Commit `4c5d427` - `chore(ci): bump actions for node24 support`
+
+- Implemented:
+  - updated the GitHub Actions workflow pins for the actions that emitted the
+    Node.js 20 deprecation warning in CI
+  - bumped `actions/checkout` from `v4` to `v5` in both workflows
+  - bumped `actions/setup-python` from `v5` to `v6` in the main CI workflow
+  - bumped `astral-sh/setup-uv` from `v6` to `v7` in the main CI workflow
+  - bumped `actions/upload-artifact` from `v4` to `v6` in both workflows
+- Files:
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/live-validation.yml`
+- Checks run:
+  - `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml"); YAML.load_file(".github/workflows/live-validation.yml"); puts "yaml-ok"'`
+  - `git diff -- .github/workflows/ci.yml .github/workflows/live-validation.yml`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - `mamba-org/setup-micromamba@v2` was left unchanged because the warning the
+    user reported only covered the four updated actions, and this pass was
+    scoped to clearing those concrete deprecation notices first
