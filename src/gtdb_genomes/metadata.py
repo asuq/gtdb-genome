@@ -21,6 +21,9 @@ from gtdb_genomes.download import (
 
 
 ACCESSION_PATTERN = re.compile(r"(?P<prefix>GC[AF])_(?P<numeric>\d+)\.(?P<version>\d+)")
+CAMEL_CASE_BOUNDARY_PATTERN = re.compile(r"([a-z0-9])([A-Z])")
+NON_ALPHANUMERIC_PATTERN = re.compile(r"[^a-z0-9]+")
+EXPLICIT_ACCESSION_FIELD_NAMES = frozenset({"accession", "paired"})
 
 
 @dataclass(slots=True)
@@ -87,6 +90,47 @@ def parse_assembly_accession(accession: str) -> AssemblyAccession | None:
         numeric_identifier=match.group("numeric"),
         version=int(match.group("version")),
     )
+
+
+def normalise_field_name(field_name: str) -> str:
+    """Return a normalised field name for structured accession matching."""
+
+    separated_name = CAMEL_CASE_BOUNDARY_PATTERN.sub(r"\1_\2", field_name.strip())
+    lower_name = separated_name.lower()
+    return NON_ALPHANUMERIC_PATTERN.sub("_", lower_name).strip("_")
+
+
+def field_contains_assembly_accessions(field_name: str) -> bool:
+    """Return whether one field name should contain assembly accessions."""
+
+    normalised_field_name = normalise_field_name(field_name)
+    if not normalised_field_name:
+        return False
+    if normalised_field_name in EXPLICIT_ACCESSION_FIELD_NAMES:
+        return True
+    return normalised_field_name.endswith("_accession") or normalised_field_name.endswith(
+        "_accessions",
+    )
+
+
+def extract_explicit_assembly_accessions(payload: object) -> set[str]:
+    """Extract exact assembly accessions from one explicit structured value."""
+
+    found: set[str] = set()
+    if isinstance(payload, dict):
+        for value in payload.values():
+            found.update(extract_explicit_assembly_accessions(value))
+        return found
+    if isinstance(payload, list):
+        for value in payload:
+            found.update(extract_explicit_assembly_accessions(value))
+        return found
+    if not isinstance(payload, str):
+        return found
+    parsed_accession = parse_assembly_accession(payload.strip())
+    if parsed_accession is not None:
+        found.add(parsed_accession.accession)
+    return found
 
 
 def run_summary_lookup_with_retries(
@@ -157,23 +201,21 @@ def run_summary_lookup_with_retries(
     raise AssertionError("metadata retry loop terminated unexpectedly")
 
 
-def extract_accessions(payload: object) -> set[str]:
-    """Recursively extract assembly accessions from a JSON-like payload."""
+def extract_structured_accessions(payload: object) -> set[str]:
+    """Recursively extract assembly accessions from explicit structured fields."""
 
     found: set[str] = set()
     if isinstance(payload, dict):
-        for value in payload.values():
-            found.update(extract_accessions(value))
+        for key, value in payload.items():
+            if field_contains_assembly_accessions(str(key)):
+                found.update(extract_explicit_assembly_accessions(value))
+            if isinstance(value, dict | list):
+                found.update(extract_structured_accessions(value))
         return found
     if isinstance(payload, list):
         for value in payload:
-            found.update(extract_accessions(value))
+            found.update(extract_structured_accessions(value))
         return found
-    if isinstance(payload, str):
-        found.update(
-            match.group(0)
-            for match in ACCESSION_PATTERN.finditer(payload)
-        )
     return found
 
 
@@ -193,7 +235,7 @@ def parse_summary_json_lines(
             payload = json.loads(line)
         except JSONDecodeError as error:
             raise MetadataLookupError("datasets summary returned invalid JSON") from error
-        discovered = extract_accessions(payload)
+        discovered = extract_structured_accessions(payload)
         matching_requested = requested.intersection(discovered)
         for requested_accession in matching_requested:
             summaries[requested_accession] = discovered

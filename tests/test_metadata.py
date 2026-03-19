@@ -12,8 +12,9 @@ from gtdb_genomes.metadata import (
     MetadataLookupError,
     apply_accession_preferences,
     build_summary_command,
-    run_summary_lookup_with_retries,
     choose_preferred_accession,
+    parse_summary_json_lines,
+    run_summary_lookup_with_retries,
 )
 
 
@@ -215,6 +216,34 @@ def test_apply_accession_preferences_uses_shared_numeric_identifier() -> None:
             "conversion_status": "paired_to_gca",
         },
     ]
+
+
+def test_parse_summary_json_lines_ignores_unrelated_accession_text() -> None:
+    """Structured accession fields should win over incidental free-text mentions."""
+
+    payload = (
+        '{"assembly":{"accession":"GCF_000001.2",'
+        '"pairedAccessions":["GCA_000001.1","GCA_000001.3"]},'
+        '"note":"Unrelated archive mention GCA_000001.9 should be ignored",'
+        '"comment":"GCA_000001.8"}\n'
+    )
+
+    parsed = parse_summary_json_lines(payload, ["GCF_000001.2"])
+
+    assert parsed == {
+        "GCF_000001.2": {
+            "GCF_000001.2",
+            "GCA_000001.1",
+            "GCA_000001.3",
+        },
+    }
+    assert choose_preferred_accession(
+        "GCF_000001.2",
+        parsed["GCF_000001.2"],
+    ) == (
+        "GCA_000001.3",
+        "paired_to_gca",
+    )
 
 
 def test_run_summary_lookup_with_retries_retries_invalid_json(

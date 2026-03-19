@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from gtdb_genomes.cli import main
 from gtdb_genomes.release_resolver import (
     BundledDataError,
     get_release_manifest_path,
@@ -34,6 +35,13 @@ def write_manifest(manifest_path: Path, row: str) -> None:
         + "\n",
         encoding="ascii",
     )
+
+
+def write_manifest_text(manifest_path: Path, text: str) -> None:
+    """Write a manifest file with custom content for negative test cases."""
+
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(text, encoding="ascii")
 
 
 def write_gzip_text(path: Path, content: str) -> None:
@@ -147,6 +155,71 @@ def test_load_release_manifest_raises_for_missing_manifest(tmp_path: Path) -> No
         load_release_manifest(missing_manifest)
 
 
+def test_load_release_manifest_rejects_missing_required_headers(
+    tmp_path: Path,
+) -> None:
+    """Manifest loading should fail when a required header is absent."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        "\n".join(
+            [
+                "resolved_release\tbacterial_taxonomy\tarchaeal_taxonomy\tis_latest",
+                "95.0\tbac.tsv\tar.tsv\ttrue",
+            ],
+        )
+        + "\n",
+    )
+
+    with pytest.raises(BundledDataError, match="missing required columns"):
+        load_release_manifest(get_release_manifest_path(data_root))
+
+
+def test_load_release_manifest_rejects_blank_required_fields(
+    tmp_path: Path,
+) -> None:
+    """Blank required values should fail manifest loading."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        "\n".join(
+            [
+                "resolved_release\taliases\tbacterial_taxonomy\t"
+                "archaeal_taxonomy\tis_latest",
+                "95.0\t \tbac.tsv\tar.tsv\ttrue",
+            ],
+        )
+        + "\n",
+    )
+
+    with pytest.raises(BundledDataError, match="blank field aliases"):
+        load_release_manifest(get_release_manifest_path(data_root))
+
+
+def test_load_release_manifest_rejects_rows_with_too_many_columns(
+    tmp_path: Path,
+) -> None:
+    """Rows with extra columns should fail manifest loading."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        "\n".join(
+            [
+                "resolved_release\taliases\tbacterial_taxonomy\t"
+                "archaeal_taxonomy\tis_latest",
+                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue\textra",
+            ],
+        )
+        + "\n",
+    )
+
+    with pytest.raises(BundledDataError, match="too many columns"):
+        load_release_manifest(get_release_manifest_path(data_root))
+
+
 def test_resolve_release_raises_for_unknown_alias(tmp_path: Path) -> None:
     """Unknown release aliases should raise a bundled-data error."""
 
@@ -158,6 +231,65 @@ def test_resolve_release_raises_for_unknown_alias(tmp_path: Path) -> None:
 
     with pytest.raises(BundledDataError):
         resolve_release("214", data_root=data_root)
+
+
+def test_resolve_and_validate_release_raises_for_malformed_manifest(
+    tmp_path: Path,
+) -> None:
+    """Malformed manifests should surface as bundled-data errors."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        "\n".join(
+            [
+                "resolved_release\taliases\tbacterial_taxonomy\t"
+                "archaeal_taxonomy\tis_latest",
+                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue\textra",
+            ],
+        )
+        + "\n",
+    )
+
+    with pytest.raises(BundledDataError, match="too many columns"):
+        resolve_and_validate_release("95", data_root=data_root)
+
+
+def test_cli_returns_exit_code_three_for_malformed_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The CLI should keep the documented exit code for malformed manifests."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        "\n".join(
+            [
+                "resolved_release\taliases\tbacterial_taxonomy\t"
+                "archaeal_taxonomy\tis_latest",
+                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue\textra",
+            ],
+        )
+        + "\n",
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.release_resolver.get_bundled_data_root",
+        lambda: data_root,
+    )
+
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(tmp_path / "output"),
+        ],
+    )
+
+    assert exit_code == 3
 
 
 def test_resolve_and_validate_release_raises_for_missing_taxonomy_file(

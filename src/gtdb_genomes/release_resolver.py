@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import gzip
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +41,13 @@ class ReleaseResolution:
     archaeal_taxonomy: Path | None
 
 
+REQUIRED_MANIFEST_FIELDS = (
+    "resolved_release",
+    "aliases",
+    "is_latest",
+)
+
+
 def get_bundled_data_root() -> Path:
     """Return the bundled GTDB taxonomy root for repo or installed use."""
 
@@ -70,9 +78,11 @@ def parse_aliases(raw_aliases: str) -> tuple[str, ...]:
     return tuple(aliases)
 
 
-def parse_optional_path(raw_path: str) -> str | None:
+def parse_optional_path(raw_path: str | None) -> str | None:
     """Convert an optional TSV path field into a normalised value."""
 
+    if raw_path is None:
+        return None
     value = raw_path.strip()
     if not value:
         return None
@@ -90,6 +100,100 @@ def parse_is_latest(raw_value: str) -> bool:
     return value == "true"
 
 
+def validate_manifest_headers(
+    fieldnames: Sequence[str | None] | None,
+    path: Path,
+) -> None:
+    """Validate that a bundled release manifest exposes the required columns."""
+
+    if fieldnames is None:
+        raise BundledDataError(
+            f"Bundled release manifest is missing a header row: {path}",
+        )
+    normalised_fieldnames = tuple(
+        "" if fieldname is None else fieldname.strip()
+        for fieldname in fieldnames
+    )
+    if any(not fieldname for fieldname in normalised_fieldnames):
+        raise BundledDataError(
+            f"Bundled release manifest has a malformed header row: {path}",
+        )
+    missing_fields = [
+        field_name
+        for field_name in REQUIRED_MANIFEST_FIELDS
+        if field_name not in normalised_fieldnames
+    ]
+    if missing_fields:
+        missing_text = ", ".join(missing_fields)
+        raise BundledDataError(
+            "Bundled release manifest is missing required columns: "
+            f"{missing_text}",
+        )
+
+
+def get_required_manifest_value(
+    row: dict[str, str | None],
+    field_name: str,
+    path: Path,
+    line_number: int,
+) -> str:
+    """Return one required manifest value or raise a bundled-data error."""
+
+    raw_value = row.get(field_name)
+    if raw_value is None:
+        raise BundledDataError(
+            f"Bundled release manifest row {line_number} is missing field "
+            f"{field_name}: {path}",
+        )
+    value = raw_value.strip()
+    if not value:
+        raise BundledDataError(
+            f"Bundled release manifest row {line_number} has a blank field "
+            f"{field_name}: {path}",
+        )
+    return value
+
+
+def parse_manifest_entry(
+    row: dict[str, str | None],
+    path: Path,
+    line_number: int,
+) -> ReleaseManifestEntry:
+    """Parse one bundled manifest row into a release entry."""
+
+    if None in row:
+        raise BundledDataError(
+            f"Bundled release manifest row {line_number} has too many columns: "
+            f"{path}",
+        )
+    return ReleaseManifestEntry(
+        resolved_release=get_required_manifest_value(
+            row,
+            "resolved_release",
+            path,
+            line_number,
+        ),
+        aliases=parse_aliases(
+            get_required_manifest_value(
+                row,
+                "aliases",
+                path,
+                line_number,
+            ),
+        ),
+        bacterial_taxonomy=parse_optional_path(row.get("bacterial_taxonomy")),
+        archaeal_taxonomy=parse_optional_path(row.get("archaeal_taxonomy")),
+        is_latest=parse_is_latest(
+            get_required_manifest_value(
+                row,
+                "is_latest",
+                path,
+                line_number,
+            ),
+        ),
+    )
+
+
 def load_release_manifest(
     manifest_path: Path | None = None,
 ) -> tuple[ReleaseManifestEntry, ...]:
@@ -103,17 +207,12 @@ def load_release_manifest(
     try:
         with path.open("r", encoding="ascii", newline="") as handle:
             reader = csv.DictReader(handle, delimiter="\t")
+            validate_manifest_headers(reader.fieldnames, path)
             entries = [
-                ReleaseManifestEntry(
-                    resolved_release=row["resolved_release"].strip(),
-                    aliases=parse_aliases(row["aliases"]),
-                    bacterial_taxonomy=parse_optional_path(row["bacterial_taxonomy"]),
-                    archaeal_taxonomy=parse_optional_path(row["archaeal_taxonomy"]),
-                    is_latest=parse_is_latest(row["is_latest"]),
-                )
-                for row in reader
+                parse_manifest_entry(row, path, line_number)
+                for line_number, row in enumerate(reader, start=2)
             ]
-    except OSError as error:
+    except (OSError, UnicodeDecodeError, csv.Error) as error:
         raise BundledDataError(
             f"Bundled release manifest could not be read: {path}",
         ) from error
