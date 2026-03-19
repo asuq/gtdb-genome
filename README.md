@@ -17,17 +17,29 @@ all NCBI metadata and genome download operations.
 conda install -c bioconda -c conda-forge gtdb-genomes
 ```
 
-## Command Form
+## Command
 
 ```bash
 gtdb-genomes --gtdb-release latest --gtdb-taxon g__Escherichia --outdir results
 ```
 
-Core options:
+### Mandatory options
 
-- `--gtdb-release`
-- repeatable `--gtdb-taxon`
-- `--outdir`
+- `--gtdb-release`: Accepts bundled aliases such as `latest`, `80`, `95`,
+  `214`, `226`, `220.0`, or `release220/220.0`.
+
+  `latest` is resolved from the bundled manifest row marked with
+  `is_latest=true`. GTDB release resolution never contacts GTDB over the
+  network.
+
+- `--gtdb-taxon`: Repeatable. A row is selected when its GTDB lineage contains
+  the requested GTDB token exactly after trimming. Matching is case-sensitive.
+
+- `--outdir`: Output directory must either not exist or exist as an empty
+  directory. The tool does not merge into or overwrite a populated output tree.
+
+
+### Optional options
 - `--prefer-genbank`
 - `--download-method {auto,direct,dehydrate}`
 - `--threads`
@@ -36,6 +48,8 @@ Core options:
 - `--debug`
 - `--keep-temp`
 - `--dry-run`
+
+Check `gtdb-genomes --help` for details and [usage-details](docs/usage-details.md) on optional options.
 
 ## Examples
 
@@ -71,6 +85,38 @@ gtdb-genomes \
   --outdir /tmp/gtdb_dry_run
 ```
 
+## Output Layout
+
+```text
+OUTPUT/
+|-- accession_map.tsv
+|-- download_failures.tsv
+|-- run_summary.tsv
+|-- taxon_summary.tsv
+|-- debug.log                  # only when --debug is used
+`-- taxa/
+    |-- g__Escherichia/
+    |   |-- taxon_accessions.tsv
+    |   `-- GCA_000005845.2/
+    `-- s__Escherichia_coli/
+        |-- taxon_accessions.tsv
+        `-- GCA_000005845.2/
+```
+
+## Summary Files
+
+- `run_summary.tsv`: records requested and resolved release, chosen method, actual concurrency, worker usage, counts, output path, and exit code
+- `taxon_summary.tsv`: records matched rows, accession counts, duplicate-copy count, and output directory
+- `accession_map.tsv`: records lineage, original GTDB accession, final accession, conversion status, final method used, output path, and download status
+- `download_failures.tsv`: records collapsed taxon context, the attempted accession or accession set, the final accession or accession set when the failed step has a known final outcome, stage, retry counters, redacted error message, and final failure status
+- `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
+  - records lineage, accession mapping, output path, and whether the accession is duplicated across taxa
+
+When a failure comes from one shared metadata, batch download, or rehydrate
+command, the affected taxa and accessions are collapsed into semicolon-joined
+values instead of being repeated once per accession.
+
+
 ## Workflow
 
 The tool:
@@ -93,7 +139,7 @@ bundled-data notes are documented in
 > upstream `datasets` command and does not use it for GTDB release resolution,
 > local taxonomy loading, or any other service.
 
-> [!CAUTION]
+> [!NOTE]
 > Some legacy GTDB releases include genome accessions starting with `UBA`.
 > These legacy accessions are not supported by NCBI and are not supported by
 > `gtdb-genomes`. When selected, the tool warns and skips them. Check
