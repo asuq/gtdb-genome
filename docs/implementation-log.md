@@ -1132,3 +1132,19 @@ PY`
   - the README now embeds the shipped contract directly for runtime clarity
     instead of treating the frozen development plan as the only authoritative
     place where those values can be read
+
+### Commit `7ba4985` - `test(docs): cover runtime contract references`
+
+- Implemented:
+  - extended the entrypoint documentation test so it now checks the README for
+    the embedded runtime-contract section and the `attempted_accession` field
+  - added coverage for the Bioconda template check that validates the bundled
+    manifest through `get_release_manifest_path()`
+- Files:
+  - `tests/test_entrypoints.py`
+- Checks run:
+  - `.venv/bin/pytest -q`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
