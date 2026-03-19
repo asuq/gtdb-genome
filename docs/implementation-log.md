@@ -1386,3 +1386,57 @@ PY`
     validation issues in the bash helper layer; these were fixed in a follow-on
     commit so the planned `B4`, `B1`, and `B3` validation sequence could
     complete without manual TSV inspection
+
+### Commit `7bb1577` - `fix(bin): align real-data runner expectations`
+
+- Implemented:
+  - changed the local and remote direct-success checks so they now treat
+    `run_summary.tsv` as the source of truth for a successful direct case,
+    requiring a positive `successful_accessions` count and `failed_accessions=0`
+    instead of incorrectly demanding that `download_failures.tsv` be header-only
+  - corrected the `B2` local real-data case expectation to exit `6` and use the
+    legacy-mixed validation path, because the bundled `86 / g__Methanobrevibacter`
+    dataset includes one unsupported `UBA*` accession alongside supported
+    genomes
+  - reran the full local matrix in the fresh `gtdb-genome-netcheck`
+    environment and confirmed that the adjusted runner now matches the live
+    behaviour for every mandatory local case
+- Files:
+  - `bin/run-real-data-tests-local.sh`
+  - `bin/run-real-data-tests-remote.sh`
+- Checks run:
+  - `bash -n bin/run-real-data-tests-local.sh bin/run-real-data-tests-remote.sh bin/real-data-test-common.sh`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome-netcheck/bin:/usr/bin:/bin LOCAL_TEST_ROOT=/tmp/gtdb-realtests/local-full-netcheck-20260319-rerun bin/run-real-data-tests-local.sh`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the original runner assumptions were stricter than the implemented runtime
+    contract in two places: a successful direct run can still carry retry
+    history rows, and the live `B2` case is a partial-success mixed legacy run
+    rather than a clean success
+
+### Commit `04472d1` - `docs(testing): align real-data guide with live cases`
+
+- Implemented:
+  - updated the real-data validation guide so the local acceptance criteria now
+    reflect the observed bundled data for `B2`, documenting that the
+    `86 / g__Methanobrevibacter` case exits `6` because one legacy `UBA*`
+    accession is skipped while the supported genomes still succeed
+  - documented that successful direct cases may retain retry-history rows in
+    `download_failures.tsv`, so the real pass/fail gate for both local and
+    remote direct runs is the shell exit code plus `run_summary.tsv`, not a
+    header-only failure TSV
+  - kept the remote packaged-runtime guidance aligned with the same rule so the
+    remote helper and manual review guidance both interpret successful direct
+    runs consistently
+- Files:
+  - `docs/real-data-validation.md`
+- Checks run:
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome-netcheck/bin:/usr/bin:/bin LOCAL_TEST_ROOT=/tmp/gtdb-realtests/local-full-netcheck-20260319-rerun bin/run-real-data-tests-local.sh`
+- Match to frozen plan:
+  - no, by design
+- Deviations:
+  - the live full local rerun showed that the original guide was still
+    encoding earlier assumptions instead of the shipped runtime behaviour, so
+    the documentation had to be brought into line with the evidence before the
+    remote packaged-runtime pass
