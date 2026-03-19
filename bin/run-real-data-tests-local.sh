@@ -23,9 +23,16 @@ local_check_direct_success() {
         "download_method_used" \
         '^direct$' \
         "direct success method" || return 1
-    real_data_assert_header_only \
-        "${output_root}/download_failures.tsv" \
-        "direct success failures" || return 1
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "successful_accessions" \
+        '^[1-9][0-9]*$' \
+        "direct success count" || return 1
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "failed_accessions" \
+        '^0$' \
+        "direct success zero failures" || return 1
     return 0
 }
 
@@ -240,8 +247,8 @@ run_local_case() {
         B2)
             real_data_require_api_key
             real_data_run_case \
-                "${LOCAL_TEST_ROOT}" "${case_id}" 0 present "" \
-                local_check_direct_success \
+                "${LOCAL_TEST_ROOT}" "${case_id}" 6 present 'PRJNA417962' \
+                local_check_legacy_mixed \
                 "${LOCAL_LAUNCHER[@]}" \
                 --release 86 \
                 --taxon g__Methanobrevibacter \

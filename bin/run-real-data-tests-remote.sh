@@ -20,9 +20,16 @@ remote_check_direct_success() {
         "download_method_used" \
         '^direct$' \
         "remote direct success method" || return 1
-    real_data_assert_header_only \
-        "${output_root}/download_failures.tsv" \
-        "remote direct success failures" || return 1
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "successful_accessions" \
+        '^[1-9][0-9]*$' \
+        "remote direct success count" || return 1
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "failed_accessions" \
+        '^0$' \
+        "remote direct success zero failures" || return 1
     return 0
 }
 
