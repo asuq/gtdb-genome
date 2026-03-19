@@ -350,6 +350,18 @@ def get_rehydrate_workers(threads: int) -> int:
     return max(1, min(threads, REHYDRATE_WORKER_CAP))
 
 
+def build_subprocess_error_message(
+    stage: str,
+    result: subprocess.CompletedProcess[str],
+) -> str:
+    """Build a non-empty error message for one failed subprocess result."""
+
+    error_message = result.stderr.strip() or result.stdout.strip()
+    if error_message:
+        return error_message
+    return f"{stage.replace('_', ' ')} command failed"
+
+
 def run_retryable_command(
     command: list[str],
     stage: str,
@@ -384,7 +396,7 @@ def run_retryable_command(
                     attempt_index=attempt_index,
                     max_attempts=max_attempts,
                     error_type="subprocess",
-                    error_message=result.stderr.strip() or result.stdout.strip(),
+                    error_message=build_subprocess_error_message(stage, result),
                     final_status="retry_scheduled",
                     attempted_accession=attempted_accession,
                 ),
@@ -397,7 +409,7 @@ def run_retryable_command(
                 attempt_index=attempt_index,
                 max_attempts=max_attempts,
                 error_type="subprocess",
-                error_message=result.stderr.strip() or result.stdout.strip(),
+                error_message=build_subprocess_error_message(stage, result),
                 final_status=final_failure_status,
                 attempted_accession=attempted_accession,
             ),

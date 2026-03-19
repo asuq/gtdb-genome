@@ -247,6 +247,35 @@ def test_run_retryable_command_records_retries_before_success() -> None:
     ]
 
 
+def test_run_retryable_command_uses_stage_message_for_silent_failures() -> None:
+    """Silent subprocess failures should still leave a useful error message."""
+
+    def runner(
+        command: list[str],
+        capture_output: bool,
+        text: bool,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        """Return one failed subprocess result without any output."""
+
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="",
+        )
+
+    result = run_retryable_command(
+        ["datasets", "download"],
+        stage="preferred_download",
+        sleep_func=lambda delay: None,
+        runner=runner,
+    )
+
+    assert result.succeeded is False
+    assert result.failures[-1].error_message == "preferred download command failed"
+
+
 def test_preview_command_uses_full_retry_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
