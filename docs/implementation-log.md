@@ -2700,3 +2700,105 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `052c315` - `refactor(cli): set fixed thread default`
+
+- Implemented:
+  - replaced the old machine-dependent thread default in
+    `src/gtdb_genomes/cli.py` with the fixed constant `DEFAULT_THREADS = 8`
+  - simplified the `--threads` help text so it now tells users only that the
+    option chooses how many CPUs to use for the run and that the default is `8`
+  - kept `CliArgs.download_method` fixed to `auto` and left the rest of the
+    CLI contract unchanged
+  - added a CLI regression test that pins the documented default thread count
+    at `8`
+- Why:
+  - the previous default varied by host and made the user-facing contract
+    harder to explain and harder to test
+  - the requested documentation tone was simpler than the earlier internal
+    concurrency explanation
+- Files:
+  - `src/gtdb_genomes/cli.py`
+  - `tests/test_cli.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_cli.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
+
+### Commit `d9c2138` - `refactor(workflow): split workflow phases`
+
+- Implemented:
+  - split `run_workflow()` in `src/gtdb_genomes/workflow.py` into phase helpers
+    for bundled-data selection, early dry-run preflight, supported planning,
+    real-run execution, and output materialisation
+  - added `WorkflowSelectionPhase` and `WorkflowPlanningPhase` dataclasses so
+    state moves between phases with named fields instead of long tuples
+  - added an early dry-run `unzip` check before the zero-match and
+    unsupported-only dry-run exits, so missing archive support now fails fast
+    with the same preflight error path as real runs
+  - added simple maintainers' comments at the less obvious retry and
+    orchestration boundaries
+  - expanded INFO logging for the main workflow milestones, including run
+    start, release selection, supported-versus-unsupported counts, metadata
+    lookup, automatic planning, direct and dehydrated batch phases,
+    output-writing start, and final run summary
+  - added edge-contract coverage for the new early `unzip` failure path and
+    for the dry-run and real-run INFO milestones
+- Why:
+  - `run_workflow()` had accumulated several distinct phases and was difficult
+    to follow in one block
+  - dry-runs previously hid the `unzip` requirement until a later real run,
+    which made remote validation and first-time usage more confusing
+  - the earlier silent execution left too little reassurance about progress
+- Files:
+  - `src/gtdb_genomes/workflow.py`
+  - `tests/test_edge_contract.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_edge_contract.py`
+  - `.venv/bin/python -m pytest -q tests/test_logging.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - bundled release resolution still happens before the early dry-run `unzip`
+    check, because the workflow must know which bundled taxonomy to read before
+    it can decide whether there are zero matches
+
+### Commit `882d50c` - `chore(validation): add server wrapper`
+
+- Implemented:
+  - added `bin/run-real-data-tests-server.sh` as the preferred on-server
+    wrapper for the existing remote runner, with `smoke`, `full`,
+    `full-large`, and explicit-case passthrough modes
+  - kept the wrapper thin: it does not build, copy, install, or know about any
+    server inventory, and it preserves the existing environment-variable based
+    controls
+  - updated `bin/run-real-data-tests-local.sh` so the documented `A1` to `A9`
+    dry-run family now checks for `unzip` as well as `datasets`
+  - refreshed `README.md`, `docs/usage-details.md`, and
+    `docs/real-data-validation.md` so they document the fixed thread default,
+    the earlier dry-run `unzip` expectation, and the new server wrapper
+  - added regression coverage for the wrapper presets and passthrough
+    behaviour, plus documentation assertions for the new wording
+- Why:
+  - the runtime changes needed a single-script remote entrypoint so the user
+    can run the common server validation path without remembering the case list
+  - the docs and helper scripts needed to surface the new `unzip` preflight
+    behaviour consistently
+- Files:
+  - `README.md`
+  - `bin/run-real-data-tests-local.sh`
+  - `bin/run-real-data-tests-server.sh`
+  - `docs/real-data-validation.md`
+  - `docs/usage-details.md`
+  - `tests/test_entrypoints.py`
+  - `tests/test_real_data_scripts.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_real_data_scripts.py`
+  - `.venv/bin/python -m pytest -q tests/test_entrypoints.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_download.py tests/test_edge_contract.py tests/test_real_data_scripts.py tests/test_entrypoints.py tests/test_logging.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - manual remote acceptance was not rerun in this turn
