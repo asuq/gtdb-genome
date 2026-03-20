@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -12,6 +11,8 @@ from pathlib import Path
 from gtdb_genomes.download import validate_include_value
 from gtdb_genomes.preflight import PreflightError
 from gtdb_genomes.taxon_normalisation import normalise_requested_taxon
+
+DEFAULT_THREADS = 8
 
 
 @dataclass(slots=True)
@@ -30,17 +31,6 @@ class CliArgs:
     debug: bool
     keep_temp: bool
     dry_run: bool
-
-
-def get_default_threads() -> int:
-    """Return the default worker count for the local machine."""
-
-    if hasattr(os, "sched_getaffinity"):
-        return len(os.sched_getaffinity(0))
-    cpu_count = os.cpu_count()
-    if cpu_count is None:
-        return 1
-    return cpu_count
 
 
 def normalise_release(parser: argparse.ArgumentParser, release: str) -> str:
@@ -166,10 +156,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--threads",
         type=int,
-        default=get_default_threads(),
+        default=DEFAULT_THREADS,
         help=(
-            "Worker count to use for automatic planning and dehydrated "
-            "rehydration; defaults to all available CPU threads."
+            "Choose how many CPUs to use for the run; defaults to 8."
         ),
     )
     parser.add_argument(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gtdb_genomes.cli import CliArgs, build_parser, main, parse_args
+from gtdb_genomes.cli import DEFAULT_THREADS, CliArgs, build_parser, main, parse_args
 from gtdb_genomes.preflight import PreflightError
 
 
@@ -28,6 +28,8 @@ def test_help_includes_documented_flags() -> None:
     assert "--keep-temp" in help_text
     assert "--dry-run" in help_text
     assert "Quote species taxa with spaces" in help_text
+    assert "Choose how many CPUs to use for the run" in help_text
+    assert "8." in help_text
 
 
 def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
@@ -56,6 +58,25 @@ def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
     assert args.prefer_genbank is False
     assert args.version_fixed is False
     assert args.download_method == "auto"
+
+
+def test_parse_args_uses_fixed_default_threads(tmp_path: Path) -> None:
+    """Thread defaults should stay pinned to the documented fixed value."""
+
+    parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "--gtdb-release",
+            "latest",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(tmp_path),
+        ],
+    )
+
+    assert args.threads == DEFAULT_THREADS == 8
 
 
 def test_parse_args_rejects_shell_split_species_taxon(tmp_path: Path) -> None:
