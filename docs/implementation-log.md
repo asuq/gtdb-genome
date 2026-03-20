@@ -2591,3 +2591,112 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `eac21a1` - `refactor(cli): make download strategy automatic`
+
+- Implemented:
+  - removed the public `--download-method` flag from `src/gtdb_genomes/cli.py`
+  - kept `CliArgs.download_method` internally, but fixed it to `auto` so the
+    manifest schema and downstream workflow contract did not need churn
+  - updated `src/gtdb_genomes/preflight.py` so supported dry-runs always
+    require `datasets`, because automatic planning now always has the option to
+    preview supported requests
+  - replaced the old direct command builder in `src/gtdb_genomes/download.py`
+    with a batch-input direct builder that always emits
+    `datasets download genome accession --inputfile ... --filename ...`
+  - updated CLI and download contract tests to reject the removed flag and pin
+    the new internal-auto behaviour
+- Why:
+  - the public strategy knob no longer matched the desired product contract
+  - the later workflow rewrite depends on one stable planning entrypoint and a
+    single direct command shape
+- Files:
+  - `src/gtdb_genomes/cli.py`
+  - `src/gtdb_genomes/preflight.py`
+  - `src/gtdb_genomes/download.py`
+  - `tests/test_cli.py`
+  - `tests/test_cli_integration.py`
+  - `tests/test_download.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_cli.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli_integration.py`
+  - `.venv/bin/python -m pytest -q tests/test_download.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
+
+### Commit `9ce2b60` - `refactor(workflow): batch direct retries with fallback`
+
+- Implemented:
+  - removed the threaded per-accession direct-download path from
+    `src/gtdb_genomes/workflow.py`
+  - added direct batch passes labelled `direct_batch_1` to `direct_batch_4`
+    that write one accession file per pass, run one batch direct download,
+    extract one archive, keep partial successes, and retry only unresolved
+    request accessions
+  - preserved original-accession fallback for unresolved preferred-`GCA`
+    plans through a second pass family labelled
+    `direct_fallback_batch_1` to `direct_fallback_batch_4`
+  - kept `paired_to_gca_fallback_original_on_download_failure` alive for
+    successful original-accession fallback rows
+  - reworked shared batch failures into scoped shared-failure contexts so
+    failure manifests can still collapse shared command attempts without
+    smearing them across unaffected accessions
+  - updated the edge-contract suite to cover one-pass direct success, partial
+    success plus retry, preferred-to-original fallback, unresolved failures,
+    automatic preview, and the new shared-failure wrapper
+- Why:
+  - the intermittent remote `C1` segfault sat in the old threaded direct path
+  - batch-input direct downloads are simpler to reason about, preserve partial
+    successes naturally, and still allow the original-accession recovery path
+    the user asked to keep
+- Files:
+  - `src/gtdb_genomes/workflow.py`
+  - `tests/test_edge_contract.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_edge_contract.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
+
+### Commit `14aebc0` - `chore(validation): align automatic download guidance`
+
+- Implemented:
+  - removed `--download-method` from the local and remote real-data runners
+  - removed `REAL_DATA_C1_THREADS` from the remote runner and kept the generic
+    `REAL_DATA_PYTHON_FAULTHANDLER` and `REAL_DATA_DEBUG_SAFE` helpers
+  - updated local runner command requirements so all documented `A*` dry-runs
+    now require `datasets`, matching the new automatic-preview contract
+  - refreshed `README.md`, `docs/usage-details.md`,
+    `docs/real-data-validation.md`, and `docs/development-plan.md` so they
+    describe automatic strategy selection, direct batch passes, and retained
+    original-accession fallback
+  - replaced the old threaded-direct debug note with a closure note that
+    explains the threaded path was removed
+  - updated doc and shell-helper tests to pin the new runner commands and the
+    absence of the public strategy flag
+- Why:
+  - after the runtime rewrite, the validation scripts and user-facing docs
+    were the main remaining source of stale guidance
+  - the local dry-run requirements changed materially once preview became part
+    of automatic planning for supported requests
+- Files:
+  - `README.md`
+  - `bin/run-real-data-tests-local.sh`
+  - `bin/run-real-data-tests-remote.sh`
+  - `docs/debug-note-c1-threaded-direct-segfault.md`
+  - `docs/development-plan.md`
+  - `docs/real-data-validation.md`
+  - `docs/usage-details.md`
+  - `tests/test_entrypoints.py`
+  - `tests/test_real_data_scripts.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_real_data_scripts.py`
+  - `.venv/bin/python -m pytest -q tests/test_entrypoints.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_download.py tests/test_edge_contract.py tests/test_real_data_scripts.py tests/test_entrypoints.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
