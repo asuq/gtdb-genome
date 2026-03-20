@@ -176,7 +176,7 @@ def build_cli_args(output_dir: Path) -> CliArgs:
         outdir=output_dir,
         prefer_genbank=True,
         version_fixed=False,
-        download_method="direct",
+        download_method="auto",
         threads=4,
         ncbi_api_key=None,
         include="genome",
@@ -232,11 +232,10 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
     """Mixed supported and UBA dry-runs should warn once and exit cleanly."""
 
     warning_stream = install_capture_logger(monkeypatch)
+    required_tools_calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(
         "gtdb_genomes.workflow.check_required_tools",
-        lambda required_tools: (_ for _ in ()).throw(
-            AssertionError("preflight should not run"),
-        ),
+        lambda required_tools: required_tools_calls.append(tuple(required_tools)),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.load_release_taxonomy",
@@ -252,9 +251,7 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.run_preview_command",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("preview should not run"),
-        ),
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
     output_dir = tmp_path / "mixed-uba-dry-run"
@@ -266,14 +263,13 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
             "--dry-run",
         ],
     )
 
     assert exit_code == 0
     assert not output_dir.exists()
+    assert required_tools_calls == [("datasets",)]
     warning_text = warning_stream.getvalue()
     assert warning_text.count("unsupported legacy GTDB UBA accessions") == 1
     assert "PRJNA417962" in warning_text
@@ -321,8 +317,6 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
             "--dry-run",
         ],
     )
@@ -367,8 +361,6 @@ def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
             "--prefer-genbank",
             "--dry-run",
         ],
@@ -411,8 +403,6 @@ def test_supported_real_run_missing_tools_returns_exit_five(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -730,7 +720,7 @@ def test_direct_mode_downloads_shared_preferred_accession_once(
     payload_directory = tmp_path / "payload"
     payload_directory.mkdir()
     download_calls: list[tuple[str, str]] = []
-    extraction_calls: list[tuple[str, Path, str | None]] = []
+    extraction_calls: list[tuple[Path, Path]] = []
 
     def fake_run_retryable_command(
         command: list[str],
@@ -751,24 +741,26 @@ def test_direct_mode_downloads_shared_preferred_accession_once(
             failures=(),
         )
 
-    def fake_extract_download_payload(
-        accession: str,
+    def fake_extract_archive(
         archive_path: Path,
-        run_directories,
-        *,
-        extraction_key: str | None = None,
-    ) -> tuple[ResolvedPayloadDirectory | None, tuple[CommandFailureRecord, ...]]:
-        """Return one shared payload directory for the preferred accession."""
+        extraction_root: Path,
+    ) -> None:
+        """Create the extracted directory for one direct batch pass."""
 
-        del run_directories
-        del extraction_key
-        extraction_calls.append((accession, archive_path))
+        extraction_root.mkdir(parents=True, exist_ok=True)
+        extraction_calls.append((archive_path, extraction_root))
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Return one shared resolved payload for the preferred accession."""
+
+        assert extraction_root.name == "direct_batch_1"
         return (
             ResolvedPayloadDirectory(
                 final_accession="GCA_001881595.5",
                 directory=payload_directory,
             ),
-            (),
         )
 
     monkeypatch.setattr(
@@ -776,8 +768,12 @@ def test_direct_mode_downloads_shared_preferred_accession_once(
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_download_payload",
-        fake_extract_download_payload,
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.collect_payload_directories",
+        fake_collect_payload_directories,
     )
 
     run_directories = initialise_run_directories(tmp_path / "direct-shared-success")
@@ -805,26 +801,30 @@ def test_direct_mode_downloads_shared_preferred_accession_once(
     assert download_calls == [("preferred_download", "GCA_001881595")]
     assert extraction_calls == [
         (
-            "GCA_001881595",
-            run_directories.downloads_root / "GCA_001881595.zip",
+            run_directories.downloads_root / "direct_batch_1.zip",
+            run_directories.extracted_root / "direct_batch_1",
         ),
     ]
     assert result.executions["GCF_001881595.2"].final_accession == "GCA_001881595.5"
     assert result.executions["GCF_001881595.2"].download_status == "downloaded"
+    assert result.executions["GCF_001881595.2"].download_batch == "direct_batch_1"
     assert result.executions["GCA_001881595.3"].final_accession == "GCA_001881595.5"
     assert result.executions["GCA_001881595.3"].download_status == "downloaded"
+    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_1"
 
 
-def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
+def test_direct_mode_retries_unresolved_accessions_in_later_batches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """A shared preferred failure should retry each exact original accession."""
+    """A later direct batch should retry only the unresolved request accession."""
 
-    payload_directory = tmp_path / "fallback-payload"
-    payload_directory.mkdir()
+    payload_one = tmp_path / "payload-one"
+    payload_one.mkdir()
+    payload_two = tmp_path / "payload-two"
+    payload_two.mkdir()
     download_calls: list[tuple[str, str]] = []
-    extraction_calls: list[tuple[str, Path]] = []
+    extraction_calls: list[tuple[Path, Path]] = []
 
     def fake_run_retryable_command(
         command: list[str],
@@ -834,27 +834,10 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
         sleep_func=None,
         runner=None,
     ) -> RetryableCommandResult:
-        """Return a failed shared preferred download and exact fallback successes."""
+        """Return successful direct batch commands for both passes."""
 
-        del command, sleep_func, runner
+        del command, final_failure_status, sleep_func, runner
         download_calls.append((stage, attempted_accession or ""))
-        if stage == "preferred_download":
-            return RetryableCommandResult(
-                succeeded=False,
-                stdout="",
-                stderr="preferred failed",
-                failures=(
-                    CommandFailureRecord(
-                        stage="preferred_download",
-                        attempt_index=4,
-                        max_attempts=4,
-                        error_type="subprocess",
-                        error_message="preferred failed",
-                        final_status=final_failure_status,
-                        attempted_accession=attempted_accession,
-                    ),
-                ),
-            )
         return RetryableCommandResult(
             succeeded=True,
             stdout="",
@@ -862,97 +845,104 @@ def test_direct_mode_falls_back_per_original_after_shared_preferred_failure(
             failures=(),
         )
 
-    def fake_extract_download_payload(
-        accession: str,
+    def fake_extract_archive(
         archive_path: Path,
-        run_directories,
-        *,
-        extraction_key: str | None = None,
-    ) -> tuple[ResolvedPayloadDirectory | None, tuple[CommandFailureRecord, ...]]:
-        """Return a payload for each exact original fallback request."""
+        extraction_root: Path,
+    ) -> None:
+        """Create one extraction root per direct batch pass."""
 
-        del run_directories
-        del extraction_key
-        extraction_calls.append((accession, archive_path))
-        return (
-            ResolvedPayloadDirectory(
-                final_accession=accession,
-                directory=payload_directory,
-            ),
-            (),
-        )
+        extraction_root.mkdir(parents=True, exist_ok=True)
+        extraction_calls.append((archive_path, extraction_root))
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Expose only one payload in the first pass, then the remaining one."""
+
+        if extraction_root.name == "direct_batch_1":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000001.1",
+                    directory=payload_one,
+                ),
+            )
+        if extraction_root.name == "direct_batch_2":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000002.1",
+                    directory=payload_two,
+                ),
+            )
+        raise AssertionError(f"Unexpected extraction root: {extraction_root}")
 
     monkeypatch.setattr(
         "gtdb_genomes.workflow.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_download_payload",
-        fake_extract_download_payload,
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.collect_payload_directories",
+        fake_collect_payload_directories,
     )
 
-    run_directories = initialise_run_directories(tmp_path / "direct-shared-fallback")
+    args = build_cli_args(tmp_path / "out")
+    args.prefer_genbank = False
+
+    run_directories = initialise_run_directories(tmp_path / "direct-batch-retry")
     result = execute_direct_accession_plans(
         (
             AccessionPlan(
-                original_accession="GCF_001881595.2",
-                selected_accession="GCA_001881595.3",
-                download_request_accession="GCA_001881595",
-                conversion_status="paired_to_gca",
+                original_accession="GCF_000001.1",
+                selected_accession="GCF_000001.1",
+                download_request_accession="GCF_000001.1",
+                conversion_status="unchanged_original",
             ),
             AccessionPlan(
-                original_accession="GCA_001881595.3",
-                selected_accession="GCA_001881595.3",
-                download_request_accession="GCA_001881595",
+                original_accession="GCF_000002.1",
+                selected_accession="GCF_000002.1",
+                download_request_accession="GCF_000002.1",
                 conversion_status="unchanged_original",
             ),
         ),
-        build_cli_args(tmp_path / "out"),
+        args,
         run_directories,
-        logging.getLogger("test-direct-shared-fallback"),
+        logging.getLogger("test-direct-batch-retry"),
     )
 
     assert result.download_concurrency_used == 1
     assert download_calls == [
-        ("preferred_download", "GCA_001881595"),
-        ("fallback_download", "GCF_001881595.2"),
-        ("fallback_download", "GCA_001881595.3"),
+        ("preferred_download", "GCF_000001.1;GCF_000002.1"),
+        ("preferred_download", "GCF_000002.1"),
     ]
     assert extraction_calls == [
         (
-            "GCF_001881595.2",
-            run_directories.downloads_root / "GCF_001881595.2.zip",
+            run_directories.downloads_root / "direct_batch_1.zip",
+            run_directories.extracted_root / "direct_batch_1",
         ),
         (
-            "GCA_001881595.3",
-            run_directories.downloads_root / "GCA_001881595.3.zip",
+            run_directories.downloads_root / "direct_batch_2.zip",
+            run_directories.extracted_root / "direct_batch_2",
         ),
     ]
-    assert result.executions["GCF_001881595.2"].final_accession == "GCF_001881595.2"
-    assert (
-        result.executions["GCF_001881595.2"].download_status
-        == "downloaded_after_fallback"
-    )
-    assert (
-        result.executions["GCF_001881595.2"].conversion_status
-        == "paired_to_gca_fallback_original_on_download_failure"
-    )
-    assert result.executions["GCA_001881595.3"].final_accession == "GCA_001881595.3"
-    assert (
-        result.executions["GCA_001881595.3"].download_status
-        == "downloaded_after_fallback"
-    )
-    assert (
-        result.executions["GCA_001881595.3"].conversion_status
-        == "unchanged_original"
-    )
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_1"
+    assert result.executions["GCF_000001.1"].failures == ()
+    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_2"
+    assert [failure.final_status for failure in result.executions["GCF_000002.1"].failures] == [
+        "retry_scheduled",
+    ]
+    assert [failure.attempted_accession for failure in result.executions["GCF_000002.1"].failures] == [
+        "GCF_000002.1",
+    ]
 
 
-def test_direct_mode_records_failed_fallback_when_extraction_fails(
+def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Fallback extraction failure should keep the exact original accession."""
+    """Unresolved preferred rows should switch into original-accession fallback."""
 
     download_calls: list[tuple[str, str]] = []
 
@@ -964,27 +954,10 @@ def test_direct_mode_records_failed_fallback_when_extraction_fails(
         sleep_func=None,
         runner=None,
     ) -> RetryableCommandResult:
-        """Return a preferred failure followed by one fallback download success."""
+        """Return successful preferred and fallback batch commands."""
 
-        del command, sleep_func, runner
+        del command, final_failure_status, sleep_func, runner
         download_calls.append((stage, attempted_accession or ""))
-        if stage == "preferred_download":
-            return RetryableCommandResult(
-                succeeded=False,
-                stdout="",
-                stderr="preferred failed",
-                failures=(
-                    CommandFailureRecord(
-                        stage="preferred_download",
-                        attempt_index=4,
-                        max_attempts=4,
-                        error_type="subprocess",
-                        error_message="preferred failed",
-                        final_status=final_failure_status,
-                        attempted_accession=attempted_accession,
-                    ),
-                ),
-            )
         return RetryableCommandResult(
             succeeded=True,
             stdout="",
@@ -992,37 +965,48 @@ def test_direct_mode_records_failed_fallback_when_extraction_fails(
             failures=(),
         )
 
-    def fake_extract_download_payload(
-        accession: str,
+    def fake_extract_archive(
         archive_path: Path,
-        run_directories,
-        *,
-        extraction_key: str | None = None,
-    ) -> tuple[ResolvedPayloadDirectory | None, tuple[CommandFailureRecord, ...]]:
-        """Return a layout failure for the fallback extraction step."""
+        extraction_root: Path,
+    ) -> None:
+        """Create one extraction root per batch pass."""
 
-        del accession, archive_path, run_directories, extraction_key
-        return None, (
-            CommandFailureRecord(
-                stage="layout",
-                attempt_index=1,
-                max_attempts=1,
-                error_type="LayoutError",
-                error_message="archive extraction failed",
-                final_status="retry_exhausted",
-            ),
-        )
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    payload_directory = tmp_path / "fallback-payload"
+    payload_directory.mkdir()
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Keep the preferred batch unresolved, then resolve the fallback batch."""
+
+        if extraction_root.name == "direct_batch_1":
+            return ()
+        if extraction_root.name == "direct_fallback_batch_1":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_001881595.2",
+                    directory=payload_directory,
+                ),
+            )
+        raise AssertionError(f"Unexpected extraction root: {extraction_root}")
 
     monkeypatch.setattr(
         "gtdb_genomes.workflow.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_download_payload",
-        fake_extract_download_payload,
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.collect_payload_directories",
+        fake_collect_payload_directories,
     )
 
-    run_directories = initialise_run_directories(tmp_path / "direct-fallback-layout")
+    run_directories = initialise_run_directories(tmp_path / "direct-preferred-fallback")
     result = execute_direct_accession_plans(
         (
             AccessionPlan(
@@ -1046,28 +1030,33 @@ def test_direct_mode_records_failed_fallback_when_extraction_fails(
     assert download_calls == [
         ("preferred_download", "GCA_001881595"),
         ("fallback_download", "GCF_001881595.2"),
-        ("fallback_download", "GCA_001881595.3"),
     ]
-    assert result.executions["GCF_001881595.2"].final_accession is None
-    assert result.executions["GCF_001881595.2"].download_batch == "GCF_001881595.2"
-    assert result.executions["GCF_001881595.2"].download_status == "failed"
-    assert [failure.stage for failure in result.executions["GCF_001881595.2"].failures] == [
-        "preferred_download",
-        "layout",
+    assert result.executions["GCF_001881595.2"].final_accession == "GCF_001881595.2"
+    assert result.executions["GCF_001881595.2"].download_batch == "direct_fallback_batch_1"
+    assert result.executions["GCF_001881595.2"].download_status == "downloaded_after_fallback"
+    assert (
+        result.executions["GCF_001881595.2"].conversion_status
+        == "paired_to_gca_fallback_original_on_download_failure"
+    )
+    assert [failure.attempted_accession for failure in result.executions["GCF_001881595.2"].failures] == [
+        "GCA_001881595",
     ]
     assert result.executions["GCA_001881595.3"].final_accession is None
     assert result.executions["GCA_001881595.3"].download_status == "failed"
-    assert result.executions["GCA_001881595.3"].download_batch == "GCA_001881595.3"
+    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_1"
+    assert [failure.attempted_accession for failure in result.executions["GCA_001881595.3"].failures] == [
+        "GCA_001881595",
+    ]
+    assert [failure.final_status for failure in result.executions["GCA_001881595.3"].failures] == [
+        "retry_exhausted",
+    ]
 
 
-def test_direct_mode_debug_logs_multi_group_worker_lifecycle(
+def test_direct_mode_records_failed_fallback_after_layout_exhaustion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Debug logging should expose threaded direct-download group progress."""
-
-    payload_directory = tmp_path / "payload"
-    payload_directory.mkdir()
+    """Fallback exhaustion should retain both preferred and fallback history."""
 
     def fake_run_retryable_command(
         command: list[str],
@@ -1077,12 +1066,10 @@ def test_direct_mode_debug_logs_multi_group_worker_lifecycle(
         sleep_func=None,
         runner=None,
     ) -> RetryableCommandResult:
-        """Return a successful direct download result for each group."""
+        """Return successful direct batch commands for both phases."""
 
         del command
-        del stage
         del final_failure_status
-        del attempted_accession
         del sleep_func
         del runner
         return RetryableCommandResult(
@@ -1092,85 +1079,72 @@ def test_direct_mode_debug_logs_multi_group_worker_lifecycle(
             failures=(),
         )
 
-    def fake_extract_download_payload(
-        accession: str,
+    def fake_extract_archive(
         archive_path: Path,
-        run_directories,
-        *,
-        extraction_key: str | None = None,
-    ) -> tuple[ResolvedPayloadDirectory | None, tuple[CommandFailureRecord, ...]]:
-        """Return one extracted payload per accession group."""
+        extraction_root: Path,
+    ) -> None:
+        """Create one extraction root per batch pass."""
 
         del archive_path
-        del run_directories
-        del extraction_key
-        return (
-            ResolvedPayloadDirectory(
-                final_accession=accession,
-                directory=payload_directory,
-            ),
-            (),
-        )
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Keep both preferred and fallback phases unresolved."""
+
+        del extraction_root
+        return ()
 
     monkeypatch.setattr(
         "gtdb_genomes.workflow.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_download_payload",
-        fake_extract_download_payload,
+        "gtdb_genomes.workflow.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.collect_payload_directories",
+        fake_collect_payload_directories,
     )
 
-    stream = io.StringIO()
-    logger = logging.getLogger(f"test-direct-debug-{id(stream)}")
-    logger.handlers.clear()
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
-    handler = logging.StreamHandler(stream)
-    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
-    logger.addHandler(handler)
-
-    args = build_cli_args(tmp_path / "out")
-    args.debug = True
-    args.threads = 2
-    args.prefer_genbank = False
-
-    run_directories = initialise_run_directories(tmp_path / "direct-debug")
+    run_directories = initialise_run_directories(tmp_path / "direct-fallback-failed")
     result = execute_direct_accession_plans(
         (
             AccessionPlan(
-                original_accession="GCF_000001.1",
-                selected_accession="GCF_000001.1",
-                download_request_accession="GCF_000001.1",
-                conversion_status="unchanged_original",
+                original_accession="GCF_001881595.2",
+                selected_accession="GCA_001881595.3",
+                download_request_accession="GCA_001881595",
+                conversion_status="paired_to_gca",
             ),
             AccessionPlan(
-                original_accession="GCF_000002.1",
-                selected_accession="GCF_000002.1",
-                download_request_accession="GCF_000002.1",
+                original_accession="GCA_001881595.3",
+                selected_accession="GCA_001881595.3",
+                download_request_accession="GCA_001881595",
                 conversion_status="unchanged_original",
             ),
         ),
-        args,
+        build_cli_args(tmp_path / "out"),
         run_directories,
-        logger,
+        logging.getLogger("test-direct-fallback-failed"),
     )
-    handler.flush()
-    logger.removeHandler(handler)
 
-    log_text = stream.getvalue()
-    assert result.download_concurrency_used == 2
-    assert "Direct download using 2 worker(s) across 2 accession group(s)" in log_text
-    assert "Starting direct download group for GCF_000001.1" in log_text
-    assert "Starting direct download group for GCF_000002.1" in log_text
-    assert "Running direct download command for GCF_000001.1:" in log_text
-    assert "Running direct download command for GCF_000002.1:" in log_text
-    assert "Starting archive extraction for GCF_000001.1" in log_text
-    assert "Starting archive extraction for GCF_000002.1" in log_text
-    assert "Finished archive extraction for GCF_000001.1" in log_text
-    assert "Finished archive extraction for GCF_000002.1" in log_text
-    assert "Completed direct download group for GCF_000001.1" in log_text
-    assert "Completed direct download group for GCF_000002.1" in log_text
+    assert result.executions["GCF_001881595.2"].final_accession is None
+    assert result.executions["GCF_001881595.2"].download_batch == "direct_fallback_batch_1"
+    assert [failure.attempted_accession for failure in result.executions["GCF_001881595.2"].failures] == [
+        "GCA_001881595",
+        "GCF_001881595.2",
+    ]
+    assert [failure.final_status for failure in result.executions["GCF_001881595.2"].failures] == [
+        "retry_exhausted",
+        "retry_exhausted",
+    ]
+    assert result.executions["GCA_001881595.3"].final_accession is None
+    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_1"
+    assert [failure.attempted_accession for failure in result.executions["GCA_001881595.3"].failures] == [
+        "GCA_001881595",
+    ]
 
 
 def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
@@ -1207,8 +1181,6 @@ def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "auto",
         ],
     )
 
@@ -1272,8 +1244,6 @@ def test_auto_preview_uses_accession_input_file_and_keeps_output_absent(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "auto",
             "--dry-run",
         ],
     )
@@ -1325,6 +1295,10 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
         "gtdb_genomes.workflow.run_summary_lookup_with_retries",
         fake_run_summary_lookup_with_retries,
     )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
 
     output_dir = tmp_path / "metadata-input-file"
     exit_code = main(
@@ -1335,8 +1309,6 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
             "--prefer-genbank",
             "--dry-run",
         ],
@@ -1386,6 +1358,10 @@ def test_total_runtime_failure_leaves_final_accession_blank(
         "gtdb_genomes.workflow.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
 
     def fake_execute_accession_plans(
         *args,
@@ -1433,8 +1409,6 @@ def test_total_runtime_failure_leaves_final_accession_blank(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -1475,6 +1449,10 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
             AssertionError("metadata lookup should not run"),
         ),
     )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
 
     def fake_execute_accession_plans(
         plans: tuple[AccessionPlan, ...],
@@ -1496,7 +1474,7 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
                     final_accession="GCF_000001.1",
                     conversion_status="unchanged_original",
                     download_status="downloaded",
-                    download_batch="GCF_000001.1",
+                    download_batch="direct_batch_1",
                     payload_directory=payload_directory,
                     failures=(),
                 ),
@@ -1520,8 +1498,6 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -1598,8 +1574,6 @@ def test_uba_only_real_run_writes_failed_manifests_and_exits_seven(
             "g__Escherichia",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -1608,7 +1582,7 @@ def test_uba_only_real_run_writes_failed_manifests_and_exits_seven(
     accession_map = dict(zip(accession_header, accession_rows[0], strict=True))
     assert accession_map["gtdb_accession"] == "UBA11131"
     assert accession_map["final_accession"] == ""
-    assert accession_map["download_method_used"] == "direct"
+    assert accession_map["download_method_used"] == "auto"
     assert accession_map["download_status"] == "failed"
 
     failure_header, failure_rows = parse_tsv(output_dir / "download_failures.tsv")
@@ -1619,7 +1593,7 @@ def test_uba_only_real_run_writes_failed_manifests_and_exits_seven(
 
     run_summary_header, run_summary_rows = parse_tsv(output_dir / "run_summary.tsv")
     run_summary = dict(zip(run_summary_header, run_summary_rows[0], strict=True))
-    assert run_summary["download_method_used"] == "direct"
+    assert run_summary["download_method_used"] == "auto"
     assert run_summary["download_concurrency_used"] == "0"
 
 
@@ -1647,6 +1621,10 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
         "gtdb_genomes.workflow.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
 
     def fake_execute_accession_plans(
         *args,
@@ -1661,7 +1639,7 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
                     final_accession="GCA_001881595.3",
                     conversion_status="paired_to_gca",
                     download_status="downloaded",
-                    download_batch="GCA_001881595.3",
+                    download_batch="direct_batch_1",
                     payload_directory=payload_directory,
                     failures=(),
                 ),
@@ -1670,7 +1648,7 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
                     final_accession="GCA_001881595.3",
                     conversion_status="unchanged_original",
                     download_status="downloaded",
-                    download_batch="GCA_001881595.3",
+                    download_batch="direct_batch_1",
                     payload_directory=payload_directory,
                     failures=(),
                 ),
@@ -1694,8 +1672,6 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
             "g__Bacillus",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -1705,7 +1681,7 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
         dict(zip(accession_header, row, strict=True))
         for row in accession_rows
     ]
-    assert {row["download_batch"] for row in accession_maps} == {"GCA_001881595.3"}
+    assert {row["download_batch"] for row in accession_maps} == {"direct_batch_1"}
 
 
 def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
@@ -1732,6 +1708,10 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
         "gtdb_genomes.workflow.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
 
     def fake_execute_accession_plans(
         *args,
@@ -1746,7 +1726,7 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
                     final_accession="GCF_001881595.2",
                     conversion_status="paired_to_gca_fallback_original_on_download_failure",
                     download_status="downloaded_after_fallback",
-                    download_batch="GCF_001881595.2",
+                    download_batch="direct_fallback_batch_1",
                     payload_directory=payload_directory,
                     failures=(),
                 ),
@@ -1755,7 +1735,7 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
                     final_accession=None,
                     conversion_status="failed_no_usable_accession",
                     download_status="failed",
-                    download_batch="GCA_001881595.3",
+                    download_batch="direct_batch_1",
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
@@ -1789,8 +1769,6 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
             "g__Bacillus",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -1803,8 +1781,8 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
             for values in accession_rows
         )
     }
-    assert accession_maps["RS_GCF_001881595.2"]["download_batch"] == "GCF_001881595.2"
-    assert accession_maps["GB_GCA_001881595.3"]["download_batch"] == "GCA_001881595.3"
+    assert accession_maps["RS_GCF_001881595.2"]["download_batch"] == "direct_fallback_batch_1"
+    assert accession_maps["GB_GCA_001881595.3"]["download_batch"] == "direct_batch_1"
 
 
 def test_failure_manifest_collapses_shared_accession_taxa(
@@ -1826,6 +1804,10 @@ def test_failure_manifest_collapses_shared_accession_taxa(
     monkeypatch.setattr(
         "gtdb_genomes.workflow.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
     def fake_execute_accession_plans(
@@ -1877,8 +1859,6 @@ def test_failure_manifest_collapses_shared_accession_taxa(
             "s__Escherichia coli",
             "--outdir",
             str(output_dir),
-            "--download-method",
-            "direct",
         ],
     )
 
@@ -2065,4 +2045,6 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
     assert result.method_used == "dehydrate_fallback_direct"
     assert result.download_concurrency_used == 2
     assert result.executions["GCF_000001.1"].failures == ()
-    assert result.shared_failures[0].attempted_accession == "GCA_000001;GCA_000002"
+    assert result.shared_failures[0].failures[0].attempted_accession == (
+        "GCA_000001;GCA_000002"
+    )

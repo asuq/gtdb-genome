@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, UTC
 import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import threading
 from typing import TYPE_CHECKING, Any
 import uuid
 
@@ -20,10 +18,9 @@ from gtdb_genomes.download import (
     CommandFailureRecord,
     PreviewError,
     build_batch_dehydrate_command,
-    build_download_command,
+    build_direct_batch_download_command,
     build_preview_command,
     build_rehydrate_command,
-    get_direct_download_concurrency,
     get_ordered_unique_accessions,
     get_rehydrate_workers,
     run_preview_command,
@@ -107,7 +104,7 @@ class DownloadExecutionResult:
     method_used: str
     download_concurrency_used: int
     rehydrate_workers_used: int
-    shared_failures: tuple[CommandFailureRecord, ...] = ()
+    shared_failures: tuple["SharedFailureContext", ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,9 +115,35 @@ class ResolvedPayloadDirectory:
     directory: Path
 
 
+@dataclass(slots=True)
+class SharedFailureContext:
+    """Shared failure history scoped to one affected accession subset."""
+
+    affected_original_accessions: tuple[str, ...]
+    failures: tuple[CommandFailureRecord, ...]
+
+
+@dataclass(slots=True)
+class PartialBatchPayloadResolution:
+    """Resolved and unresolved payloads for one extracted batch archive."""
+
+    resolved_payloads: dict[str, ResolvedPayloadDirectory]
+    unresolved_messages: dict[str, str]
+
+
+@dataclass(slots=True)
+class DirectBatchPhaseResult:
+    """Accumulated results from one direct batch phase."""
+
+    executions: dict[str, AccessionExecution]
+    unresolved_groups: tuple[tuple[str, tuple[AccessionPlan, ...]], ...]
+    shared_failures: tuple[SharedFailureContext, ...]
+
+
 UNSUPPORTED_UBA_PREFIX = "UBA"
 UNSUPPORTED_UBA_BIOPROJECT = "PRJNA417962"
 UNSUPPORTED_UBA_WARNING_EXAMPLES = 5
+MAX_DIRECT_BATCH_PASSES = 4
 
 
 def is_unsupported_uba_accession(accession: str) -> bool:
@@ -375,7 +398,30 @@ def locate_batch_payload_directories(
 ) -> dict[str, ResolvedPayloadDirectory]:
     """Locate extracted payload directories for one request batch."""
 
-    payload_records = collect_payload_directories(extraction_root)
+    resolution = locate_partial_batch_payload_directories(
+        extraction_root,
+        requested_accessions,
+    )
+    if resolution.unresolved_messages:
+        unresolved_text = "; ".join(
+            resolution.unresolved_messages[requested_accession]
+            for requested_accession in requested_accessions
+            if requested_accession in resolution.unresolved_messages
+        )
+        raise LayoutError(unresolved_text)
+    return resolution.resolved_payloads
+
+
+def locate_partial_batch_payload_directories(
+    extraction_root: Path,
+    requested_accessions: tuple[str, ...],
+) -> PartialBatchPayloadResolution:
+    """Locate payloads for one request batch without failing atomically."""
+
+    try:
+        payload_records = collect_payload_directories(extraction_root)
+    except LayoutError:
+        payload_records = ()
     payloads_by_accession = {
         payload.final_accession: payload for payload in payload_records
     }
@@ -386,8 +432,7 @@ def locate_batch_payload_directories(
         )
 
     located_payloads: dict[str, ResolvedPayloadDirectory] = {}
-    missing_accessions: list[str] = []
-    ambiguous_accessions: dict[str, tuple[str, ...]] = {}
+    unresolved_messages: dict[str, str] = {}
     for requested_accession in requested_accessions:
         exact_match = payloads_by_accession.get(requested_accession)
         if exact_match is not None:
@@ -396,7 +441,10 @@ def locate_batch_payload_directories(
 
         request_stem = parse_assembly_accession_stem(requested_accession)
         if request_stem is None:
-            missing_accessions.append(requested_accession)
+            unresolved_messages[requested_accession] = (
+                "Could not locate extracted payload directory for requested "
+                f"accession {requested_accession}"
+            )
             continue
 
         stem_matches = tuple(payloads_by_stem.get(request_stem.accession, ()))
@@ -404,28 +452,20 @@ def locate_batch_payload_directories(
             located_payloads[requested_accession] = stem_matches[0]
             continue
         if len(stem_matches) > 1:
-            ambiguous_accessions[requested_accession] = tuple(
-                payload.final_accession for payload in stem_matches
+            unresolved_messages[requested_accession] = (
+                "Resolved multiple extracted payload directories for requested "
+                f"accession {requested_accession}: "
+                f"{', '.join(payload.final_accession for payload in stem_matches)}"
             )
             continue
-        missing_accessions.append(requested_accession)
-
-    if ambiguous_accessions:
-        ambiguous_text = "; ".join(
-            f"{request}: {', '.join(matches)}"
-            for request, matches in sorted(ambiguous_accessions.items())
+        unresolved_messages[requested_accession] = (
+            "Could not locate extracted payload directory for requested "
+            f"accession {requested_accession}"
         )
-        raise LayoutError(
-            "Resolved multiple extracted payload directories for requested accessions: "
-            f"{ambiguous_text}",
-        )
-    if missing_accessions:
-        missing_text = ", ".join(sorted(missing_accessions))
-        raise LayoutError(
-            "Could not locate extracted payload directories for requested accessions: "
-            f"{missing_text}",
-        )
-    return located_payloads
+    return PartialBatchPayloadResolution(
+        resolved_payloads=located_payloads,
+        unresolved_messages=unresolved_messages,
+    )
 
 
 def build_layout_failure(
@@ -441,6 +481,41 @@ def build_layout_failure(
         error_type=type(error).__name__,
         error_message=str(error),
         final_status=final_status,
+    )
+
+
+def build_direct_layout_failure(
+    error_message: str,
+    attempted_accession: str,
+    attempt_index: int,
+    max_attempts: int,
+    final_status: str,
+) -> CommandFailureRecord:
+    """Build one direct-batch layout failure for a single accession token."""
+
+    return CommandFailureRecord(
+        stage="layout",
+        attempt_index=attempt_index,
+        max_attempts=max_attempts,
+        error_type="LayoutError",
+        error_message=error_message,
+        final_status=final_status,
+        attempted_accession=attempted_accession,
+    )
+
+
+def build_shared_failure_context(
+    original_accessions: tuple[str, ...],
+    failures: tuple[CommandFailureRecord, ...],
+    attempted_accession: str,
+) -> SharedFailureContext:
+    """Scope shared failures to the affected original accessions."""
+
+    return SharedFailureContext(
+        affected_original_accessions=get_ordered_unique_accessions(
+            original_accessions,
+        ),
+        failures=attach_attempted_accession(failures, attempted_accession),
     )
 
 
@@ -516,209 +591,176 @@ def build_successful_execution(
     )
 
 
-def execute_direct_group_fallbacks(
-    download_request_accession: str,
-    grouped_plans: tuple[AccessionPlan, ...],
-    preferred_failures: tuple[CommandFailureRecord, ...],
+def build_direct_batch_archive_path(
+    run_directories: RunDirectories,
+    batch_label: str,
+) -> Path:
+    """Return the archive path for one direct batch pass."""
+
+    return run_directories.downloads_root / f"{batch_label}.zip"
+
+
+def build_phase_failed_executions(
+    plans: tuple[AccessionPlan, ...],
+    failure_history: dict[str, list[CommandFailureRecord]],
+    last_download_batches: dict[str, str],
+) -> dict[str, AccessionExecution]:
+    """Build failed executions for one set of unresolved direct plans."""
+
+    return {
+        plan.original_accession: build_failed_execution(
+            plan.original_accession,
+            tuple(failure_history[plan.original_accession]),
+            last_download_batches[plan.original_accession],
+        )
+        for plan in plans
+    }
+
+
+def execute_direct_batch_phase(
+    plan_groups: tuple[tuple[str, tuple[AccessionPlan, ...]], ...],
     args: CliArgs,
     run_directories: RunDirectories,
     logger: logging.Logger,
-) -> dict[str, AccessionExecution]:
-    """Run original-accession fallbacks for a failed request group."""
+    *,
+    batch_stage: str,
+    batch_prefix: str,
+    success_status: str,
+    failure_history: dict[str, list[CommandFailureRecord]],
+    last_download_batches: dict[str, str],
+) -> DirectBatchPhaseResult:
+    """Execute one batch-based direct phase with shrinking retry inputs."""
 
-    executions: dict[str, AccessionExecution] = {}
     secrets = tuple(secret for secret in (args.ncbi_api_key,) if secret)
-    worker_name = threading.current_thread().name
-    for plan in grouped_plans:
-        fallback_request_accession = plan.original_accession
-        if fallback_request_accession == download_request_accession:
-            executions[plan.original_accession] = build_failed_execution(
-                plan.original_accession,
-                preferred_failures,
-                download_request_accession,
-            )
-            continue
+    pending_groups = plan_groups
+    executions: dict[str, AccessionExecution] = {}
+    shared_failures: list[SharedFailureContext] = []
 
-        archive_path = run_directories.downloads_root / f"{plan.original_accession}.zip"
-        logger.debug(
-            "[%s] Download request %s failed; falling back to original accession %s",
-            worker_name,
-            download_request_accession,
-            fallback_request_accession,
+    for attempt_index in range(1, MAX_DIRECT_BATCH_PASSES + 1):
+        if not pending_groups:
+            break
+        batch_label = f"{batch_prefix}_{attempt_index}"
+        pending_request_accessions = tuple(
+            request_accession for request_accession, _ in pending_groups
         )
-        fallback_command = build_download_command(
-            [fallback_request_accession],
+        affected_original_accessions = tuple(
+            plan.original_accession
+            for _, grouped_plans in pending_groups
+            for plan in grouped_plans
+        )
+        for original_accession in affected_original_accessions:
+            last_download_batches[original_accession] = batch_label
+        accession_file = write_accession_input_file(
+            run_directories.working_root / f"{batch_label}.txt",
+            pending_request_accessions,
+        )
+        archive_path = build_direct_batch_archive_path(
+            run_directories,
+            batch_label,
+        )
+        download_command = build_direct_batch_download_command(
+            accession_file,
             archive_path,
             args.include,
             ncbi_api_key=args.ncbi_api_key,
             debug=args.debug,
         )
         logger.debug(
-            "[%s] Running fallback direct download command for %s: %s",
-            worker_name,
-            fallback_request_accession,
-            redact_command(fallback_command, secrets),
+            "Running %s",
+            redact_command(download_command, secrets),
         )
-        fallback_result = run_retryable_command(
-            fallback_command,
-            stage="fallback_download",
-            final_failure_status="fallback_exhausted",
-            attempted_accession=fallback_request_accession,
+        batch_attempted_accessions = ";".join(pending_request_accessions)
+        batch_result = run_retryable_command(
+            download_command,
+            stage=batch_stage,
+            attempted_accession=batch_attempted_accessions,
         )
-        combined_failures = preferred_failures + fallback_result.failures
-        if not fallback_result.succeeded:
-            executions[plan.original_accession] = build_failed_execution(
-                plan.original_accession,
-                combined_failures,
-                fallback_request_accession,
+        if not batch_result.succeeded:
+            shared_failures.append(
+                build_shared_failure_context(
+                    affected_original_accessions,
+                    batch_result.failures,
+                    batch_attempted_accessions,
+                ),
             )
+            return DirectBatchPhaseResult(
+                executions=executions,
+                unresolved_groups=pending_groups,
+                shared_failures=tuple(shared_failures),
+            )
+
+        extraction_root = run_directories.extracted_root / batch_label
+        try:
+            extract_archive(archive_path, extraction_root)
+        except LayoutError as error:
+            shared_failures.append(
+                build_shared_failure_context(
+                    affected_original_accessions,
+                    (build_layout_failure(error),),
+                    batch_attempted_accessions,
+                ),
+            )
+            return DirectBatchPhaseResult(
+                executions=executions,
+                unresolved_groups=pending_groups,
+                shared_failures=tuple(shared_failures),
+            )
+
+        resolution = locate_partial_batch_payload_directories(
+            extraction_root,
+            pending_request_accessions,
+        )
+        made_progress = bool(resolution.resolved_payloads)
+        can_retry = attempt_index < MAX_DIRECT_BATCH_PASSES and made_progress
+        unresolved_groups: list[tuple[str, tuple[AccessionPlan, ...]]] = []
+        final_status = "retry_scheduled" if can_retry else "retry_exhausted"
+
+        for request_accession, grouped_plans in pending_groups:
+            payload = resolution.resolved_payloads.get(request_accession)
+            if payload is not None:
+                for plan in grouped_plans:
+                    plan_failures = tuple(failure_history[plan.original_accession])
+                    executions[plan.original_accession] = build_successful_execution(
+                        plan,
+                        payload.final_accession,
+                        success_status,
+                        batch_label,
+                        payload.directory,
+                        plan_failures,
+                    )
+                continue
+
+            failure_record = build_direct_layout_failure(
+                resolution.unresolved_messages[request_accession],
+                request_accession,
+                attempt_index,
+                MAX_DIRECT_BATCH_PASSES,
+                final_status,
+            )
+            for plan in grouped_plans:
+                failure_history[plan.original_accession].append(failure_record)
+            unresolved_groups.append((request_accession, grouped_plans))
+
+        if not unresolved_groups:
+            return DirectBatchPhaseResult(
+                executions=executions,
+                unresolved_groups=(),
+                shared_failures=tuple(shared_failures),
+            )
+        if can_retry:
+            pending_groups = tuple(unresolved_groups)
             continue
+        return DirectBatchPhaseResult(
+            executions=executions,
+            unresolved_groups=tuple(unresolved_groups),
+            shared_failures=tuple(shared_failures),
+        )
 
-        logger.debug(
-            "[%s] Starting archive extraction for %s",
-            worker_name,
-            fallback_request_accession,
-        )
-        payload, extraction_failures = extract_download_payload(
-            fallback_request_accession,
-            archive_path,
-            run_directories,
-            extraction_key=plan.original_accession,
-        )
-        combined_failures += extraction_failures
-        if payload is None:
-            logger.debug(
-                "[%s] Archive extraction failed for %s",
-                worker_name,
-                fallback_request_accession,
-            )
-            executions[plan.original_accession] = build_failed_execution(
-                plan.original_accession,
-                combined_failures,
-                fallback_request_accession,
-            )
-            continue
-
-        logger.debug(
-            "[%s] Finished archive extraction for %s",
-            worker_name,
-            fallback_request_accession,
-        )
-        executions[plan.original_accession] = build_successful_execution(
-            plan,
-            payload.final_accession,
-            "downloaded_after_fallback",
-            fallback_request_accession,
-            payload.directory,
-            combined_failures,
-        )
-    return executions
-
-
-def execute_direct_accession_group(
-    download_request_accession: str,
-    grouped_plans: tuple[AccessionPlan, ...],
-    args: CliArgs,
-    run_directories: RunDirectories,
-    logger: logging.Logger,
-) -> dict[str, AccessionExecution]:
-    """Download one request accession once and materialise grouped executions."""
-
-    archive_path = run_directories.downloads_root / f"{download_request_accession}.zip"
-    secrets = tuple(secret for secret in (args.ncbi_api_key,) if secret)
-    worker_name = threading.current_thread().name
-    logger.debug(
-        "[%s] Starting direct download group for %s",
-        worker_name,
-        download_request_accession,
+    return DirectBatchPhaseResult(
+        executions=executions,
+        unresolved_groups=pending_groups,
+        shared_failures=tuple(shared_failures),
     )
-    preferred_command = build_download_command(
-        [download_request_accession],
-        archive_path,
-        args.include,
-        ncbi_api_key=args.ncbi_api_key,
-        debug=args.debug,
-    )
-    logger.debug(
-        "[%s] Running direct download command for %s: %s",
-        worker_name,
-        download_request_accession,
-        redact_command(preferred_command, secrets),
-    )
-    preferred_result = run_retryable_command(
-        preferred_command,
-        stage="preferred_download",
-        attempted_accession=download_request_accession,
-    )
-    if not preferred_result.succeeded:
-        logger.debug(
-            "[%s] Preferred direct download failed for %s; starting fallback path",
-            worker_name,
-            download_request_accession,
-        )
-        executions = execute_direct_group_fallbacks(
-            download_request_accession,
-            grouped_plans,
-            preferred_result.failures,
-            args,
-            run_directories,
-            logger,
-        )
-        logger.debug(
-            "[%s] Completed direct download group for %s via fallback",
-            worker_name,
-            download_request_accession,
-        )
-        return executions
-
-    logger.debug(
-        "[%s] Starting archive extraction for %s",
-        worker_name,
-        download_request_accession,
-    )
-    payload, extraction_failures = extract_download_payload(
-        download_request_accession,
-        archive_path,
-        run_directories,
-    )
-    combined_failures = preferred_result.failures + extraction_failures
-    if payload is None:
-        logger.debug(
-            "[%s] Archive extraction failed for %s",
-            worker_name,
-            download_request_accession,
-        )
-        return {
-            plan.original_accession: build_failed_execution(
-                plan.original_accession,
-                combined_failures,
-                download_request_accession,
-            )
-            for plan in grouped_plans
-        }
-
-    logger.debug(
-        "[%s] Finished archive extraction for %s",
-        worker_name,
-        download_request_accession,
-    )
-    executions = {
-        plan.original_accession: build_successful_execution(
-            plan,
-            payload.final_accession,
-            "downloaded",
-            download_request_accession,
-            payload.directory,
-            combined_failures,
-        )
-        for plan in grouped_plans
-    }
-    logger.debug(
-        "[%s] Completed direct download group for %s",
-        worker_name,
-        download_request_accession,
-    )
-    return executions
 
 
 def execute_direct_accession_plans(
@@ -727,7 +769,7 @@ def execute_direct_accession_plans(
     run_directories: RunDirectories,
     logger: logging.Logger,
 ) -> DownloadExecutionResult:
-    """Execute direct accession downloads with bounded concurrency."""
+    """Execute direct downloads with batch retries and original fallback."""
 
     if not plans:
         return DownloadExecutionResult(
@@ -738,36 +780,82 @@ def execute_direct_accession_plans(
             shared_failures=(),
         )
     plan_groups = group_plans_by_download_request_accession(plans)
-    max_workers = max(
-        1,
-        get_direct_download_concurrency(args.threads, len(plan_groups)),
-    )
-    logger.debug(
-        "Direct download using %s worker(s) across %s accession group(s)",
-        max_workers,
-        len(plan_groups),
-    )
     executions: dict[str, AccessionExecution] = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_map = {
-            executor.submit(
-                execute_direct_accession_group,
-                download_request_accession,
-                grouped_plans,
-                args,
-                run_directories,
-                logger,
-            ): download_request_accession
-            for download_request_accession, grouped_plans in plan_groups
-        }
-        for future in future_map:
-            executions.update(future.result())
+    shared_failures: list[SharedFailureContext] = []
+    failure_history: dict[str, list[CommandFailureRecord]] = {
+        plan.original_accession: [] for plan in plans
+    }
+    last_download_batches: dict[str, str] = {
+        plan.original_accession: plan.original_accession for plan in plans
+    }
+
+    preferred_phase = execute_direct_batch_phase(
+        plan_groups,
+        args,
+        run_directories,
+        logger,
+        batch_stage="preferred_download",
+        batch_prefix="direct_batch",
+        success_status="downloaded",
+        failure_history=failure_history,
+        last_download_batches=last_download_batches,
+    )
+    executions.update(preferred_phase.executions)
+    shared_failures.extend(preferred_phase.shared_failures)
+
+    preferred_unresolved_plans: list[AccessionPlan] = []
+    fallback_groups: list[tuple[str, tuple[AccessionPlan, ...]]] = []
+    for _, grouped_plans in preferred_phase.unresolved_groups:
+        for plan in grouped_plans:
+            preferred_unresolved_plans.append(plan)
+            if plan.conversion_status == "paired_to_gca":
+                fallback_groups.append((plan.original_accession, (plan,)))
+    failed_after_preferred = tuple(
+        plan
+        for plan in preferred_unresolved_plans
+        if plan.conversion_status != "paired_to_gca"
+    )
+    executions.update(
+        build_phase_failed_executions(
+            failed_after_preferred,
+            failure_history,
+            last_download_batches,
+        ),
+    )
+
+    if fallback_groups:
+        fallback_phase = execute_direct_batch_phase(
+            tuple(fallback_groups),
+            args,
+            run_directories,
+            logger,
+            batch_stage="fallback_download",
+            batch_prefix="direct_fallback_batch",
+            success_status="downloaded_after_fallback",
+            failure_history=failure_history,
+            last_download_batches=last_download_batches,
+        )
+        executions.update(fallback_phase.executions)
+        shared_failures.extend(fallback_phase.shared_failures)
+        unresolved_fallback_plans = tuple(
+            plan
+            for _, grouped_plans in fallback_phase.unresolved_groups
+            for plan in grouped_plans
+        )
+        executions.update(
+            build_phase_failed_executions(
+                unresolved_fallback_plans,
+                failure_history,
+                last_download_batches,
+            ),
+        )
+
     return DownloadExecutionResult(
         executions=executions,
         method_used="direct",
-        download_concurrency_used=max_workers,
+        download_concurrency_used=1,
         rehydrate_workers_used=0,
-        shared_failures=(),
+        shared_failures=tuple(shared_failures),
     )
 
 
@@ -809,6 +897,9 @@ def execute_batch_dehydrate_plans(
             plan.download_request_accession for plan in plans
         ),
     )
+    affected_original_accessions = tuple(
+        plan.original_accession for plan in plans
+    )
     accession_file = write_accession_input_file(
         run_directories.working_root / "dehydrate_accessions.txt",
         (plan.download_request_accession for plan in plans),
@@ -833,7 +924,8 @@ def execute_batch_dehydrate_plans(
             args,
             run_directories,
             logger,
-            batch_failures=attach_attempted_accession(
+            batch_failures=build_shared_failure_context(
+                affected_original_accessions,
                 batch_download.failures,
                 batch_attempted_accessions,
             ),
@@ -849,7 +941,8 @@ def execute_batch_dehydrate_plans(
             args,
             run_directories,
             logger,
-            batch_failures=attach_attempted_accession(
+            batch_failures=build_shared_failure_context(
+                affected_original_accessions,
                 build_batch_layout_failures(batch_download.failures, error),
                 batch_attempted_accessions,
             ),
@@ -875,14 +968,16 @@ def execute_batch_dehydrate_plans(
             args,
             run_directories,
             logger,
-            batch_failures=attach_attempted_accession(
+            batch_failures=build_shared_failure_context(
+                affected_original_accessions,
                 batch_download.failures + rehydrate_result.failures,
                 batch_attempted_accessions,
             ),
             rehydrate_workers_used=rehydrate_workers,
         )
 
-    shared_failures = attach_attempted_accession(
+    shared_failures = build_shared_failure_context(
+        affected_original_accessions,
         batch_download.failures + rehydrate_result.failures,
         batch_attempted_accessions,
     )
@@ -909,8 +1004,9 @@ def execute_batch_dehydrate_plans(
             args,
             run_directories,
             logger,
-            batch_failures=attach_attempted_accession(
-                build_batch_layout_failures(shared_failures, error),
+            batch_failures=build_shared_failure_context(
+                affected_original_accessions,
+                build_batch_layout_failures(shared_failures.failures, error),
                 batch_attempted_accessions,
             ),
             rehydrate_workers_used=rehydrate_workers,
@@ -921,7 +1017,7 @@ def execute_batch_dehydrate_plans(
         method_used="dehydrate",
         download_concurrency_used=1,
         rehydrate_workers_used=rehydrate_workers,
-        shared_failures=shared_failures,
+        shared_failures=(shared_failures,) if shared_failures.failures else (),
     )
 
 
@@ -930,13 +1026,13 @@ def fallback_batch_to_direct(
     args: CliArgs,
     run_directories: RunDirectories,
     logger: logging.Logger,
-    batch_failures: tuple[CommandFailureRecord, ...],
+    batch_failures: SharedFailureContext,
     rehydrate_workers_used: int,
 ) -> DownloadExecutionResult:
     """Fall back from a failed dehydrated batch workflow to direct downloads."""
 
     logger.warning(
-        "Batch dehydrated download failed; falling back to per-accession direct downloads",
+        "Batch dehydrated download failed; falling back to batch direct downloads",
     )
     direct_result = execute_direct_accession_plans(
         plans,
@@ -949,7 +1045,7 @@ def fallback_batch_to_direct(
         method_used="dehydrate_fallback_direct",
         download_concurrency_used=direct_result.download_concurrency_used,
         rehydrate_workers_used=rehydrate_workers_used,
-        shared_failures=batch_failures,
+        shared_failures=(batch_failures, *direct_result.shared_failures),
     )
 
 
@@ -1145,7 +1241,7 @@ def build_failure_rows(
     enriched_rows: list[dict[str, Any]],
     executions: dict[str, AccessionExecution],
     metadata_failures: tuple[CommandFailureRecord, ...],
-    shared_failures: tuple[CommandFailureRecord, ...],
+    shared_failures: tuple[SharedFailureContext, ...],
     secrets: tuple[str, ...],
     shared_context_rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
@@ -1156,13 +1252,24 @@ def build_failure_rows(
     failure_rows.extend(
         build_shared_failure_rows(context_rows, metadata_failures, secrets),
     )
-    failure_rows.extend(
-        build_shared_failure_rows(context_rows, shared_failures, secrets),
-    )
 
     rows_by_accession: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in enriched_rows:
         rows_by_accession[row["ncbi_accession"]].append(row)
+
+    for shared_failure in shared_failures:
+        scoped_rows = [
+            row
+            for accession in shared_failure.affected_original_accessions
+            for row in rows_by_accession.get(accession, ())
+        ]
+        failure_rows.extend(
+            build_shared_failure_rows(
+                scoped_rows,
+                shared_failure.failures,
+                secrets,
+            ),
+        )
 
     for accession, rows in rows_by_accession.items():
         execution = executions[accession]
@@ -1290,25 +1397,24 @@ def plan_supported_downloads(
         plan.download_request_accession for plan in accession_plans
     )
     preview_text: str | None = None
-    if args.download_method == "auto":
-        with create_staging_directory("gtdb_genomes_preview_") as preview_directory:
-            preview_accession_file = write_accession_input_file(
-                Path(preview_directory) / "accessions.txt",
-                preview_accessions,
-            )
-            preview_command = build_preview_command(
-                preview_accession_file,
-                args.include,
-                ncbi_api_key=args.ncbi_api_key,
-                debug=args.debug,
-            )
-            logger.debug("Running %s", redact_command(preview_command, secrets))
-            preview_text = run_preview_command(
-                preview_accession_file,
-                args.include,
-                ncbi_api_key=args.ncbi_api_key,
-                debug=args.debug,
-            )
+    with create_staging_directory("gtdb_genomes_preview_") as preview_directory:
+        preview_accession_file = write_accession_input_file(
+            Path(preview_directory) / "accessions.txt",
+            preview_accessions,
+        )
+        preview_command = build_preview_command(
+            preview_accession_file,
+            args.include,
+            ncbi_api_key=args.ncbi_api_key,
+            debug=args.debug,
+        )
+        logger.debug("Running %s", redact_command(preview_command, secrets))
+        preview_text = run_preview_command(
+            preview_accession_file,
+            args.include,
+            ncbi_api_key=args.ncbi_api_key,
+            debug=args.debug,
+        )
 
     decision = select_download_method(
         args.download_method,
@@ -1405,9 +1511,7 @@ def run_workflow(args: CliArgs) -> int:
         logger.warning(build_unsupported_uba_warning(unsupported_selected_frame))
     if not supported_selected_frame.is_empty():
         required_tools = get_required_tools(
-            download_method=args.download_method,
             dry_run=args.dry_run,
-            prefer_genbank=args.prefer_genbank,
         )
         if required_tools:
             check_required_tools(required_tools)
