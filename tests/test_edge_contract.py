@@ -17,7 +17,11 @@ from gtdb_genomes.download import (
     RetryableCommandResult,
 )
 from gtdb_genomes.layout import LayoutError, initialise_run_directories
-from gtdb_genomes.metadata import SummaryLookupResult
+from gtdb_genomes.metadata import (
+    AssemblyStatusInfo,
+    SUPPRESSED_ASSEMBLY_NOTE,
+    SummaryLookupResult,
+)
 from gtdb_genomes.preflight import PreflightError
 from gtdb_genomes.release_resolver import resolve_release
 from gtdb_genomes.taxonomy import load_release_taxonomy
@@ -32,6 +36,9 @@ from gtdb_genomes.workflow_execution import (
 )
 from gtdb_genomes.workflow_outputs import build_failure_rows
 from gtdb_genomes.workflow_planning import (
+    build_failed_suppressed_warning,
+    build_planning_suppressed_warning,
+    build_suppressed_accession_notes,
     create_staging_directory,
     plan_supported_downloads,
 )
@@ -259,9 +266,7 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("metadata lookup should not run"),
-        ),
+        lambda *args, **kwargs: SummaryLookupResult(),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_preview_command",
@@ -310,9 +315,7 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("metadata lookup should not run"),
-        ),
+        lambda *args, **kwargs: SummaryLookupResult(),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_preview_command",
@@ -489,6 +492,108 @@ def test_build_unsupported_uba_warning_mentions_examples_and_bioproject() -> Non
     assert "g__Escherichia;s__Escherichia coli" in warning_text
     assert "UBA11131, UBA22222" in warning_text
     assert "PRJNA417962" in warning_text
+
+
+def test_build_suppressed_accession_notes_marks_original_suppressed_target() -> None:
+    """Suppressed unchanged targets should be carried into warning notes."""
+
+    mapped_frame = pl.DataFrame(
+        {
+            "ncbi_accession": ["GCF_003670205.1"],
+            "final_accession": ["GCF_003670205.1"],
+            "conversion_status": ["unchanged_original"],
+        },
+    )
+
+    notes = build_suppressed_accession_notes(
+        mapped_frame,
+        {
+            "GCF_003670205.1": AssemblyStatusInfo(
+                assembly_status="suppressed",
+                suppression_reason="removed by submitter",
+                paired_accession=None,
+                paired_assembly_status=None,
+            ),
+        },
+    )
+
+    assert notes["GCF_003670205.1"].selected_accession == "GCF_003670205.1"
+    assert "removed by submitter" in build_planning_suppressed_warning(notes)
+
+
+def test_build_suppressed_accession_notes_uses_selected_paired_status() -> None:
+    """Warnings should follow the selected paired accession, not the original one."""
+
+    mapped_frame = pl.DataFrame(
+        {
+            "ncbi_accession": ["GCF_000001.1"],
+            "final_accession": ["GCA_000001.3"],
+            "conversion_status": ["paired_to_gca"],
+        },
+    )
+
+    notes = build_suppressed_accession_notes(
+        mapped_frame,
+        {
+            "GCF_000001.1": AssemblyStatusInfo(
+                assembly_status="suppressed",
+                suppression_reason="original withdrawn",
+                paired_accession="GCA_000001.3",
+                paired_assembly_status="current",
+            ),
+        },
+    )
+
+    assert notes == {}
+
+    suppressed_paired_notes = build_suppressed_accession_notes(
+        mapped_frame,
+        {
+            "GCF_000001.1": AssemblyStatusInfo(
+                assembly_status="current",
+                suppression_reason=None,
+                paired_accession="GCA_000001.3",
+                paired_assembly_status="suppressed",
+            ),
+        },
+    )
+
+    assert suppressed_paired_notes["GCF_000001.1"].selected_accession == "GCA_000001.3"
+    assert "GCF_000001.1 -> GCA_000001.3" in build_planning_suppressed_warning(
+        suppressed_paired_notes,
+    )
+
+
+def test_build_failed_suppressed_warning_mentions_failed_accessions() -> None:
+    """The final warning should only mention suppressed accessions that failed."""
+
+    notes = {
+        "GCF_003670205.1": build_suppressed_accession_notes(
+            pl.DataFrame(
+                {
+                    "ncbi_accession": ["GCF_003670205.1"],
+                    "final_accession": ["GCF_003670205.1"],
+                    "conversion_status": ["unchanged_original"],
+                },
+            ),
+            {
+                "GCF_003670205.1": AssemblyStatusInfo(
+                    assembly_status="suppressed",
+                    suppression_reason=None,
+                    paired_accession=None,
+                    paired_assembly_status=None,
+                ),
+            },
+        )["GCF_003670205.1"],
+    }
+
+    warning_text = build_failed_suppressed_warning(
+        notes,
+        ("GCF_003670205.1",),
+    )
+
+    assert "1 failed assembly was marked suppressed by NCBI" in warning_text
+    assert SUPPRESSED_ASSEMBLY_NOTE in warning_text
 
 
 def test_extract_download_payload_reports_layout_stage_for_archive_errors(
@@ -1367,6 +1472,60 @@ def test_dry_run_logs_info_milestones(
     assert "INFO Dry-run finished:" in log_text
 
 
+def test_dry_run_warns_for_suppressed_planned_accession(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Dry-runs should warn when metadata marks the planned target suppressed."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(
+            summary_map={},
+            status_map={
+                "GCF_000001.1": AssemblyStatusInfo(
+                    assembly_status="suppressed",
+                    suppression_reason="removed by submitter",
+                    paired_accession=None,
+                    paired_assembly_status=None,
+                ),
+            },
+            failures=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
+
+    output_dir = tmp_path / "dry-run-suppressed-warning"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+            "--dry-run",
+        ],
+    )
+
+    assert exit_code == 0
+    assert "NCBI marks 1 planned assembly as suppressed" in log_stream.getvalue()
+
+
 def test_real_run_logs_info_milestones(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1621,6 +1780,102 @@ def test_total_runtime_failure_leaves_final_accession_blank(
     assert run_summary["rehydrate_workers_used"] == "0"
 
 
+def test_failed_suppressed_accession_repeats_warning_and_failure_note(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Failed suppressed accessions should warn again and annotate failure rows."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(
+            summary_map={},
+            status_map={
+                "GCF_000001.1": AssemblyStatusInfo(
+                    assembly_status="suppressed",
+                    suppression_reason="removed by submitter",
+                    paired_accession=None,
+                    paired_assembly_status=None,
+                ),
+            },
+            failures=(),
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
+
+    def fake_execute_accession_plans(
+        *args,
+        **kwargs,
+    ) -> DownloadExecutionResult:
+        """Return one failed execution for the suppressed accession."""
+
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession=None,
+                    conversion_status="failed_no_usable_accession",
+                    download_status="failed",
+                    download_batch="direct_batch_1",
+                    payload_directory=None,
+                    failures=(
+                        CommandFailureRecord(
+                            stage="preferred_download",
+                            attempt_index=4,
+                            max_attempts=4,
+                            error_type="subprocess",
+                            error_message="download failed",
+                            final_status="retry_exhausted",
+                        ),
+                    ),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "suppressed-runtime-failure"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 7
+    log_text = log_stream.getvalue()
+    assert "NCBI marks 1 planned assembly as suppressed" in log_text
+    assert "1 failed assembly was marked suppressed by NCBI" in log_text
+
+    failure_header, failure_rows = parse_tsv(output_dir / "download_failures.tsv")
+    failure = dict(zip(failure_header, failure_rows[0], strict=True))
+    assert SUPPRESSED_ASSEMBLY_NOTE in failure["error_message_redacted"]
+
+
 def test_mixed_uba_real_run_records_failed_unsupported_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1643,9 +1898,7 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("metadata lookup should not run"),
-        ),
+        lambda *args, **kwargs: SummaryLookupResult(),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_preview_command",

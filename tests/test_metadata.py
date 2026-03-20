@@ -9,6 +9,7 @@ import polars as pl
 import pytest
 
 from gtdb_genomes.metadata import (
+    AssemblyStatusInfo,
     MetadataLookupError,
     apply_accession_preferences,
     build_download_request_accession,
@@ -16,6 +17,7 @@ from gtdb_genomes.metadata import (
     choose_preferred_accession,
     get_assembly_accession_stem,
     parse_summary_json_lines,
+    parse_summary_status_map,
     run_summary_lookup_with_retries,
 )
 
@@ -80,6 +82,20 @@ def test_run_summary_lookup_with_retries_parses_requested_accessions(
     assert result.summary_map == {
         "GCF_000001.1": {"GCF_000001.1", "GCA_000001.1"},
         "GCA_000002.1": {"GCA_000002.1"},
+    }
+    assert result.status_map == {
+        "GCF_000001.1": AssemblyStatusInfo(
+            assembly_status=None,
+            suppression_reason=None,
+            paired_accession=None,
+            paired_assembly_status=None,
+        ),
+        "GCA_000002.1": AssemblyStatusInfo(
+            assembly_status=None,
+            suppression_reason=None,
+            paired_accession=None,
+            paired_assembly_status=None,
+        ),
     }
     assert result.failures == ()
 
@@ -282,6 +298,28 @@ def test_parse_summary_json_lines_ignores_unrelated_accession_text() -> None:
     )
 
 
+def test_parse_summary_status_map_extracts_suppressed_fields() -> None:
+    """Structured summary payloads should preserve assembly suppression fields."""
+
+    payload = (
+        '{"accession":"GCF_003670205.1",'
+        '"assemblyInfo":{"assemblyStatus":"suppressed",'
+        '"suppressionReason":"removed by submitter",'
+        '"pairedAssembly":{"accession":"GCA_003670205.2","status":"current"}}}\n'
+    )
+
+    parsed = parse_summary_status_map(payload, ["GCF_003670205.1"])
+
+    assert parsed == {
+        "GCF_003670205.1": AssemblyStatusInfo(
+            assembly_status="suppressed",
+            suppression_reason="removed by submitter",
+            paired_accession="GCA_003670205.2",
+            paired_assembly_status="current",
+        ),
+    }
+
+
 def test_run_summary_lookup_with_retries_retries_invalid_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -332,6 +370,14 @@ def test_run_summary_lookup_with_retries_retries_invalid_json(
 
     assert result.summary_map == {
         "GCF_000001.1": {"GCF_000001.1", "GCA_000001.1"},
+    }
+    assert result.status_map == {
+        "GCF_000001.1": AssemblyStatusInfo(
+            assembly_status=None,
+            suppression_reason=None,
+            paired_accession=None,
+            paired_assembly_status=None,
+        ),
     }
     assert sleep_calls == [5, 15]
     assert [failure.final_status for failure in result.failures] == [
