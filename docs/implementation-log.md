@@ -44,6 +44,105 @@ This log records what was actually implemented while
 - Deviations:
   - none
 
+### Commit `93dc518` - `refactor(selection): streamline exact taxon selection`
+
+- Implemented:
+  - moved requested-taxon trimming into a dedicated
+    `src/gtdb_genomes/taxon_normalisation.py` helper so the CLI and selection
+    code share one exact normalisation rule
+  - replaced the per-request full-table scan in `selection.py` with one
+    tokenise, explode, and join pass that preserves request order and row order
+    while avoiding repeated lineage scans
+  - normalised slug-map construction with the same trimmed requested taxa used
+    by `select_taxa()` so direct callers cannot select with surrounding
+    whitespace and then fail during slug attachment
+  - moved the `run_workflow` import inside `main()` so importing the CLI for
+    parser-level or integration tests does not eagerly import the whole workflow
+  - updated CLI and integration tests to patch the workflow entry point at its
+    real import location after the lazy-import change
+  - added a regression proving that trimmed species taxa still receive the
+    correct slug after selection
+- Why:
+  - correctness: direct callers previously had a gap between selected taxa and
+    slug-map keys when surrounding whitespace was present
+  - performance and scalability: the previous selector scanned the full
+    tokenised taxonomy once per requested taxon, which was unnecessary for
+    larger request sets
+  - maintainability and clarity: duplicated taxon trimming logic made it easier
+    for future callers to drift away from the exact-match contract
+  - workflow integration: the lazy CLI import keeps parser tests and thin CLI
+    entry points from loading heavy workflow dependencies earlier than needed
+- Files:
+  - `src/gtdb_genomes/cli.py`
+  - `src/gtdb_genomes/selection.py`
+  - `src/gtdb_genomes/taxon_normalisation.py`
+  - `tests/test_cli.py`
+  - `tests/test_cli_integration.py`
+  - `tests/test_selection.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --group dev pytest tests/test_selection.py tests/test_selection_real_fixtures.py tests/test_cli.py tests/test_cli_integration.py tests/test_download.py tests/test_layout.py tests/test_metadata.py tests/test_release_resolver.py tests/test_real_data_scripts.py`
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --group dev pytest`
+- Match to review goals:
+  - correctness, performance or scalability, maintainability, clarity, and
+    workflow integration
+- Deviations:
+  - none
+
+### Commit `2672fba` - `fix(workflow): harden bundled data and subprocess failures`
+
+- Implemented:
+  - added shared subprocess timeout and message helpers in
+    `src/gtdb_genomes/subprocess_utils.py`
+  - updated download retries to treat timeouts as retryable transient failures
+    and missing executables as immediate spawn failures, while preserving the
+    existing retry accounting
+  - updated metadata summary lookups with the same timeout or spawn handling
+    and added an injectable runner so the failure paths can be unit-tested
+  - updated archive extraction to convert timeout and spawn failures into
+    `LayoutError` instead of uncaught subprocess exceptions
+  - wrapped bundled taxonomy parsing errors so malformed readable files raise
+    `BundledDataError` and therefore return the documented CLI exit code `3`
+  - widened the workflow bundled-data guard so taxonomy-load failures are
+    handled consistently with manifest and path-validation failures
+  - changed the remote real-data smoke check from a Python import probe to a
+    `gtdb-genomes --dry-run` invocation, which validates the installed console
+    entry point and bundled data without depending on whichever `python` binary
+    appears first on `PATH`
+  - added regressions for timeout, spawn-error, malformed-taxonomy, and remote
+    smoke-check behaviour
+- Why:
+  - robustness: uncaught `TimeoutExpired`, `OSError`, and low-level Polars
+    parsing failures would otherwise surface as raw tracebacks or inconsistent
+    failure modes
+  - reproducibility: the remote smoke check should validate the same installed
+    command that users run, not an arbitrary interpreter selected by shell
+    environment state
+  - portability: explicit spawn-error handling is clearer on systems where
+    `datasets` or `unzip` may be missing or differently installed
+  - security and workflow integration: bounded subprocess execution is safer
+    operationally than waiting indefinitely for external tools
+- Files:
+  - `bin/run-real-data-tests-remote.sh`
+  - `src/gtdb_genomes/download.py`
+  - `src/gtdb_genomes/layout.py`
+  - `src/gtdb_genomes/metadata.py`
+  - `src/gtdb_genomes/subprocess_utils.py`
+  - `src/gtdb_genomes/taxonomy.py`
+  - `src/gtdb_genomes/workflow.py`
+  - `tests/test_download.py`
+  - `tests/test_layout.py`
+  - `tests/test_metadata.py`
+  - `tests/test_real_data_scripts.py`
+  - `tests/test_release_resolver.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --group dev pytest tests/test_selection.py tests/test_selection_real_fixtures.py tests/test_cli.py tests/test_cli_integration.py tests/test_download.py tests/test_layout.py tests/test_metadata.py tests/test_release_resolver.py tests/test_real_data_scripts.py`
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --group dev pytest`
+- Match to review goals:
+  - correctness, reproducibility, robustness, portability, security, and
+    workflow integration
+- Deviations:
+  - none
+
 ### Commit `f6f5e96` - `feat(cli): add documented options and validation rules`
 
 - Implemented:
