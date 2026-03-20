@@ -1060,6 +1060,119 @@ def test_direct_mode_records_failed_fallback_when_extraction_fails(
     assert result.executions["GCA_001881595.3"].download_batch == "GCA_001881595.3"
 
 
+def test_direct_mode_debug_logs_multi_group_worker_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Debug logging should expose threaded direct-download group progress."""
+
+    payload_directory = tmp_path / "payload"
+    payload_directory.mkdir()
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Return a successful direct download result for each group."""
+
+        del command
+        del stage
+        del final_failure_status
+        del attempted_accession
+        del sleep_func
+        del runner
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(),
+        )
+
+    def fake_extract_download_payload(
+        accession: str,
+        archive_path: Path,
+        run_directories,
+        *,
+        extraction_key: str | None = None,
+    ) -> tuple[ResolvedPayloadDirectory | None, tuple[CommandFailureRecord, ...]]:
+        """Return one extracted payload per accession group."""
+
+        del archive_path
+        del run_directories
+        del extraction_key
+        return (
+            ResolvedPayloadDirectory(
+                final_accession=accession,
+                directory=payload_directory,
+            ),
+            (),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.extract_download_payload",
+        fake_extract_download_payload,
+    )
+
+    stream = io.StringIO()
+    logger = logging.getLogger(f"test-direct-debug-{id(stream)}")
+    logger.handlers.clear()
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger.addHandler(handler)
+
+    args = build_cli_args(tmp_path / "out")
+    args.debug = True
+    args.threads = 2
+    args.prefer_genbank = False
+
+    run_directories = initialise_run_directories(tmp_path / "direct-debug")
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_000001.1",
+                selected_accession="GCF_000001.1",
+                download_request_accession="GCF_000001.1",
+                conversion_status="unchanged_original",
+            ),
+            AccessionPlan(
+                original_accession="GCF_000002.1",
+                selected_accession="GCF_000002.1",
+                download_request_accession="GCF_000002.1",
+                conversion_status="unchanged_original",
+            ),
+        ),
+        args,
+        run_directories,
+        logger,
+    )
+    handler.flush()
+    logger.removeHandler(handler)
+
+    log_text = stream.getvalue()
+    assert result.download_concurrency_used == 2
+    assert "Direct download using 2 worker(s) across 2 accession group(s)" in log_text
+    assert "Starting direct download group for GCF_000001.1" in log_text
+    assert "Starting direct download group for GCF_000002.1" in log_text
+    assert "Running direct download command for GCF_000001.1:" in log_text
+    assert "Running direct download command for GCF_000002.1:" in log_text
+    assert "Starting archive extraction for GCF_000001.1" in log_text
+    assert "Starting archive extraction for GCF_000002.1" in log_text
+    assert "Finished archive extraction for GCF_000001.1" in log_text
+    assert "Finished archive extraction for GCF_000002.1" in log_text
+    assert "Completed direct download group for GCF_000001.1" in log_text
+    assert "Completed direct download group for GCF_000002.1" in log_text
+
+
 def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
