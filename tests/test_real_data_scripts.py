@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 COMMON_HELPERS = Path("bin/real-data-test-common.sh").resolve()
+SERVER_WRAPPER = Path("bin/run-real-data-tests-server.sh").resolve()
 
 
 def run_bash(script: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -25,6 +26,22 @@ def run_bash(script: str, env: dict[str, str] | None = None) -> subprocess.Compl
         check=False,
         env=merged_env,
     )
+
+
+def write_fake_remote_runner(tmp_path: Path) -> Path:
+    """Create a fake remote runner that records its environment and argv."""
+
+    capture_file = tmp_path / "capture.txt"
+    fake_runner = tmp_path / "fake-remote-runner.sh"
+    fake_runner.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'RUN_OPTIONAL_LARGE=%s\\n' \"${RUN_OPTIONAL_LARGE:-}\" > \"$CAPTURE_FILE\"\n"
+        "printf 'ARGC=%s\\n' \"$#\" >> \"$CAPTURE_FILE\"\n"
+        "printf 'ARGV=%s\\n' \"$*\" >> \"$CAPTURE_FILE\"\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+    return fake_runner
 
 
 def test_real_data_write_command_file_redacts_ncbi_api_key(
@@ -263,3 +280,109 @@ def test_remote_runner_uses_shared_defaults() -> None:
     assert "--threads 2" in remote_script
     assert "--download-method" not in remote_script
     assert "get_release_manifest_path" not in remote_script
+
+
+def test_server_wrapper_smoke_preset_uses_remote_smoke_cases(
+    tmp_path: Path,
+) -> None:
+    """The server wrapper should default to the smoke preset."""
+
+    capture_file = tmp_path / "capture.txt"
+    fake_runner = write_fake_remote_runner(tmp_path)
+
+    result = subprocess.run(
+        ["bash", str(SERVER_WRAPPER)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "REAL_DATA_SERVER_REMOTE_RUNNER": str(fake_runner),
+            "CAPTURE_FILE": str(capture_file),
+        },
+    )
+
+    assert result.returncode == 0
+    capture_text = capture_file.read_text(encoding="utf-8")
+    assert "RUN_OPTIONAL_LARGE=" in capture_text
+    assert "ARGC=3" in capture_text
+    assert "ARGV=C1 C4 C6" in capture_text
+
+
+def test_server_wrapper_full_preset_delegates_without_case_args(
+    tmp_path: Path,
+) -> None:
+    """The `full` preset should delegate to the remote runner default suite."""
+
+    capture_file = tmp_path / "capture.txt"
+    fake_runner = write_fake_remote_runner(tmp_path)
+
+    result = subprocess.run(
+        ["bash", str(SERVER_WRAPPER), "full"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "REAL_DATA_SERVER_REMOTE_RUNNER": str(fake_runner),
+            "CAPTURE_FILE": str(capture_file),
+        },
+    )
+
+    assert result.returncode == 0
+    capture_text = capture_file.read_text(encoding="utf-8")
+    assert "RUN_OPTIONAL_LARGE=" in capture_text
+    assert "ARGC=0" in capture_text
+    assert "ARGV=" in capture_text
+
+
+def test_server_wrapper_full_large_sets_large_suite_flag(
+    tmp_path: Path,
+) -> None:
+    """The `full-large` preset should enable the optional large case."""
+
+    capture_file = tmp_path / "capture.txt"
+    fake_runner = write_fake_remote_runner(tmp_path)
+
+    result = subprocess.run(
+        ["bash", str(SERVER_WRAPPER), "full-large"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "REAL_DATA_SERVER_REMOTE_RUNNER": str(fake_runner),
+            "CAPTURE_FILE": str(capture_file),
+        },
+    )
+
+    assert result.returncode == 0
+    capture_text = capture_file.read_text(encoding="utf-8")
+    assert "RUN_OPTIONAL_LARGE=1" in capture_text
+    assert "ARGC=0" in capture_text
+
+
+def test_server_wrapper_passes_explicit_case_ids_through(
+    tmp_path: Path,
+) -> None:
+    """Explicit case IDs should pass straight through to the remote runner."""
+
+    capture_file = tmp_path / "capture.txt"
+    fake_runner = write_fake_remote_runner(tmp_path)
+
+    result = subprocess.run(
+        ["bash", str(SERVER_WRAPPER), "C1", "C5", "C6"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            **os.environ,
+            "REAL_DATA_SERVER_REMOTE_RUNNER": str(fake_runner),
+            "CAPTURE_FILE": str(capture_file),
+        },
+    )
+
+    assert result.returncode == 0
+    capture_text = capture_file.read_text(encoding="utf-8")
+    assert "ARGC=3" in capture_text
+    assert "ARGV=C1 C5 C6" in capture_text

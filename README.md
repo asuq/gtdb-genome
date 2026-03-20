@@ -67,6 +67,8 @@ Download strategy is always automatic. Smaller supported requests use batch
 direct `datasets download genome accession --inputfile ... --filename ...`
 passes, while larger requests switch to batch dehydrate/rehydrate.
 
+`--threads` chooses how many CPUs to use for the run. Default: `8`.
+
 Check `gtdb-genomes --help` for details and [usage-details](docs/usage-details.md) on optional options.
 
 ## Examples
@@ -113,6 +115,8 @@ gtdb-genomes \
   --dry-run \
   --outdir /tmp/gtdb_dry_run
 ```
+
+Dry-runs now check `unzip` early so real-run archive requirements fail fast.
 
 ## Output Layout
 

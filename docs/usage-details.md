@@ -70,14 +70,7 @@ gtdb-genomes \
     batch rehydrate fails, the tool falls back to batch direct downloads and
     records `dehydrate_fallback_direct` as the final method used
 
-- `--threads`: Defaults to all available CPU threads.
-
-  Concurrency rules:
-
-  - direct-mode network concurrency is one batch command per pass
-  - supported direct runs therefore record `download_concurrency_used=1`
-  - batch dehydrated download concurrency is also `1`
-  - `datasets rehydrate --max-workers` uses `min(threads, 30)`
+- `--threads`: Choose how many CPUs to use for the run. Default: 8.
 
 - `--ncbi-api-key`: This option expects an NCBI API key. The tool passes it only to the
   upstream `datasets` command and does not use it for GTDB release resolution,
@@ -112,13 +105,14 @@ gtdb-genomes \
 
   - resolve the bundled GTDB release
   - read bundled GTDB taxonomy TSVs and the local release manifest
+  - check `unzip` early so real-run archive requirements fail fast
   - perform NCBI metadata lookup when `--prefer-genbank` is enabled and the
     selected rows include supported non-`UBA*` accessions
   - run `datasets --preview` when the selected rows include supported
     non-`UBA*` accessions
 
-  Zero-match runs and unsupported-`UBA*`-only runs do not require `datasets`
-  or `unzip`, because the workflow exits before any NCBI or archive step.
+  Zero-match runs and unsupported-`UBA*`-only runs still avoid NCBI calls, but
+  dry-runs now preflight `unzip` before they exit.
 
 ## API Key Handling
 

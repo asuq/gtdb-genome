@@ -35,6 +35,7 @@ Use the provided bash runners:
 
 - local: `bin/run-real-data-tests-local.sh`
 - remote: `bin/run-real-data-tests-remote.sh`
+- remote wrapper: `bin/run-real-data-tests-server.sh`
 
 Both runners:
 
@@ -53,6 +54,8 @@ Examples:
 ```bash
 bin/run-real-data-tests-local.sh
 bin/run-real-data-tests-local.sh A1 A6 B4
+bin/run-real-data-tests-server.sh
+bin/run-real-data-tests-server.sh full
 bin/run-real-data-tests-remote.sh
 bin/run-real-data-tests-remote.sh C1 C4 C5
 ```
@@ -74,7 +77,7 @@ Optional local launcher fallback:
 
 Required commands by case family:
 
-- `A1` to `A9`: `uv` plus `datasets`
+- `A1` to `A9`: `uv`, `datasets`, and `unzip`
 - `B1` to `B6`: `uv`, `datasets`, and `unzip`
 
 Required environment:
@@ -91,8 +94,9 @@ The local runner uses:
 
 Local environment notes:
 
+- Dry-runs now check `unzip` early so real-run archive requirements fail fast.
 - zero-match and unsupported-`UBA*`-only dry-runs remain valid without NCBI
-  access
+  access, but dry-runs now check `unzip` early
 - the documented `A*` release-coverage dry-runs and all `B*` cases require
   outbound DNS and network access to
   `api.ncbi.nlm.nih.gov`
@@ -152,6 +156,8 @@ has a repo checkout containing `bin/`.
 uv build
 ls dist/*.whl
 scp dist/*.whl user@remote:/tmp/gtdb-genome-remote/
+scp bin/run-real-data-tests-server.sh \
+  user@remote:/tmp/gtdb-genome-remote/
 scp bin/run-real-data-tests-remote.sh \
   bin/real-data-test-common.sh \
   user@remote:/tmp/gtdb-genome-remote/
@@ -214,10 +220,11 @@ gtdb-genomes \
 
 ### 4. Full remote matrix
 
-Once the smoke test passes, run the packaged-runtime matrix with the existing
-remote runner. If the server already has a repo checkout, run the script from
-that checkout. Otherwise, use the copied scripts and keep the installed wheel
-on `PATH` as the command under test.
+Once the smoke test passes, use `bin/run-real-data-tests-server.sh` as the
+preferred on-server entrypoint. It wraps the existing remote runner with simple
+presets. If the server already has a repo checkout, run the script from that
+checkout. Otherwise, use the copied scripts and keep the installed wheel on
+`PATH` as the command under test.
 
 Optional environment:
 
@@ -233,20 +240,25 @@ Examples:
 
 ```bash
 export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)
-bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C1 C4 C6
+bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh
 ```
 
 ```bash
 export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)
 export NCBI_API_KEY="your-ncbi-api-key"
-bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C1 C2 C3 C4 C5 C6
+bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh full
 ```
 
 ```bash
 export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)
 export NCBI_API_KEY="your-ncbi-api-key"
 RUN_OPTIONAL_LARGE=1 \
-  bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C7
+  bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh full-large
+```
+
+```bash
+export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)
+bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh C1 C5 C6
 ```
 
 ### 5. Investigation mode for a failing remote case
@@ -260,7 +272,7 @@ Recommended sequence:
 export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)-debug
 export REAL_DATA_PYTHON_FAULTHANDLER=1
 export REAL_DATA_DEBUG_SAFE=1
-bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C1
+bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh C1
 ```
 
 Then compare:

@@ -126,6 +126,7 @@ local_require_case_commands() {
     case "${case_id}" in
         A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | A9)
             real_data_require_command datasets
+            real_data_require_command unzip
             return 0
             ;;
         B1 | B2 | B3 | B4 | B5 | B6)

@@ -152,6 +152,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert "may differ from the RefSeq version" in usage_details_text
     assert "Chooses the download strategy automatically" in readme_text
     assert "download strategy is automatic only" in usage_details_text
+    assert "Choose how many CPUs to use for the run. Default: 8." in usage_details_text
     assert "suffix variants are separate taxa" in readme_text
     assert "must be quoted in the shell" in readme_text
     assert "--gtdb-taxon \"s__Altiarchaeum hamiconexum\"" in readme_text
@@ -176,7 +177,7 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
 
     assert "uv run gtdb-genomes" in guide_text
     assert "LOCAL_LAUNCHER_MODE=module" in guide_text
-    assert "A1` to `A9`: `uv` plus `datasets`" in (
+    assert "A1` to `A9`: `uv`, `datasets`, and `unzip`" in (
         guide_text
     )
     assert "B1` to `B6`: `uv`, `datasets`, and `unzip`" in guide_text
@@ -198,5 +199,8 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
     assert "REMOTE_TEST_ROOT" in guide_text
     assert "case-results.tsv" in guide_text
     assert "tool-versions.txt" in guide_text
+    assert "run-real-data-tests-server.sh" in guide_text
+    assert "preferred on-server entrypoint" in guide_text
+    assert "Dry-runs now check `unzip` early" in guide_text
     assert "--download-method" not in guide_text
     assert "REAL_DATA_C1_THREADS" not in guide_text
