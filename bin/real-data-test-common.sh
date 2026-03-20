@@ -8,6 +8,7 @@ set -o pipefail
 REAL_DATA_OVERALL_STATUS=0
 REAL_DATA_CASE_RESULTS_FILE=""
 REAL_DATA_PYTHON_VERSION_BIN="${REAL_DATA_PYTHON_VERSION_BIN:-}"
+REAL_DATA_PREPARED_COMMAND=()
 
 
 real_data_today() {
@@ -183,6 +184,36 @@ real_data_copy_if_present() {
 }
 
 
+real_data_command_uses_ncbi_api_key() {
+    local argument=""
+
+    for argument in "$@"; do
+        if [ "${argument}" = "--ncbi-api-key" ] || \
+            [[ "${argument}" == --ncbi-api-key=* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+
+real_data_prepare_case_command() {
+    REAL_DATA_PREPARED_COMMAND=("$@")
+
+    if [ "${REAL_DATA_DEBUG_SAFE:-0}" = "1" ] && \
+        ! real_data_command_uses_ncbi_api_key "${REAL_DATA_PREPARED_COMMAND[@]}"; then
+        REAL_DATA_PREPARED_COMMAND+=(--debug)
+    fi
+    if [ "${REAL_DATA_PYTHON_FAULTHANDLER:-0}" = "1" ]; then
+        REAL_DATA_PREPARED_COMMAND=(
+            env
+            PYTHONFAULTHANDLER=1
+            "${REAL_DATA_PREPARED_COMMAND[@]}"
+        )
+    fi
+}
+
+
 real_data_record_output_evidence() {
     local output_root=$1
     local evidence_root=$2
@@ -203,6 +234,9 @@ real_data_record_output_evidence() {
     real_data_copy_if_present \
         "${output_root}/download_failures.tsv" \
         "${evidence_root}/download_failures.tsv"
+    real_data_copy_if_present \
+        "${output_root}/debug.log" \
+        "${evidence_root}/debug.log"
 
     du -sh "${output_root}" > "${evidence_root}/output-size.txt" 2>/dev/null || true
     if [ -d "${output_root}/taxa" ]; then
@@ -433,6 +467,7 @@ real_data_run_case() {
     local raw_stdout_file=""
     local raw_stderr_file=""
     local temp_dir_escaped=""
+    local command=()
 
     shift 6
 
@@ -444,7 +479,12 @@ real_data_run_case() {
     fi
 
     mkdir -p "${evidence_root}"
-    real_data_write_command_file "${command_file}" "$@" --outdir "${output_root}"
+    real_data_prepare_case_command "$@"
+    command=("${REAL_DATA_PREPARED_COMMAND[@]}")
+    real_data_write_command_file \
+        "${command_file}" \
+        "${command[@]}" \
+        --outdir "${output_root}"
     temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/gtdb_real_command.XXXXXX")
     raw_stdout_file="${temp_dir}/stdout.log"
     raw_stderr_file="${temp_dir}/stderr.log"
@@ -452,7 +492,7 @@ real_data_run_case() {
     trap "real_data_cleanup_temp_dir ${temp_dir_escaped}" EXIT INT TERM HUP
 
     start_epoch=$(date +%s)
-    "$@" --outdir "${output_root}" > "${raw_stdout_file}" 2> "${raw_stderr_file}"
+    "${command[@]}" --outdir "${output_root}" > "${raw_stdout_file}" 2> "${raw_stderr_file}"
     actual_exit=$?
     end_epoch=$(date +%s)
     real_data_redact_file "${raw_stdout_file}" "${stdout_file}"
