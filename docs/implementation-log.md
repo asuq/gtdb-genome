@@ -2286,3 +2286,65 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `7d70344` - `docs(validation): add remote packaged quickstart`
+
+- Implemented:
+  - expanded `docs/real-data-validation.md` with a new `Remote Server
+    Quickstart` section for package-first validation on another server
+  - documented the concrete local build and transfer path with `uv build`,
+    `scp`, wheel installation through `python -m pip install`, and
+    confirmation of `which gtdb-genomes`
+  - documented the packaged-data sanity check equivalent to remote
+    `C0-manifest`, including the expected exit code `4` for the deliberately
+    missing taxon
+  - split the remote guide into a minimum smoke-test path using `C6` then `C1`
+    and a full packaged-runtime matrix path using
+    `bin/run-real-data-tests-remote.sh`
+  - documented the remote environment controls `REMOTE_TEST_ROOT`,
+    `NCBI_API_KEY`, and `RUN_OPTIONAL_LARGE`
+  - added a short expected-results section for `C6`, `C1`, `C4`, and `C5`
+    and a short failure-evidence checklist covering `_evidence` outputs
+  - updated the evidence tree example to include `_evidence/tool-versions.txt`
+- Why:
+  - the existing guide documented remote prerequisites and case expectations,
+    but it did not give a practical step-by-step path for testing the packaged
+    command on a separate clean server
+  - the user specifically wanted to verify whether the installed command works
+    on another server, so the docs now lead with the wheel-based runtime path
+    rather than a source-checkout workflow
+  - the quickstart makes the intended remote contract explicit: packaged wheel,
+    no `uv` in the remote runtime path, smoke test first, then optional matrix
+- Files:
+  - `docs/real-data-validation.md`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_entrypoints.py`
+  - `.venv/bin/python -m pytest -q tests/test_real_data_scripts.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
+
+### Commit `1517bb7` - `test(docs): cover remote validation quickstart`
+
+- Implemented:
+  - extended `tests/test_entrypoints.py` so the real-data guide must continue
+    to mention `uv build`, wheel installation via `python -m pip install`, the
+    absence of `uv` in the remote runtime path, `which gtdb-genomes`, the
+    remote `C0-manifest` sanity check, `REMOTE_TEST_ROOT`, `case-results.tsv`,
+    and `tool-versions.txt`
+- Why:
+  - the new remote quickstart is user-facing operational guidance, so it
+    should be protected by an existing doc regression rather than relying on
+    manual review
+  - these assertions lock the guide to the intended packaged-runtime workflow
+    and evidence contract without changing runtime code
+- Files:
+  - `tests/test_entrypoints.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_entrypoints.py`
+  - `.venv/bin/python -m pytest -q tests/test_real_data_scripts.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
