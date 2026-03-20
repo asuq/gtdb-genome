@@ -2065,3 +2065,59 @@ PY`
   - no, by design
 - Deviations:
   - none
+
+### Commit `30582d6` - `test(fixtures): add GTDB export taxon fixtures`
+
+- Implemented:
+  - moved the four GTDB export CSVs from the repo root into
+    `tests/fixtures/gtdb_taxon_exports/` so they are test-only fixtures rather
+    than ambiguous top-level repo files
+  - removed accession `GCF_900143255.1` from
+    `g__Frigididesulfovibrio.csv` because its bundled GTDB lineage belongs to
+    `g__Frigididesulfovibrio_A` and should not be treated as an exact genus
+    membership expectation for `g__Frigididesulfovibrio`
+  - kept the fixture filenames unchanged so each file stem remains the source
+    of truth for the requested GTDB taxon
+- Why:
+  - the user supplied these GTDB exports as ground-truth evidence for testing
+    taxon membership against the bundled release data
+  - placing them under `tests/fixtures/` keeps runtime packaged data separate
+    from test evidence and makes the intent unambiguous
+- Files:
+  - `tests/fixtures/gtdb_taxon_exports/g__Frigididesulfovibrio.csv`
+  - `tests/fixtures/gtdb_taxon_exports/o__Altiarchaeales.csv`
+  - `tests/fixtures/gtdb_taxon_exports/s__Altiarchaeum hamiconexum.csv`
+  - `tests/fixtures/gtdb_taxon_exports/s__Frigididesulfovibrio sp031556355.csv`
+- Checks run:
+  - none separately; exercised in the subsequent fixture-selection pytest run
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
+
+### Commit `00cf840` - `test(selection): add GTDB export fixture coverage`
+
+- Implemented:
+  - added `tests/test_selection_real_fixtures.py` to drive selection checks
+    from the real GTDB export fixtures against bundled release `226.0`
+  - normalised fixture lineage spacing before comparison, validated that every
+    fixture accession exists in the bundled taxonomy, and asserted that every
+    fixture lineage contains the exact taxon token from the filename stem
+  - added an accession-set comparison for `select_taxa()` so the selection
+    behaviour is checked against the cleaned GTDB export expectations
+  - cached the release `226.0` taxonomy load and accession-to-lineage mapping
+    once per test session to keep the fixture-driven tests fast and stable
+- Why:
+  - the existing selection unit tests covered synthetic cases only and did not
+    verify exact membership against real GTDB export tables
+  - this locks the bundled release `226.0` taxon selection behaviour to a
+    small, deterministic, user-supplied set of real GTDB examples
+- Files:
+  - `tests/test_selection_real_fixtures.py`
+- Checks run:
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --group dev pytest tests/test_selection_real_fixtures.py`
+  - `UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv run --group dev pytest tests/test_selection.py tests/test_selection_real_fixtures.py`
+- Match to frozen plan:
+  - yes
+- Deviations:
+  - none
