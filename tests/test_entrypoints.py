@@ -130,6 +130,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert "--download-method" not in usage_details_text
     assert "--version-fixed" in usage_details_text
     assert "must not depend on uv at runtime" in bioconda_text
+    assert "--no-build-isolation" in bioconda_text
     assert "Fixed TSV columns:" in usage_details_text
     assert "attempted_accession" in usage_details_text
     assert "img.shields.io/badge/python-" in readme_text
@@ -141,7 +142,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert "unsupported_input" in usage_details_text
     assert "Real-data validation guide" in readme_text
     assert "The planned workflow is:" not in readme_text
-    assert "Bioconda recipe template" in readme_text
+    assert "prepared for the first public release" in readme_text
+    assert "published release sdist" in readme_text
+    assert "archive and final SHA256 checksum" in readme_text
+    assert "final SHA256 checksum" in readme_text
     assert "conda install -c bioconda" not in readme_text
     assert "- ncbi-datasets-cli" in bioconda_text
     assert "get_release_manifest_path" in bioconda_text
@@ -187,6 +191,29 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert "Creative Commons Attribution-ShareAlike 4.0 International Public License" in (
         cc_by_sa_text
     )
+
+
+def test_bioconda_recipe_uses_real_upstream_metadata() -> None:
+    """The Bioconda recipe should be pre-release-ready apart from source hash."""
+
+    bioconda_text = Path("packaging/bioconda/meta.yaml").read_text(
+        encoding="utf-8",
+    )
+
+    assert '{% set version = "0.1.0" %}' in bioconda_text
+    assert "https://github.com/asuq/gtdb-genome/releases/download/" in (
+        bioconda_text
+    )
+    assert "https://github.com/asuq/gtdb-genome" in bioconda_text
+    assert "https://github.com/asuq/gtdb-genome/blob/main/README.md" in (
+        bioconda_text
+    )
+    assert "recipe-maintainers:" in bioconda_text
+    assert "- asuq" in bioconda_text
+    assert "example.org" not in bioconda_text
+    assert "your-org" not in bioconda_text
+    assert "your-github-id" not in bioconda_text
+    assert '{% set version = "0.0.0" %}' not in bioconda_text
 
 
 def test_real_data_validation_guide_describes_local_requirements() -> None:
