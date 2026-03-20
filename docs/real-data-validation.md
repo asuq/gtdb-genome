@@ -286,8 +286,9 @@ Then compare:
 - `C6`: exit `0`, no output tree
 - `C1`: exit `0`, output present
 - `C4`: exit `6`, `unsupported_input` in `download_failures.tsv`
-- `C5`: `download_method_used` is `dehydrate` or
-  `dehydrate_fallback_direct`
+- `C5`: pass on exit `0`, or on exit `6` when all remaining failures are
+  metadata-confirmed suppressed assemblies; `download_method_used` is
+  `dehydrate` or `dehydrate_fallback_direct`
 
 ### Evidence to inspect on failure
 
@@ -362,8 +363,9 @@ Acceptance highlights:
 
 - `C1`, `C2`, `C3`: exit `0`
 - `C4`: exit `6` and `unsupported_input`
-- `C5`: `download_method_used` is `dehydrate` or
-  `dehydrate_fallback_direct`
+- `C5`: pass on exit `0`, or on exit `6` when all remaining failures are
+  metadata-confirmed suppressed assemblies; `download_method_used` is
+  `dehydrate` or `dehydrate_fallback_direct`
 - `C6`: exit `0`, no output tree
 - `C7`: run only with large free disk and a long window
 - successful direct cases may still retain retry-history rows in

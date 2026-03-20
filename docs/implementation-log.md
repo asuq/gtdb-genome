@@ -2928,3 +2928,39 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `<pending>` - `fix(validation): accept suppressed-only partial C5`
+
+- Implemented:
+  - updated `bin/real-data-test-common.sh` so `real_data_run_case` now accepts
+    an expected-exit regex instead of a single exact integer, while keeping the
+    existing exact patterns unchanged for all current callers
+  - added a dedicated `C5` post-check in
+    `bin/run-real-data-tests-remote.sh` that still requires
+    `download_method_used` to be `dehydrate` or `dehydrate_fallback_direct`
+  - changed `C5` to accept exit `0` or `6`, but only treat exit `6` as a pass
+    when every failed accession in `accession_map.tsv` has a matching
+    suppression-note row in `download_failures.tsv`
+  - kept `C7` strict and unchanged
+  - updated `docs/real-data-validation.md` so the `C5` acceptance rule now
+    states the suppressed-only partial-success exception explicitly
+- Why:
+  - after the workflow gained suppressed-assembly warnings, `C5` began to
+    produce the documented partial-success exit `6` when a single suppressed
+    accession failed, but the remote runner still treated `C5` as a strict
+    exit-`0` case
+  - this was a validation contract mismatch rather than a workflow download bug
+  - the suppression note already written by the workflow is the narrowest
+    signal available to admit only the intended partial-failure case
+- Files:
+  - `bin/real-data-test-common.sh`
+  - `bin/run-real-data-tests-remote.sh`
+  - `docs/real-data-validation.md`
+  - `tests/test_real_data_scripts.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_real_data_scripts.py tests/test_entrypoints.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_metadata.py tests/test_edge_contract.py tests/test_download.py tests/test_logging.py tests/test_real_data_scripts.py tests/test_entrypoints.py`
+- Match to requested change:
+  - yes
+- Deviations:
+  - scope stayed limited to `C5`; `C7` remains strict for now
