@@ -224,6 +224,12 @@ Optional environment:
 - `REMOTE_TEST_ROOT` to override the default unique suite root
 - `NCBI_API_KEY` for `C2`, `C3`, `C5`, and `C7`
 - `RUN_OPTIONAL_LARGE=1` to include the optional `C7` stress case
+- `REAL_DATA_C1_THREADS`, default `2`, to override only the threaded `C1`
+  direct-download worker count
+- `REAL_DATA_PYTHON_FAULTHANDLER=1` to prefix remote case commands with
+  `PYTHONFAULTHANDLER=1`
+- `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to no-key cases such as
+  `C1`, `C4`, and `C6`
 
 Examples:
 
@@ -245,6 +251,37 @@ RUN_OPTIONAL_LARGE=1 \
   bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C7
 ```
 
+### 5. Investigation mode for intermittent `C1` failures
+
+If `C1` fails intermittently on one remote runtime, keep the normal CLI
+behaviour unchanged and rerun the remote runner in investigation mode.
+
+Recommended sequence:
+
+```bash
+export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)-debug
+export REAL_DATA_PYTHON_FAULTHANDLER=1
+export REAL_DATA_DEBUG_SAFE=1
+bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C1
+```
+
+```bash
+export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)-serial
+export REAL_DATA_C1_THREADS=1
+export REAL_DATA_PYTHON_FAULTHANDLER=1
+export REAL_DATA_DEBUG_SAFE=1
+bash /tmp/gtdb-genome-remote/run-real-data-tests-remote.sh C1
+```
+
+Then compare:
+
+- `_evidence/C1/debug.log` when present
+- `_evidence/C1/stderr.log`
+- copied `run_summary.tsv`
+
+The current investigation target is whether the threaded `C1` direct-download
+path is unstable on that runtime while the serial `C1` path remains stable.
+
 ### Expected results
 
 - `C6`: exit `0`, no output tree
@@ -263,6 +300,7 @@ Review these paths under the selected `REMOTE_TEST_ROOT`:
 - per-case `stdout.log`
 - per-case `stderr.log`
 - per-case `combined.log`
+- per-case `debug.log` when `REAL_DATA_DEBUG_SAFE=1` is enabled for a real run
 - copied `run_summary.tsv`
 - copied `download_failures.tsv`
 - copied `taxa-find.txt`
