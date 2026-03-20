@@ -20,7 +20,7 @@ def test_help_includes_documented_flags() -> None:
     assert "--prefer-genbank" in help_text
     assert "--version-fixed" in help_text
     assert "--no-prefer-genbank" not in help_text
-    assert "--download-method" in help_text
+    assert "--download-method" not in help_text
     assert "--threads" in help_text
     assert "--ncbi-api-key" in help_text
     assert "--include" in help_text
@@ -55,6 +55,7 @@ def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
     assert args.gtdb_taxa == ("g__Escherichia", "s__Escherichia coli")
     assert args.prefer_genbank is False
     assert args.version_fixed is False
+    assert args.download_method == "auto"
 
 
 def test_parse_args_rejects_shell_split_species_taxon(tmp_path: Path) -> None:
@@ -245,6 +246,27 @@ def test_parse_args_accepts_version_fixed_with_prefer_genbank(
 
     assert args.prefer_genbank is True
     assert args.version_fixed is True
+
+
+def test_parse_args_rejects_removed_download_method_flag(tmp_path: Path) -> None:
+    """The public strategy-selection flag should no longer be accepted."""
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as error:
+        parse_args(
+            parser,
+            [
+                "--gtdb-release",
+                "latest",
+                "--gtdb-taxon",
+                "g__Escherichia",
+                "--outdir",
+                str(tmp_path),
+                "--download-method",
+                "direct",
+            ],
+        )
+    assert error.value.code == 2
 
 
 def test_parse_args_rejects_legacy_api_key_flag(tmp_path: Path) -> None:

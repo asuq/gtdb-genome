@@ -20,7 +20,6 @@ from gtdb_genomes.subprocess_utils import (
 
 DEHYDRATE_ACCESSION_THRESHOLD = 1000
 DEHYDRATE_SIZE_GB_THRESHOLD = 15.0
-DIRECT_DOWNLOAD_CONCURRENCY_CAP = 5
 REHYDRATE_WORKER_CAP = 30
 RETRY_DELAYS_SECONDS = (5, 15, 45)
 SIZE_PATTERN = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*([KMGT]?B)\b")
@@ -127,22 +126,23 @@ def build_preview_command(
     return command
 
 
-def build_download_command(
-    accessions: Iterable[str],
+def build_direct_batch_download_command(
+    accession_file: Path,
     archive_path: Path,
     include: str,
     ncbi_api_key: str | None = None,
     datasets_bin: str = "datasets",
     debug: bool = False,
 ) -> list[str]:
-    """Build a direct datasets genome download command."""
+    """Build a non-dehydrated batch datasets genome download command."""
 
     command = [
         datasets_bin,
         "download",
         "genome",
         "accession",
-        *get_ordered_unique_accessions(accessions),
+        "--inputfile",
+        str(accession_file),
         "--filename",
         str(archive_path),
         "--include",
@@ -341,14 +341,6 @@ def select_download_method(
         accession_count=accession_count,
         preview_size_bytes=preview_size_bytes,
     )
-
-
-def get_direct_download_concurrency(threads: int, accession_count: int) -> int:
-    """Return the allowed direct-download job concurrency for a request."""
-
-    if accession_count <= 0:
-        return 0
-    return min(threads, DIRECT_DOWNLOAD_CONCURRENCY_CAP, accession_count)
 
 
 def get_rehydrate_workers(threads: int) -> int:

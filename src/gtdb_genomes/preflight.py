@@ -19,17 +19,12 @@ class PreflightError(Exception):
 
 
 def get_required_tools(
-    download_method: str,
     dry_run: bool,
-    prefer_genbank: bool,
 ) -> tuple[str, ...]:
     """Return the external tools required for the requested execution path."""
 
     if dry_run:
-        required_tools: list[str] = []
-        if prefer_genbank or download_method == "auto":
-            required_tools.append("datasets")
-        return tuple(required_tools)
+        return ("datasets",)
     return ("datasets", "unzip")
 
 

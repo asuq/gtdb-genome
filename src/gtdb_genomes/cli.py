@@ -113,7 +113,7 @@ def parse_args(
         outdir=validate_output_path(parser, namespace.outdir),
         prefer_genbank=namespace.prefer_genbank,
         version_fixed=namespace.version_fixed,
-        download_method=namespace.download_method,
+        download_method="auto",
         threads=namespace.threads,
         ncbi_api_key=namespace.ncbi_api_key,
         include=normalise_include(parser, namespace.include),
@@ -164,16 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pin the exact selected version; requires --prefer-genbank.",
     )
     parser.add_argument(
-        "--download-method",
-        choices=("auto", "direct", "dehydrate"),
-        default="auto",
-        help="Download mode selection strategy.",
-    )
-    parser.add_argument(
         "--threads",
         type=int,
         default=get_default_threads(),
-        help="Worker count to use; defaults to all available CPU threads.",
+        help=(
+            "Worker count to use for automatic planning and dehydrated "
+            "rehydration; defaults to all available CPU threads."
+        ),
     )
     parser.add_argument(
         "--ncbi-api-key",

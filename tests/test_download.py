@@ -12,10 +12,9 @@ from gtdb_genomes.download import (
     DEHYDRATE_SIZE_GB_THRESHOLD,
     PreviewError,
     build_batch_dehydrate_command,
-    build_download_command,
+    build_direct_batch_download_command,
     build_preview_command,
     build_rehydrate_command,
-    get_direct_download_concurrency,
     get_rehydrate_workers,
     parse_preview_size_bytes,
     run_retryable_command,
@@ -44,8 +43,8 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         ncbi_api_key="secret",
         debug=True,
     )
-    download_command = build_download_command(
-        ["GCA_1", "GCF_2"],
+    direct_batch_command = build_direct_batch_download_command(
+        Path("/tmp/accessions.txt"),
         Path("/tmp/out.zip"),
         "genome",
         ncbi_api_key="secret",
@@ -81,13 +80,13 @@ def test_command_builders_match_datasets_cli_shape() -> None:
     ]
     assert "GCA_1" not in preview_command
     assert "GCF_2" not in preview_command
-    assert download_command == [
+    assert direct_batch_command == [
         "datasets",
         "download",
         "genome",
         "accession",
-        "GCA_1",
-        "GCF_2",
+        "--inputfile",
+        "/tmp/accessions.txt",
         "--filename",
         "/tmp/out.zip",
         "--include",
@@ -199,14 +198,13 @@ def test_parse_preview_size_bytes_rejects_ambiguous_unlabelled_sizes() -> None:
 def test_worker_caps_and_accession_input_file_follow_documented_limits(
     tmp_path: Path,
 ) -> None:
-    """Worker caps and accession input files should stay deterministic."""
+    """Rehydrate caps and accession input files should stay deterministic."""
 
     accession_file = write_accession_input_file(
         tmp_path / "accessions.txt",
         ["GCA_1", "GCA_1", "GCF_2"],
     )
 
-    assert get_direct_download_concurrency(8, 12) == 5
     assert get_rehydrate_workers(64) == 30
     assert accession_file.read_text(encoding="ascii") == "GCA_1\nGCF_2\n"
 
