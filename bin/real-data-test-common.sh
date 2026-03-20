@@ -322,6 +322,20 @@ real_data_assert_run_summary_matches() {
 }
 
 
+real_data_assert_case_exit_matches() {
+    local actual_exit=$1
+    local expected_exit_pattern=$2
+    local description=$3
+
+    if ! printf '%s\n' "${actual_exit}" | grep -E -q "^(${expected_exit_pattern})$"; then
+        real_data_fail_message \
+            "${description}: value '${actual_exit}' does not match ${expected_exit_pattern}"
+        return 1
+    fi
+    return 0
+}
+
+
 real_data_assert_any_row_column_matches() {
     local tsv_path=$1
     local column_name=$2
@@ -448,7 +462,7 @@ real_data_run_command_check() {
 real_data_run_case() {
     local test_root=$1
     local case_id=$2
-    local expected_exit=$3
+    local expected_exit_pattern=$3
     local expect_output=$4
     local warning_pattern=$5
     local post_check_function=$6
@@ -501,10 +515,11 @@ real_data_run_case() {
     trap - EXIT INT TERM HUP
     real_data_cleanup_temp_dir "${temp_dir}"
 
-    if [ "${actual_exit}" -ne "${expected_exit}" ]; then
+    if ! real_data_assert_case_exit_matches \
+        "${actual_exit}" \
+        "${expected_exit_pattern}" \
+        "${case_id} expected exit"; then
         status="FAIL"
-        real_data_fail_message \
-            "${case_id}: expected exit ${expected_exit}, got ${actual_exit}"
     fi
 
     if [ "${expect_output}" = "absent" ] && [ -e "${output_root}" ]; then
@@ -533,7 +548,7 @@ real_data_run_case() {
     {
         printf 'case_id=%s\n' "${case_id}"
         printf 'status=%s\n' "${status}"
-        printf 'expected_exit=%s\n' "${expected_exit}"
+        printf 'expected_exit=%s\n' "${expected_exit_pattern}"
         printf 'actual_exit=%s\n' "${actual_exit}"
         printf 'elapsed_seconds=%s\n' "$((end_epoch - start_epoch))"
         printf 'output_root=%s\n' "${output_root}"
@@ -542,7 +557,7 @@ real_data_run_case() {
     printf '%s\t%s\t%s\t%s\t%s\n' \
         "${case_id}" \
         "${status}" \
-        "${expected_exit}" \
+        "${expected_exit_pattern}" \
         "${actual_exit}" \
         "${output_root}" >> "${REAL_DATA_CASE_RESULTS_FILE}"
 

@@ -62,6 +62,108 @@ remote_check_dehydrate_result() {
 }
 
 
+remote_check_dehydrate_suppressed_partial_result() {
+    local output_root=$1
+    local exit_code=""
+    local failed_accessions=()
+    local accession=""
+
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "download_method_used" \
+        '^(dehydrate|dehydrate_fallback_direct)$' \
+        "remote dehydrate method" || return 1
+
+    exit_code=$(real_data_tsv_value "${output_root}/run_summary.tsv" "exit_code")
+    if [ "${exit_code}" = "0" ]; then
+        return 0
+    fi
+    if [ "${exit_code}" != "6" ]; then
+        real_data_fail_message \
+            "remote dehydrate partial exit: unexpected exit_code ${exit_code}"
+        return 1
+    fi
+
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "successful_accessions" \
+        '^[1-9][0-9]*$' \
+        "remote dehydrate suppressed partial success count" || return 1
+    real_data_assert_run_summary_matches \
+        "${output_root}" \
+        "failed_accessions" \
+        '^[1-9][0-9]*$' \
+        "remote dehydrate suppressed partial failure count" || return 1
+
+    if [ ! -f "${output_root}/accession_map.tsv" ]; then
+        real_data_fail_message \
+            "remote dehydrate suppressed partial: missing accession_map.tsv"
+        return 1
+    fi
+    if [ ! -f "${output_root}/download_failures.tsv" ]; then
+        real_data_fail_message \
+            "remote dehydrate suppressed partial: missing download_failures.tsv"
+        return 1
+    fi
+
+    mapfile -t failed_accessions < <(
+        awk -F '\t' '
+            NR == 1 {
+                for (field_index = 1; field_index <= NF; field_index += 1) {
+                    if ($field_index == "ncbi_accession") {
+                        accession_index = field_index
+                    }
+                    if ($field_index == "download_status") {
+                        status_index = field_index
+                    }
+                }
+                next
+            }
+            accession_index > 0 && status_index > 0 && $status_index == "failed" {
+                print $accession_index
+            }
+        ' "${output_root}/accession_map.tsv" | sort -u
+    )
+
+    if [ "${#failed_accessions[@]}" -eq 0 ]; then
+        real_data_fail_message \
+            "remote dehydrate suppressed partial: no failed accessions found"
+        return 1
+    fi
+
+    for accession in "${failed_accessions[@]}"; do
+        if ! awk -F '\t' -v accession="${accession}" '
+            NR == 1 {
+                for (field_index = 1; field_index <= NF; field_index += 1) {
+                    if ($field_index == "attempted_accession") {
+                        attempted_index = field_index
+                    }
+                    if ($field_index == "error_message_redacted") {
+                        message_index = field_index
+                    }
+                }
+                next
+            }
+            attempted_index > 0 &&
+            message_index > 0 &&
+            $attempted_index ~ accession &&
+            $message_index ~ /NCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable\./ {
+                found = 1
+            }
+            END {
+                exit(found ? 0 : 1)
+            }
+        ' "${output_root}/download_failures.tsv"; then
+            real_data_fail_message \
+                "remote dehydrate suppressed partial: failed accession ${accession} lacks suppression note"
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+
 run_remote_case() {
     local case_id=$1
 
@@ -115,8 +217,8 @@ run_remote_case() {
         C5)
             real_data_require_ncbi_api_key
             real_data_run_case \
-                "${REMOTE_TEST_ROOT}" "${case_id}" 0 present "" \
-                remote_check_dehydrate_result \
+                "${REMOTE_TEST_ROOT}" "${case_id}" '0|6' present "" \
+                remote_check_dehydrate_suppressed_partial_result \
                 gtdb-genomes \
                 --gtdb-release 202 \
                 --gtdb-taxon g__Bacteroides \
