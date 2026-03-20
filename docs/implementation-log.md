@@ -2348,3 +2348,65 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `14f284c` - `fix(packaging): include runtime sources in sdist`
+
+- Implemented:
+  - updated the Hatch sdist include list in `pyproject.toml` so source
+    distributions explicitly carry `src/gtdb_genomes/**` as well as the
+    bundled GTDB taxonomy payload
+  - kept the existing console entrypoint
+    `gtdb-genomes = "gtdb_genomes.cli:main"` unchanged
+  - kept the existing wheel package root `packages = ["src/gtdb_genomes"]`
+    unchanged
+- Why:
+  - a user-reported packaged install failed with
+    `ModuleNotFoundError: No module named 'gtdb_genomes.cli'` when running
+    `gtdb-genomes --help`
+  - inspection of `dist/gtdb_genomes-0.1.0.tar.gz` showed that the current
+    sdist omitted `src/gtdb_genomes/cli.py` and the rest of the runtime
+    package, and the wheel built from that sdist therefore shipped only
+    bundled taxonomy data plus `.dist-info` metadata
+  - because the wheel can be built from the sdist, fixing the sdist contents
+    is the minimal packaging correction that restores installed runtime
+    imports without changing the public CLI contract
+- Files:
+  - `pyproject.toml`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_entrypoints.py`
+  - `PATH=/Users/asuq/miniforge3/envs/gtdb-genome/bin:/usr/bin:/bin UV_CACHE_DIR=/tmp/gtdb_uv_cache /Users/asuq/miniforge3/envs/gtdb-genome/bin/uv build`
+  - `python3 - <<'PY' ... tarfile.open('dist/gtdb_genomes-0.1.0.tar.gz') ... 'gtdb_genomes-0.1.0/src/gtdb_genomes/cli.py' in names ... PY`
+  - `python3 - <<'PY' ... zipfile.ZipFile('dist/gtdb_genomes-0.1.0-py3-none-any.whl') ... 'gtdb_genomes/cli.py' in names ... PY`
+  - `python3 -m venv /tmp/gtdb_pkg_verify && /tmp/gtdb_pkg_verify/bin/python -m pip install dist/gtdb_genomes-0.1.0-py3-none-any.whl`
+  - `/tmp/gtdb_pkg_verify/bin/gtdb-genomes --help`
+  - `/tmp/gtdb_pkg_verify/bin/gtdb-genomes --gtdb-release 226 --gtdb-taxon g__DefinitelyNotReal --outdir /tmp/gtdb_pkg_verify_c0_manifest --dry-run`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - verification needed unrestricted network access for `uv build` to resolve
+    `hatchling` and for `pip install` in the clean temp environment to fetch
+    `polars`
+
+### Commit `a009e12` - `test(packaging): lock sdist source inclusion`
+
+- Implemented:
+  - added a packaging-contract regression in `tests/test_entrypoints.py`
+  - the new test parses `pyproject.toml` and asserts that the wheel package
+    root remains `src/gtdb_genomes`
+  - the same test asserts that the sdist include list contains both
+    `src/gtdb_genomes/**` and `data/gtdb_taxonomy/**`
+- Why:
+  - the previous test coverage proved source-checkout entrypoints and docs, but
+    it did not guard the build configuration that decides whether the packaged
+    command contains its runtime Python modules
+  - locking this contract at the config level keeps the default test suite
+    fast and offline while still protecting against a repeat of the missing
+    `gtdb_genomes.cli` artefact bug
+- Files:
+  - `tests/test_entrypoints.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_entrypoints.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
