@@ -21,19 +21,21 @@ from gtdb_genomes.metadata import SummaryLookupResult
 from gtdb_genomes.preflight import PreflightError
 from gtdb_genomes.release_resolver import resolve_release
 from gtdb_genomes.taxonomy import load_release_taxonomy
-from gtdb_genomes.workflow import (
+from gtdb_genomes.workflow_execution import (
     AccessionExecution,
     AccessionPlan,
     DownloadExecutionResult,
     ResolvedPayloadDirectory,
-    build_unsupported_uba_warning,
-    build_failure_rows,
-    create_staging_directory,
-    execute_batch_dehydrate_plans,
     execute_direct_accession_plans,
+    execute_batch_dehydrate_plans,
     extract_download_payload,
+)
+from gtdb_genomes.workflow_outputs import build_failure_rows
+from gtdb_genomes.workflow_planning import (
+    create_staging_directory,
     plan_supported_downloads,
 )
+from gtdb_genomes.workflow_selection import build_unsupported_uba_warning
 
 
 def build_taxonomy_frame(lineage: str) -> pl.DataFrame:
@@ -155,6 +157,18 @@ def install_capture_logger(
         "gtdb_genomes.workflow.close_logger",
         fake_close_logger,
     )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_outputs.configure_logging",
+        fake_configure_logging,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_outputs.close_logger",
+        fake_close_logger,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.close_logger",
+        fake_close_logger,
+    )
     return stream
 
 
@@ -193,13 +207,13 @@ def test_zero_match_run_writes_header_only_outputs(
     """Zero matches should create the documented output tree and exit 4."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: (_ for _ in ()).throw(
             AssertionError("preflight should not run"),
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame("d__Bacteria;p__Firmicutes;g__Bacillus"),
     )
 
@@ -234,23 +248,23 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
     warning_stream = install_capture_logger(monkeypatch)
     required_tools_calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: required_tools_calls.append(tuple(required_tools)),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_mixed_uba_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("metadata lookup should not run"),
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -285,23 +299,23 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
     warning_stream = install_capture_logger(monkeypatch)
     required_tools_calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: required_tools_calls.append(tuple(required_tools)),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_uba_only_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("metadata lookup should not run"),
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("preview should not run"),
         ),
@@ -335,7 +349,7 @@ def test_zero_match_dry_run_missing_unzip_returns_exit_five(
     """Dry-runs should fail early when `unzip` is unavailable."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame("d__Bacteria;p__Firmicutes;g__Bacillus"),
     )
 
@@ -346,7 +360,7 @@ def test_zero_match_dry_run_missing_unzip_returns_exit_five(
         raise PreflightError("Missing required external tools: unzip")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         raise_preflight_error,
     )
 
@@ -374,7 +388,7 @@ def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
     """Supported prefer-GenBank dry-runs should still enforce datasets."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
@@ -392,7 +406,7 @@ def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
         raise PreflightError("Missing required external tools: datasets")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         raise_preflight_error,
     )
 
@@ -422,7 +436,7 @@ def test_supported_real_run_missing_tools_returns_exit_five(
     """Supported non-dry runs should still enforce datasets and unzip."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
@@ -435,7 +449,7 @@ def test_supported_real_run_missing_tools_returns_exit_five(
         raise PreflightError("Missing required external tools: datasets, unzip")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         raise_preflight_error,
     )
 
@@ -485,7 +499,7 @@ def test_extract_download_payload_reports_layout_stage_for_archive_errors(
 
     run_directories = initialise_run_directories(tmp_path / "layout-error")
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         lambda archive_path, extraction_root: (_ for _ in ()).throw(
             LayoutError("archive extraction failed"),
         ),
@@ -521,7 +535,7 @@ def test_extract_download_payload_resolves_realised_version_from_stem_request(
         return extraction_root
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
 
@@ -565,7 +579,7 @@ def test_extract_download_payload_ignores_nested_accession_named_directories(
         return extraction_root
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
 
@@ -605,7 +619,7 @@ def test_extract_download_payload_falls_back_when_data_root_is_absent(
         return extraction_root
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
 
@@ -648,7 +662,7 @@ def test_extract_download_payload_fallback_ignores_nested_accession_directories(
         return extraction_root
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
 
@@ -699,7 +713,7 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse(
     )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -723,7 +737,7 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.select_download_method",
+        "gtdb_genomes.workflow_planning.select_download_method",
         fake_select_download_method,
     )
 
@@ -809,15 +823,15 @@ def test_direct_mode_downloads_shared_preferred_accession_once(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_retryable_command",
+        "gtdb_genomes.workflow_execution.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.collect_payload_directories",
+        "gtdb_genomes.workflow_execution.collect_payload_directories",
         fake_collect_payload_directories,
     )
 
@@ -921,15 +935,15 @@ def test_direct_mode_retries_unresolved_accessions_in_later_batches(
         raise AssertionError(f"Unexpected extraction root: {extraction_root}")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_retryable_command",
+        "gtdb_genomes.workflow_execution.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.collect_payload_directories",
+        "gtdb_genomes.workflow_execution.collect_payload_directories",
         fake_collect_payload_directories,
     )
 
@@ -1039,15 +1053,15 @@ def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
         raise AssertionError(f"Unexpected extraction root: {extraction_root}")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_retryable_command",
+        "gtdb_genomes.workflow_execution.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.collect_payload_directories",
+        "gtdb_genomes.workflow_execution.collect_payload_directories",
         fake_collect_payload_directories,
     )
 
@@ -1142,15 +1156,15 @@ def test_direct_mode_records_failed_fallback_after_layout_exhaustion(
         return ()
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_retryable_command",
+        "gtdb_genomes.workflow_execution.run_retryable_command",
         fake_run_retryable_command,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         fake_extract_archive,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.collect_payload_directories",
+        "gtdb_genomes.workflow_execution.collect_payload_directories",
         fake_collect_payload_directories,
     )
 
@@ -1199,21 +1213,21 @@ def test_auto_preview_failure_returns_exit_code_five_without_output_tree(
     """Preview failures in auto mode should stop before output creation."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: (_ for _ in ()).throw(PreviewError("preview failed")),
     )
 
@@ -1262,21 +1276,21 @@ def test_auto_preview_uses_accession_input_file_and_keeps_output_absent(
         return "Package size: 1.0 GB\n"
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_multi_accession_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         fake_run_preview_command,
     )
 
@@ -1308,21 +1322,21 @@ def test_dry_run_logs_info_milestones(
 
     log_stream = install_capture_logger(monkeypatch)
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -1365,25 +1379,25 @@ def test_real_run_logs_info_milestones(
     (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_retryable_command",
+        "gtdb_genomes.workflow_execution.run_retryable_command",
         lambda *args, **kwargs: RetryableCommandResult(
             succeeded=True,
             stdout="",
@@ -1392,14 +1406,14 @@ def test_real_run_logs_info_milestones(
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.extract_archive",
+        "gtdb_genomes.workflow_execution.extract_archive",
         lambda archive_path, extraction_root: extraction_root.mkdir(
             parents=True,
             exist_ok=True,
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.collect_payload_directories",
+        "gtdb_genomes.workflow_execution.collect_payload_directories",
         lambda extraction_root: (
             ResolvedPayloadDirectory(
                 final_accession="GCF_000001.1",
@@ -1466,21 +1480,21 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
         return SummaryLookupResult(summary_map={}, failures=())
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_multi_accession_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         fake_run_summary_lookup_with_retries,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -1529,21 +1543,21 @@ def test_total_runtime_failure_leaves_final_accession_blank(
     """Total failure should blank `final_accession` and exit 7."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -1580,7 +1594,7 @@ def test_total_runtime_failure_leaves_final_accession_blank(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
         fake_execute_accession_plans,
     )
 
@@ -1618,23 +1632,23 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
     (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_mixed_uba_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("metadata lookup should not run"),
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -1669,7 +1683,7 @@ def test_mixed_uba_real_run_records_failed_unsupported_rows(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
         fake_execute_accession_plans,
     )
 
@@ -1731,19 +1745,19 @@ def test_uba_only_real_run_writes_failed_manifests_and_exits_seven(
     """UBA-only real runs should skip downloads but still write audit manifests."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: (_ for _ in ()).throw(
             AssertionError("preflight should not run"),
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_uba_only_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("supported download execution should not run"),
         ),
@@ -1792,21 +1806,21 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
     (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_shared_preferred_taxonomy_frame(
             "d__Bacteria;p__Firmicutes;g__Bacillus",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -1843,7 +1857,7 @@ def test_shared_preferred_direct_manifest_uses_preferred_download_batch(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
         fake_execute_accession_plans,
     )
 
@@ -1879,21 +1893,21 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
     (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_shared_preferred_taxonomy_frame(
             "d__Bacteria;p__Firmicutes;g__Bacillus",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -1940,7 +1954,7 @@ def test_direct_fallback_manifest_uses_actual_fallback_download_batch(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
         fake_execute_accession_plans,
     )
 
@@ -1976,21 +1990,21 @@ def test_failure_manifest_collapses_shared_accession_taxa(
     """One shared failed accession should yield one root failure row."""
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.check_required_tools",
+        "gtdb_genomes.workflow_selection.check_required_tools",
         lambda required_tools: None,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.load_release_taxonomy",
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
         lambda resolution: build_taxonomy_frame(
             "d__Bacteria;p__Proteobacteria;g__Escherichia;s__Escherichia coli",
         ),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_summary_lookup_with_retries",
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_preview_command",
+        "gtdb_genomes.workflow_planning.run_preview_command",
         lambda *args, **kwargs: "Package size: 1.0 GB\n",
     )
 
@@ -2028,7 +2042,7 @@ def test_failure_manifest_collapses_shared_accession_taxa(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
         fake_execute_accession_plans,
     )
 
@@ -2169,7 +2183,7 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
     run_directories = initialise_run_directories(tmp_path / "batch-output")
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.run_retryable_command",
+        "gtdb_genomes.workflow_execution.run_retryable_command",
         lambda *args, **kwargs: RetryableCommandResult(
             succeeded=False,
             stdout="",
@@ -2214,7 +2228,7 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
         )
 
     monkeypatch.setattr(
-        "gtdb_genomes.workflow.execute_direct_accession_plans",
+        "gtdb_genomes.workflow_execution.execute_direct_accession_plans",
         fake_execute_direct_accession_plans,
     )
 
