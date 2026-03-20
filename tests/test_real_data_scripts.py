@@ -170,6 +170,83 @@ def test_real_data_run_command_check_removes_raw_temp_directory(
     assert not list(temp_dir.glob("gtdb_real_command.*"))
 
 
+def test_real_data_prepare_case_command_records_faulthandler_and_safe_debug(
+    tmp_path: Path,
+) -> None:
+    """Safe investigation mode should record faulthandler and debug flags."""
+
+    command_file = tmp_path / "command.sh"
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        "export REAL_DATA_PYTHON_FAULTHANDLER=1\n"
+        "export REAL_DATA_DEBUG_SAFE=1\n"
+        "real_data_prepare_case_command "
+        "gtdb-genomes --gtdb-release latest "
+        "--gtdb-taxon 's__Thermoflexus hugenholtzii' "
+        "--download-method direct --threads 2 --include genome\n"
+        "real_data_write_command_file "
+        f"{shlex.quote(str(command_file))} "
+        '"${REAL_DATA_PREPARED_COMMAND[@]}" --outdir /tmp/out\n'
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    command_text = command_file.read_text(encoding="utf-8")
+    assert "env PYTHONFAULTHANDLER=1 gtdb-genomes" in command_text
+    assert "--debug" in command_text
+    assert "--threads 2" in command_text
+
+
+def test_real_data_prepare_case_command_skips_debug_for_api_key_case(
+    tmp_path: Path,
+) -> None:
+    """Safe debug mode should not add `--debug` to API-key cases."""
+
+    command_file = tmp_path / "command.sh"
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        "export REAL_DATA_PYTHON_FAULTHANDLER=1\n"
+        "export REAL_DATA_DEBUG_SAFE=1\n"
+        "real_data_prepare_case_command "
+        "gtdb-genomes --gtdb-release 207 "
+        "--gtdb-taxon g__Methanobrevibacter "
+        "--download-method direct --threads 4 --include genome,gff3 "
+        "--ncbi-api-key secret\n"
+        "real_data_write_command_file "
+        f"{shlex.quote(str(command_file))} "
+        '"${REAL_DATA_PREPARED_COMMAND[@]}" --outdir /tmp/out\n'
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    command_text = command_file.read_text(encoding="utf-8")
+    assert "env PYTHONFAULTHANDLER=1 gtdb-genomes" in command_text
+    assert "--debug" not in command_text
+    assert "--ncbi-api-key" in command_text
+
+
+def test_real_data_record_output_evidence_copies_debug_log(tmp_path: Path) -> None:
+    """Evidence capture should copy `debug.log` when a run writes one."""
+
+    output_root = tmp_path / "output"
+    evidence_root = tmp_path / "evidence"
+    output_root.mkdir()
+    evidence_root.mkdir()
+    (output_root / "debug.log").write_text("debug-line\n", encoding="utf-8")
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        "real_data_record_output_evidence "
+        f"{shlex.quote(str(output_root))} {shlex.quote(str(evidence_root))}\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    assert (evidence_root / "debug.log").read_text(encoding="utf-8") == "debug-line\n"
+
+
 def test_remote_runner_uses_shared_defaults() -> None:
     """The remote runner should share unique-root and Python-detection helpers."""
 
@@ -183,4 +260,5 @@ def test_remote_runner_uses_shared_defaults() -> None:
     assert "gtdb-genomes \\" in remote_script
     assert "--gtdb-taxon g__DefinitelyNotReal" in remote_script
     assert "--dry-run" in remote_script
+    assert "REAL_DATA_C1_THREADS" in remote_script
     assert "get_release_manifest_path" not in remote_script
