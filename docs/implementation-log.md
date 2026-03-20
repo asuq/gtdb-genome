@@ -2802,3 +2802,50 @@ PY`
   - yes
 - Deviations:
   - manual remote acceptance was not rerun in this turn
+
+### Commit `aaad58c` - `refactor(workflow): split helper modules`
+
+- Implemented:
+  - replaced the large phase-wrapper refactor in `src/gtdb_genomes/workflow.py`
+    with a thin orchestration entrypoint that reads top-to-bottom as:
+    selection, preflight, planning, dry-run exit, real-run execution, and
+    output materialisation
+  - removed `WorkflowSelectionPhase` and `WorkflowPlanningPhase` instead of
+    replacing them with new orchestration classes
+  - split the old monolithic workflow helpers into four owner modules:
+    `src/gtdb_genomes/workflow_selection.py`,
+    `src/gtdb_genomes/workflow_planning.py`,
+    `src/gtdb_genomes/workflow_execution.py`, and
+    `src/gtdb_genomes/workflow_outputs.py`
+  - kept the concrete domain dataclasses that still carry clear value:
+    `AccessionPlan`, `AccessionExecution`, `DownloadExecutionResult`,
+    `ResolvedPayloadDirectory`, and `SharedFailureContext`
+  - kept the earlier runtime behaviour intact, including the automatic method
+    choice, the early dry-run `unzip` check, the batch-direct retry logic, the
+    original-accession fallback path, and the added INFO logging
+  - added heavier structural comments in each workflow module so a maintainer
+    can follow the code by section rather than by one long file
+  - retargeted `tests/test_edge_contract.py` so direct imports and monkeypatch
+    targets now point at the owner modules instead of treating
+    `gtdb_genomes.workflow` as a catch-all helper namespace
+- Why:
+  - the phase wrapper classes made the workflow harder to follow in an IDE and
+    obscured the real execution path for new maintainers
+  - moving helper families into owner modules keeps the main workflow readable
+    without flattening all responsibilities back into one large script
+  - updating the tests to patch the owner modules makes future refactors safer,
+    because the patch targets now match the real dependency boundaries
+- Files:
+  - `src/gtdb_genomes/workflow.py`
+  - `src/gtdb_genomes/workflow_selection.py`
+  - `src/gtdb_genomes/workflow_planning.py`
+  - `src/gtdb_genomes/workflow_execution.py`
+  - `src/gtdb_genomes/workflow_outputs.py`
+  - `tests/test_edge_contract.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_edge_contract.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_edge_contract.py tests/test_download.py tests/test_logging.py tests/test_real_data_scripts.py tests/test_entrypoints.py`
+- Match to requested plan:
+  - yes
+- Deviations:
+  - none
