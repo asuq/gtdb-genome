@@ -2849,3 +2849,82 @@ PY`
   - yes
 - Deviations:
   - none
+
+### Commit `d1b89b3` - `feat(workflow): warn on suppressed assembly targets`
+
+- Implemented:
+  - extended `src/gtdb_genomes/metadata.py` so the existing
+    `datasets summary genome accession --as-json-lines` path now preserves
+    structured assembly status information as well as accession pairing
+  - parsed `assemblyInfo.assemblyStatus`, `assemblyInfo.suppressionReason`, and
+    `assemblyInfo.pairedAssembly.status` without changing the existing
+    accession-preference logic
+  - updated `src/gtdb_genomes/workflow_planning.py` to derive suppression notes
+    for the actual selected download target, not just the original accession
+  - kept the warning logic aligned with the selected target:
+    a suppressed original RefSeq assembly does not warn if the selected paired
+    GenBank accession is still current
+  - changed supported-accession planning to reuse metadata lookups for warning
+    purposes even when `--prefer-genbank` is not enabled
+  - updated `src/gtdb_genomes/workflow.py` to emit a planning-time warning when
+    the selected target is metadata-confirmed suppressed, and a second warning
+    after output materialisation if that accession still failed
+  - updated `src/gtdb_genomes/workflow_outputs.py` so
+    `download_failures.tsv` appends a standard suppression note for failed
+    suppressed accessions without changing the TSV schema
+- Why:
+  - the remote `C5` failure for `GCF_003670205.1` was real, but the workflow
+    exposed it as a generic failure instead of explaining that NCBI marked the
+    assembly as suppressed
+  - the live NCBI finding showed that suppression does not always remove every
+    accession-level artefact, so the code needed a metadata-based warning
+    rather than a blanket "suppressed means missing" rule
+  - reusing the existing metadata summary path keeps runtime scope narrow and
+    avoids bolting FTP probes onto normal workflow execution
+- Files:
+  - `src/gtdb_genomes/metadata.py`
+  - `src/gtdb_genomes/workflow.py`
+  - `src/gtdb_genomes/workflow_outputs.py`
+  - `src/gtdb_genomes/workflow_planning.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_metadata.py tests/test_edge_contract.py tests/test_logging.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_metadata.py tests/test_edge_contract.py tests/test_download.py tests/test_logging.py tests/test_real_data_scripts.py tests/test_entrypoints.py`
+- Match to requested change:
+  - yes
+- Deviations:
+  - suppression detection relies on `datasets summary` metadata only; no FTP or
+    extra API probe was added to runtime code
+
+### Commit `dbb3069` - `test(workflow): cover suppressed assembly warnings`
+
+- Implemented:
+  - added metadata tests that verify summary parsing preserves assembly status,
+    suppression reason, and paired-assembly status
+  - added planning tests that verify:
+    suppressed unchanged targets warn,
+    paired-target warnings follow the selected accession,
+    and suppressed original accessions do not warn when the selected paired
+    accession is still current
+  - added integrated workflow tests that verify:
+    dry-runs warn during planning,
+    failed suppressed accessions warn again at the end,
+    and `download_failures.tsv` carries the suppression note
+  - updated mixed-UBA tests to reflect the new metadata lookup behaviour for
+    supported accessions while keeping the unsupported-only no-metadata path
+    intact
+- Why:
+  - the suppression warning needed both parser-level coverage and end-to-end
+    workflow coverage because the note is carried from planning into final
+    output writing
+  - the mixed-UBA regression mattered because metadata lookup is now reused for
+    warning purposes even when the run is not using `--prefer-genbank`
+- Files:
+  - `tests/test_edge_contract.py`
+  - `tests/test_metadata.py`
+- Checks run:
+  - `.venv/bin/python -m pytest -q tests/test_metadata.py tests/test_edge_contract.py tests/test_logging.py`
+  - `.venv/bin/python -m pytest -q tests/test_cli.py tests/test_cli_integration.py tests/test_metadata.py tests/test_edge_contract.py tests/test_download.py tests/test_logging.py tests/test_real_data_scripts.py tests/test_entrypoints.py`
+- Match to requested change:
+  - yes
+- Deviations:
+  - none
