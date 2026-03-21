@@ -254,6 +254,46 @@ def test_real_data_prepare_case_command_skips_debug_for_api_key_case(
     assert "--ncbi-api-key" in command_text
 
 
+def test_real_data_append_optional_ncbi_api_key_keeps_command_without_key() -> None:
+    """Optional API-key helper should leave commands unchanged when unset."""
+
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        "unset NCBI_API_KEY\n"
+        "while IFS= read -r -d '' argument; do\n"
+        "  printf '%s\\n' \"$argument\"\n"
+        "done < <(real_data_append_optional_ncbi_api_key gtdb-genomes --threads 2)\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == ["gtdb-genomes", "--threads", "2"]
+
+
+def test_real_data_append_optional_ncbi_api_key_appends_key_when_set() -> None:
+    """Optional API-key helper should append the CLI flag when available."""
+
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        "export NCBI_API_KEY=secret\n"
+        "while IFS= read -r -d '' argument; do\n"
+        "  printf '%s\\n' \"$argument\"\n"
+        "done < <(real_data_append_optional_ncbi_api_key gtdb-genomes --threads 2)\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        "gtdb-genomes",
+        "--threads",
+        "2",
+        "--ncbi-api-key",
+        "secret",
+    ]
+
+
 def test_real_data_record_output_evidence_copies_debug_log(tmp_path: Path) -> None:
     """Evidence capture should copy `debug.log` when a run writes one."""
 
@@ -290,6 +330,26 @@ def test_remote_runner_uses_shared_defaults() -> None:
     assert "--threads 2" in remote_script
     assert "--download-method" not in remote_script
     assert "get_release_manifest_path" not in remote_script
+
+
+def test_local_runner_keeps_only_c5_and_c7_as_api_key_required_cases() -> None:
+    """The local and remote runners should not hard-require the key for CI cases."""
+
+    local_script = Path("bin/run-real-data-tests-local.sh").read_text(
+        encoding="utf-8",
+    )
+    remote_script = Path("bin/run-real-data-tests-remote.sh").read_text(
+        encoding="utf-8",
+    )
+
+    assert "real_data_append_optional_ncbi_api_key" in local_script
+    assert "real_data_append_optional_ncbi_api_key" in remote_script
+    assert "B2)\n            real_data_require_ncbi_api_key" not in local_script
+    assert "B6)\n            real_data_require_ncbi_api_key" not in local_script
+    assert "C2)\n            real_data_require_ncbi_api_key" not in remote_script
+    assert "C3)\n            real_data_require_ncbi_api_key" not in remote_script
+    assert "C5)\n            real_data_require_ncbi_api_key" in remote_script
+    assert "C7)\n            real_data_require_ncbi_api_key" in remote_script
 
 
 def test_real_data_run_case_accepts_expected_exit_pattern(tmp_path: Path) -> None:

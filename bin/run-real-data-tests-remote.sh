@@ -166,6 +166,9 @@ remote_check_dehydrate_suppressed_partial_result() {
 
 run_remote_case() {
     local case_id=$1
+    local base_command=()
+    local command=()
+    local argument=""
 
     case "${case_id}" in
         C1)
@@ -179,30 +182,40 @@ run_remote_case() {
                 --include genome
             ;;
         C2)
-            real_data_require_ncbi_api_key
+            base_command=(
+                gtdb-genomes
+                --gtdb-release 89
+                --gtdb-taxon "s__Thermoflexus hugenholtzii"
+                --prefer-genbank
+                --threads 1
+                --include genome
+            )
+            command=()
+            while IFS= read -r -d '' argument; do
+                command+=("${argument}")
+            done < <(real_data_append_optional_ncbi_api_key "${base_command[@]}")
             real_data_run_case \
                 "${REMOTE_TEST_ROOT}" "${case_id}" 0 present "" \
                 remote_check_direct_success \
-                gtdb-genomes \
-                --gtdb-release 89 \
-                --gtdb-taxon "s__Thermoflexus hugenholtzii" \
-                --prefer-genbank \
-                --threads 1 \
-                --include genome \
-                --ncbi-api-key "${NCBI_API_KEY}"
+                "${command[@]}"
             ;;
         C3)
-            real_data_require_ncbi_api_key
+            base_command=(
+                gtdb-genomes
+                --gtdb-release 207
+                --gtdb-taxon g__Methanobrevibacter
+                --prefer-genbank
+                --threads 4
+                --include genome,gff3
+            )
+            command=()
+            while IFS= read -r -d '' argument; do
+                command+=("${argument}")
+            done < <(real_data_append_optional_ncbi_api_key "${base_command[@]}")
             real_data_run_case \
                 "${REMOTE_TEST_ROOT}" "${case_id}" 0 present "" \
                 remote_check_direct_success \
-                gtdb-genomes \
-                --gtdb-release 207 \
-                --gtdb-taxon g__Methanobrevibacter \
-                --prefer-genbank \
-                --threads 4 \
-                --include genome,gff3 \
-                --ncbi-api-key "${NCBI_API_KEY}"
+                "${command[@]}"
             ;;
         C4)
             real_data_run_case \
