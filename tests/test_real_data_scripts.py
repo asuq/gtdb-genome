@@ -294,6 +294,35 @@ def test_real_data_append_optional_ncbi_api_key_appends_key_when_set() -> None:
     ]
 
 
+def test_real_data_assert_any_taxon_manifest_row_column_matches_finds_true_row(
+    tmp_path: Path,
+) -> None:
+    """Taxon manifest column matching should work without regex tab hacks."""
+
+    output_root = tmp_path / "output"
+    manifest_path = output_root / "taxa" / "g__Thermoflexus" / "taxon_accessions.tsv"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        "requested_taxon\ttaxon_slug\tlineage\tgtdb_accession\tfinal_accession\t"
+        "conversion_status\toutput_relpath\tdownload_status\tduplicate_across_taxa\n"
+        "g__Thermoflexus\tg__Thermoflexus\tlineage\tRS_GCF_000001.1\t"
+        "GCF_000001.1\tsuccess\ttaxa/g__Thermoflexus/GCF_000001.1\t"
+        "downloaded\ttrue\n",
+        encoding="utf-8",
+    )
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        "real_data_assert_any_taxon_manifest_row_column_matches "
+        f"{shlex.quote(str(output_root))} "
+        "duplicate_across_taxa '^true$' "
+        "'duplicate-across-taxa flag'\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+
+
 def test_real_data_record_output_evidence_copies_debug_log(tmp_path: Path) -> None:
     """Evidence capture should copy `debug.log` when a run writes one."""
 

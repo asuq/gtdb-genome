@@ -401,6 +401,34 @@ EOF
 }
 
 
+real_data_assert_any_taxon_manifest_row_column_matches() {
+    local output_root=$1
+    local column_name=$2
+    local pattern=$3
+    local description=$4
+    local manifest_path=""
+
+    if [ ! -d "${output_root}/taxa" ]; then
+        real_data_fail_message "${description}: missing taxa directory"
+        return 1
+    fi
+    while IFS= read -r manifest_path; do
+        if [ -n "${manifest_path}" ] && \
+            real_data_assert_any_row_column_matches \
+                "${manifest_path}" \
+                "${column_name}" \
+                "${pattern}" \
+                "${description}" >/dev/null 2>&1; then
+            return 0
+        fi
+    done <<EOF
+$(find "${output_root}/taxa" -name "taxon_accessions.tsv" -type f | sort)
+EOF
+    real_data_fail_message "${description}: no matching row found"
+    return 1
+}
+
+
 real_data_assert_no_accession_directories() {
     local output_root=$1
     local description=$2

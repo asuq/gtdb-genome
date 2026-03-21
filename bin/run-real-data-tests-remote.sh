@@ -106,7 +106,11 @@ remote_check_dehydrate_suppressed_partial_result() {
         return 1
     fi
 
-    mapfile -t failed_accessions < <(
+    while IFS= read -r accession; do
+        if [ -n "${accession}" ]; then
+            failed_accessions+=("${accession}")
+        fi
+    done < <(
         awk -F '\t' '
             NR == 1 {
                 for (field_index = 1; field_index <= NF; field_index += 1) {
