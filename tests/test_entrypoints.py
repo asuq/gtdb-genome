@@ -256,16 +256,17 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         (
             "docs/usage-details.md",
             "Quick Start",
-            "Command Contract",
+            "Command options",
             "Examples",
-            "defaults to `latest`",
+            "gtdb release number, defaults to `latest`",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "refresh_taxonomy_manifest",
             "--version-latest",
             "keep the exact selected version",
             "--prefer-genbank",
             "--threads",
-            "serial in the current workflow",
+            'prints the planned download list without downloading',
+            '--gtdb-taxon "p__Pseudomonadota" "c__Alphaproteobacteria"',
         ),
     )
     assert_not_contains_any(
