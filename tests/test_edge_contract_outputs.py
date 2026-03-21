@@ -27,9 +27,17 @@ from tests.workflow_contract_helpers import (
     build_shared_preferred_taxonomy_frame,
     build_taxonomy_frame,
     build_uba_only_taxonomy_frame,
+    install_fake_release_resolution,
     install_capture_logger,
     parse_tsv,
 )
+
+
+@pytest.fixture(autouse=True)
+def fake_release_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep output-contract tests independent of generated checkout data."""
+
+    install_fake_release_resolution(monkeypatch)
 
 
 def test_auto_preview_failure_returns_exit_code_five_without_output_tree(

@@ -13,8 +13,16 @@ from tests.workflow_contract_helpers import (
     build_mixed_uba_taxonomy_frame,
     build_taxonomy_frame,
     build_uba_only_taxonomy_frame,
+    install_fake_release_resolution,
     install_capture_logger,
 )
+
+
+@pytest.fixture(autouse=True)
+def fake_release_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep workflow entrypoint tests independent of generated checkout data."""
+
+    install_fake_release_resolution(monkeypatch)
 
 
 def test_zero_match_run_writes_header_only_outputs(

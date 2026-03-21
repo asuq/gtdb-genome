@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 
 from gtdb_genomes.cli import CliArgs
+from gtdb_genomes.release_resolver import ReleaseResolution
 
 
 def build_taxonomy_frame(lineage: str) -> pl.DataFrame:
@@ -136,6 +137,42 @@ def install_capture_logger(
         fake_close_logger,
     )
     return stream
+
+
+def resolve_requested_release(requested_release: str) -> str:
+    """Normalise one requested release token for workflow contract tests."""
+
+    release = requested_release.strip()
+    if release == "latest":
+        return "226.0"
+    if release.startswith("release") and "/" in release:
+        _, _, resolved_release = release.partition("/")
+        return resolved_release
+    if "." in release:
+        return release
+    return f"{release}.0"
+
+
+def install_fake_release_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Patch workflow selection to use a synthetic validated release resolution."""
+
+    def fake_resolve_and_validate_release(requested_release: str) -> ReleaseResolution:
+        """Return one synthetic release resolution without touching checkout data."""
+
+        resolved_release = resolve_requested_release(requested_release)
+        return ReleaseResolution(
+            requested_release=requested_release,
+            resolved_release=resolved_release,
+            bacterial_taxonomy=Path("/tmp") / resolved_release / "taxonomy.tsv.gz",
+            archaeal_taxonomy=None,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.resolve_and_validate_release",
+        fake_resolve_and_validate_release,
+    )
 
 
 def parse_tsv(path: Path) -> tuple[list[str], list[list[str]]]:
