@@ -45,8 +45,8 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  runtime-validation:
-    name: Validate packaged runtime
+  wheel-runtime-validation:
+    name: Validate packaged wheel runtime
     runs-on: ubuntu-latest
     needs: build-artifacts
     steps:
@@ -96,10 +96,63 @@ jobs:
           micromamba run -n gtdb-genome-release
           bash bin/run-real-data-tests-remote.sh C1 C2 C3 C4 C5 C6
 
+  sdist-runtime-validation:
+    name: Validate packaged sdist runtime
+    runs-on: ubuntu-latest
+    needs: build-artifacts
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Download built distribution
+        uses: actions/download-artifact@v7
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Install micromamba
+        run: bash bin/install-micromamba-ci.sh
+
+      - name: Create runtime environment
+        run: >-
+          micromamba create -y -n gtdb-genome-release-sdist
+          python=3.12 pip hatchling polars
+          ncbi-datasets-cli=18.21.0 unzip=6.0
+
+      - name: Install built sdist into clean runtime
+        run: >-
+          micromamba run -n gtdb-genome-release-sdist
+          python -m pip install --force-reinstall --no-deps
+          --no-build-isolation dist/*.tar.gz
+
+      - name: Confirm runtime has no uv on PATH
+        run: >-
+          micromamba run -n gtdb-genome-release-sdist
+          python -c "import shutil; assert shutil.which('uv') is None"
+
+      - name: Verify installed bundled taxonomy
+        run: |
+          micromamba run -n gtdb-genome-release-sdist python - <<'PY'
+          from gtdb_genomes.release_resolver import resolve_and_validate_release
+          from gtdb_genomes.taxonomy import load_release_taxonomy
+
+          resolution = resolve_and_validate_release('latest')
+          frame = load_release_taxonomy(resolution)
+          assert resolution.bacterial_taxonomy is not None, resolution
+          assert frame.height > 0, frame
+          PY
+
+      - name: Run release validation cases
+        env:
+          REMOTE_TEST_ROOT: /tmp/gtdb-realtests/release-sdist
+        run: >-
+          micromamba run -n gtdb-genome-release-sdist
+          bash bin/run-real-data-tests-remote.sh C1 C2 C3 C4 C5 C6
+
   publish:
     name: Publish release
     runs-on: ubuntu-latest
-    needs: runtime-validation
+    needs: [wheel-runtime-validation, sdist-runtime-validation]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write

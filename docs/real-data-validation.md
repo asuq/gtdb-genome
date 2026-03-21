@@ -192,8 +192,9 @@ The CI workflow excludes:
 
 - `C7`
 
-The dedicated release workflow uses the same build-and-clean-runtime split and
-reuses `C5` as part of the packaged-runtime validation gate.
+The dedicated release workflow validates both the wheel and `sdist`
+packaged-runtime paths with the same build-and-clean-runtime split and reuses
+`C5` as part of the packaged-runtime validation gate.
 
 ## Remote Server Quickstart
 
@@ -290,9 +291,11 @@ Optional environment:
 - `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to no-key cases such as
   `C1`, `C4`, and `C6`
 
-Required environment for full remote coverage:
+`C5` runs without `NCBI_API_KEY` and uses it opportunistically when present.
 
-- `NCBI_API_KEY` for `C5` and `C7`
+Required environment for `full-large` coverage:
+
+- `NCBI_API_KEY` for `C7`
 
 Examples:
 
@@ -303,7 +306,6 @@ bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh
 
 ```bash
 export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)
-export NCBI_API_KEY="your-ncbi-api-key"
 bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh full
 ```
 
