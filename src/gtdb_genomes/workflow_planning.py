@@ -79,7 +79,7 @@ def build_accession_plans(
     mapped_frame: pl.DataFrame,
     *,
     prefer_genbank: bool,
-    version_fixed: bool,
+    version_latest: bool,
 ) -> tuple[AccessionPlan, ...]:
     """Build one unique download plan per original NCBI accession."""
 
@@ -96,7 +96,7 @@ def build_accession_plans(
             download_request_accession=build_download_request_accession(
                 row["final_accession"],
                 prefer_genbank=prefer_genbank,
-                version_fixed=version_fixed,
+                version_latest=version_latest,
             ),
             conversion_status=row["conversion_status"],
         )
@@ -321,7 +321,7 @@ def plan_supported_downloads(
     accession_plans = build_accession_plans(
         supported_mapped_frame,
         prefer_genbank=args.prefer_genbank,
-        version_fixed=args.version_fixed,
+        version_latest=args.version_latest,
     )
     if not accession_plans:
         return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD

@@ -49,7 +49,7 @@ def test_main_passes_normalised_arguments_into_workflow(
             gtdb_taxa=("g__Escherichia",),
             outdir=tmp_path / "output",
             prefer_genbank=False,
-            version_fixed=False,
+            version_latest=False,
             threads=3,
             ncbi_api_key=None,
             include="genome,gff3",
@@ -92,7 +92,52 @@ def test_main_defaults_release_to_latest_when_flag_is_omitted(
             gtdb_taxa=("g__Escherichia",),
             outdir=tmp_path / "output",
             prefer_genbank=False,
-            version_fixed=False,
+            version_latest=False,
+            threads=8,
+            ncbi_api_key=None,
+            include="genome",
+            debug=False,
+            keep_temp=False,
+            dry_run=False,
+        ),
+    ]
+
+
+def test_main_passes_version_latest_into_workflow(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """The CLI should pass the explicit latest-version mode into the workflow."""
+
+    captured_args: list[CliArgs] = []
+
+    def fake_run_workflow(args: CliArgs) -> int:
+        """Capture the parsed arguments and return a stubbed exit code."""
+
+        captured_args.append(args)
+        return 0
+
+    monkeypatch.setattr("gtdb_genomes.workflow.run_workflow", fake_run_workflow)
+
+    exit_code = main(
+        [
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(tmp_path / "output"),
+            "--prefer-genbank",
+            "--version-latest",
+        ],
+    )
+
+    assert exit_code == 0
+    assert captured_args == [
+        CliArgs(
+            gtdb_release="latest",
+            gtdb_taxa=("g__Escherichia",),
+            outdir=tmp_path / "output",
+            prefer_genbank=True,
+            version_latest=True,
             threads=8,
             ncbi_api_key=None,
             include="genome",

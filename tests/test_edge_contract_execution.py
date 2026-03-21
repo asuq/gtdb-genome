@@ -499,7 +499,7 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
         gtdb_taxa=("g__Escherichia",),
         outdir=tmp_path / "output",
         prefer_genbank=True,
-        version_fixed=False,
+        version_latest=False,
         threads=4,
         ncbi_api_key=None,
         include="genome",

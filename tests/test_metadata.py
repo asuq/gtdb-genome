@@ -140,28 +140,33 @@ def test_choose_preferred_accession_keeps_native_genbank_on_metadata_failure() -
     )
 
 
-def test_build_download_request_accession_uses_stems_for_latest_mode() -> None:
-    """Latest-mode requests should drop the version suffix."""
+def test_build_download_request_accession_defaults_to_fixed_version_requests() -> None:
+    """Prefer-GenBank should keep the selected version unless latest-mode is enabled."""
 
     assert build_download_request_accession(
         "GCA_000002.7",
         prefer_genbank=True,
-        version_fixed=False,
+        version_latest=False,
+    ) == "GCA_000002.7"
+    assert build_download_request_accession(
+        "GCF_000003.4",
+        prefer_genbank=True,
+        version_latest=False,
+    ) == "GCF_000003.4"
+    assert build_download_request_accession(
+        "GCA_000002.7",
+        prefer_genbank=True,
+        version_latest=True,
     ) == "GCA_000002"
     assert build_download_request_accession(
         "GCF_000003.4",
         prefer_genbank=True,
-        version_fixed=False,
+        version_latest=True,
     ) == "GCF_000003"
-    assert build_download_request_accession(
-        "GCA_000002.7",
-        prefer_genbank=True,
-        version_fixed=True,
-    ) == "GCA_000002.7"
     assert build_download_request_accession(
         "GCF_000003.4",
         prefer_genbank=False,
-        version_fixed=False,
+        version_latest=False,
     ) == "GCF_000003.4"
 
 

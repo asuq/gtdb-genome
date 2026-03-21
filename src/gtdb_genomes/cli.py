@@ -23,7 +23,7 @@ class CliArgs:
     gtdb_taxa: tuple[str, ...]
     outdir: Path
     prefer_genbank: bool
-    version_fixed: bool
+    version_latest: bool
     threads: int
     ncbi_api_key: str | None
     include: str
@@ -94,14 +94,14 @@ def parse_args(
     namespace = parser.parse_args(argv)
     if namespace.threads <= 0:
         parser.error("argument --threads: value must be a positive integer")
-    if namespace.version_fixed and not namespace.prefer_genbank:
-        parser.error("argument --version-fixed: requires --prefer-genbank")
+    if namespace.version_latest and not namespace.prefer_genbank:
+        parser.error("argument --version-latest: requires --prefer-genbank")
     return CliArgs(
         gtdb_release=normalise_release(parser, namespace.gtdb_release),
         gtdb_taxa=normalise_taxa(parser, namespace.gtdb_taxon),
         outdir=validate_output_path(parser, namespace.outdir),
         prefer_genbank=namespace.prefer_genbank,
-        version_fixed=namespace.version_fixed,
+        version_latest=namespace.version_latest,
         threads=namespace.threads,
         ncbi_api_key=namespace.ncbi_api_key,
         include=normalise_include(parser, namespace.include),
@@ -141,15 +141,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--prefer-genbank",
         action="store_true",
         help=(
-            "Prefer paired GenBank accessions and, by default, request the latest "
-            "available revision in the chosen family, which may differ from the "
-            "RefSeq version."
+            "Prefer paired GenBank accessions and, by default, keep the exact "
+            "selected versioned accession."
         ),
     )
     parser.add_argument(
-        "--version-fixed",
+        "--version-latest",
         action="store_true",
-        help="Pin the exact selected version; requires --prefer-genbank.",
+        help=(
+            "Request the latest available revision in the selected accession "
+            "family; requires --prefer-genbank."
+        ),
     )
     parser.add_argument(
         "--threads",

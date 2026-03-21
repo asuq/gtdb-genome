@@ -196,7 +196,7 @@ def build_cli_args(
         gtdb_taxa=("s__Escherichia coli",),
         outdir=output_dir,
         prefer_genbank=prefer_genbank,
-        version_fixed=False,
+        version_latest=False,
         threads=4,
         ncbi_api_key=None,
         include="genome",

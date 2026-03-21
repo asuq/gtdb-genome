@@ -170,11 +170,11 @@ def test_build_failed_suppressed_warning_mentions_failed_accessions() -> None:
     assert SUPPRESSED_ASSEMBLY_NOTE in warning_text
 
 
-def test_auto_method_uses_unique_download_request_count_after_stem_collapse(
+def test_auto_method_uses_unique_download_request_count_after_stem_collapse_in_latest_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Auto mode should size the request after collapsing to datasets tokens."""
+    """Latest-mode should size the request after collapsing to datasets tokens."""
 
     supported_mapped_frame = pl.DataFrame(
         {
@@ -188,7 +188,7 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse(
         gtdb_taxa=("g__Escherichia",),
         outdir=tmp_path / "output",
         prefer_genbank=True,
-        version_fixed=False,
+        version_latest=True,
         threads=4,
         ncbi_api_key=None,
         include="genome",
@@ -236,6 +236,78 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse(
     assert len(plans) == 2
     assert {plan.download_request_accession for plan in plans} == {"GCA_000001"}
     assert observed_counts == [1]
+    assert decision_method == "direct"
+
+
+def test_auto_method_keeps_versioned_requests_by_default_with_prefer_genbank(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Prefer-GenBank should keep versioned request accessions by default."""
+
+    supported_mapped_frame = pl.DataFrame(
+        {
+            "ncbi_accession": ["GCF_000001.1", "GCF_000001.2"],
+            "final_accession": ["GCA_000001.1", "GCA_000001.2"],
+            "conversion_status": ["paired_to_gca", "paired_to_gca"],
+        },
+    )
+    args = CliArgs(
+        gtdb_release="95",
+        gtdb_taxa=("g__Escherichia",),
+        outdir=tmp_path / "output",
+        prefer_genbank=True,
+        version_latest=False,
+        threads=4,
+        ncbi_api_key=None,
+        include="genome",
+        debug=False,
+        keep_temp=False,
+        dry_run=False,
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
+
+    observed_counts: list[int] = []
+
+    def fake_select_download_method(
+        requested_method: str,
+        accession_count: int,
+        preview_text: str | None = None,
+    ) -> DownloadMethodDecision:
+        """Capture the accession count passed into method selection."""
+
+        observed_counts.append(accession_count)
+        assert requested_method == "auto"
+        assert preview_text == "Package size: 1.0 GB\n"
+        return DownloadMethodDecision(
+            requested_method="auto",
+            method_used="direct",
+            accession_count=accession_count,
+            preview_size_bytes=1024,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.select_download_method",
+        fake_select_download_method,
+    )
+
+    plans, decision_method = plan_supported_downloads(
+        supported_mapped_frame,
+        args,
+        logging.getLogger("test-auto-fixed-version"),
+        (),
+    )
+
+    assert len(plans) == 2
+    assert {plan.download_request_accession for plan in plans} == {
+        "GCA_000001.1",
+        "GCA_000001.2",
+    }
+    assert observed_counts == [2]
     assert decision_method == "direct"
 
 

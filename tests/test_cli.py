@@ -18,7 +18,8 @@ def test_help_includes_documented_flags() -> None:
     assert "--gtdb-taxon" in help_text
     assert "--outdir" in help_text
     assert "--prefer-genbank" in help_text
-    assert "--version-fixed" in help_text
+    assert "--version-latest" in help_text
+    assert "--version-fixed" not in help_text
     assert "--no-prefer-genbank" not in help_text
     assert "--download-method" not in help_text
     assert "--threads" in help_text
@@ -75,7 +76,7 @@ def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
     assert args.gtdb_release == "latest"
     assert args.gtdb_taxa == ("g__Escherichia", "s__Escherichia coli")
     assert args.prefer_genbank is False
-    assert args.version_fixed is False
+    assert args.version_latest is False
 
 
 def test_parse_args_uses_fixed_default_threads(tmp_path: Path) -> None:
@@ -176,10 +177,10 @@ def test_parse_args_rejects_non_positive_threads(tmp_path: Path) -> None:
     assert error.value.code == 2
 
 
-def test_parse_args_rejects_version_fixed_without_prefer_genbank(
+def test_parse_args_rejects_version_latest_without_prefer_genbank(
     tmp_path: Path,
 ) -> None:
-    """Version pinning should require the GenBank preference mode."""
+    """Latest-version mode should require the GenBank preference mode."""
 
     parser = build_parser()
     with pytest.raises(SystemExit) as error:
@@ -192,7 +193,7 @@ def test_parse_args_rejects_version_fixed_without_prefer_genbank(
                 "g__Escherichia",
                 "--outdir",
                 str(tmp_path),
-                "--version-fixed",
+                "--version-latest",
             ],
         )
     assert error.value.code == 2
@@ -263,10 +264,10 @@ def test_parse_args_accepts_ncbi_api_key_flag(tmp_path: Path) -> None:
     assert args.ncbi_api_key == "secret"
 
 
-def test_parse_args_accepts_version_fixed_with_prefer_genbank(
+def test_parse_args_defaults_to_fixed_version_with_prefer_genbank(
     tmp_path: Path,
 ) -> None:
-    """Version pinning should parse when GenBank preference is enabled."""
+    """Prefer-GenBank should keep the exact selected version by default."""
 
     parser = build_parser()
     args = parse_args(
@@ -279,12 +280,55 @@ def test_parse_args_accepts_version_fixed_with_prefer_genbank(
             "--outdir",
             str(tmp_path),
             "--prefer-genbank",
-            "--version-fixed",
         ],
     )
 
     assert args.prefer_genbank is True
-    assert args.version_fixed is True
+    assert args.version_latest is False
+
+
+def test_parse_args_accepts_version_latest_with_prefer_genbank(
+    tmp_path: Path,
+) -> None:
+    """Latest-version mode should parse when GenBank preference is enabled."""
+
+    parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "--gtdb-release",
+            "latest",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(tmp_path),
+            "--prefer-genbank",
+            "--version-latest",
+        ],
+    )
+
+    assert args.prefer_genbank is True
+    assert args.version_latest is True
+
+
+def test_parse_args_rejects_removed_version_fixed_flag(tmp_path: Path) -> None:
+    """The removed fixed-version flag should be rejected."""
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as error:
+        parse_args(
+            parser,
+            [
+                "--gtdb-release",
+                "latest",
+                "--gtdb-taxon",
+                "g__Escherichia",
+                "--outdir",
+                str(tmp_path),
+                "--version-fixed",
+            ],
+        )
+    assert error.value.code == 2
 
 
 def test_parse_args_rejects_removed_download_method_flag(tmp_path: Path) -> None:

@@ -161,11 +161,11 @@ def build_download_request_accession(
     selected_accession: str,
     *,
     prefer_genbank: bool,
-    version_fixed: bool,
+    version_latest: bool,
 ) -> str:
     """Return the accession token that should be passed to `datasets`."""
 
-    if not prefer_genbank or version_fixed:
+    if not prefer_genbank or not version_latest:
         return selected_accession
     return get_assembly_accession_stem(selected_accession)
 
