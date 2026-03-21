@@ -31,5 +31,7 @@ packages = ["src/gtdb_genomes"]
 [tool.hatch.build.targets.sdist]
 include = [
     "src/gtdb_genomes/**",
+]
+artifacts = [
     "data/gtdb_taxonomy/**",
 ]
