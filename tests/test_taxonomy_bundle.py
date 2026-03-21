@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from gtdb_genomes.release_resolver import BundledDataError, validate_taxonomy_file
+from gtdb_genomes.release_resolver import (
+    BundledDataError,
+    validate_configured_taxonomy_file,
+)
 from gtdb_genomes.taxonomy_bundle import (
     BOOTSTRAP_COMMAND,
     TaxonomyBundleError,
@@ -18,11 +21,81 @@ from gtdb_genomes.taxonomy_bundle import (
 )
 
 
+RUNTIME_MANIFEST_HEADER = (
+    "resolved_release\taliases\tbacterial_taxonomy\tarchaeal_taxonomy\t"
+    "bacterial_taxonomy_sha256\tarchaeal_taxonomy_sha256\t"
+    "bacterial_taxonomy_rows\tarchaeal_taxonomy_rows\tis_latest"
+)
+BOOTSTRAP_MANIFEST_HEADER = f"{RUNTIME_MANIFEST_HEADER}\tsource_root_url\tchecksum_filename"
+DUMMY_SHA256 = "0" * 64
+DUMMY_ROWS = "1"
+
+
 def write_manifest_text(path: Path, text: str) -> None:
     """Write one manifest fixture to disk."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="ascii")
+
+
+def build_runtime_manifest_row(
+    resolved_release: str,
+    aliases: str,
+    bacterial_taxonomy: str,
+    archaeal_taxonomy: str,
+    is_latest: str,
+    bacterial_sha256: str = DUMMY_SHA256,
+    archaeal_sha256: str = "",
+    bacterial_rows: str = DUMMY_ROWS,
+    archaeal_rows: str = "",
+) -> str:
+    """Build one manifest row with runtime integrity columns."""
+
+    return "\t".join(
+        (
+            resolved_release,
+            aliases,
+            bacterial_taxonomy,
+            archaeal_taxonomy,
+            bacterial_sha256,
+            archaeal_sha256,
+            bacterial_rows,
+            archaeal_rows,
+            is_latest,
+        ),
+    )
+
+
+def build_bootstrap_manifest_row(
+    resolved_release: str,
+    aliases: str,
+    bacterial_taxonomy: str,
+    archaeal_taxonomy: str,
+    is_latest: str,
+    source_root_url: str,
+    checksum_filename: str,
+    bacterial_sha256: str = DUMMY_SHA256,
+    archaeal_sha256: str = "",
+    bacterial_rows: str = DUMMY_ROWS,
+    archaeal_rows: str = "",
+) -> str:
+    """Build one bootstrap manifest row with build metadata."""
+
+    return "\t".join(
+        (
+            resolved_release,
+            aliases,
+            bacterial_taxonomy,
+            archaeal_taxonomy,
+            bacterial_sha256,
+            archaeal_sha256,
+            bacterial_rows,
+            archaeal_rows,
+            is_latest,
+            source_root_url,
+            checksum_filename,
+        ),
+    )
 
 
 def write_bytes(path: Path, content: bytes) -> None:
@@ -80,11 +153,14 @@ def test_refresh_manifest_adds_uq_source_metadata_for_plain_tsv_release(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest"
+                RUNTIME_MANIFEST_HEADER,
+                build_runtime_manifest_row(
+                    "80.0",
+                    "80,80.0",
+                    "bac_taxonomy_r80.tsv.gz",
+                    "",
+                    "false",
                 ),
-                "80.0\t80,80.0\tbac_taxonomy_r80.tsv.gz\t\tfalse",
             ],
         )
         + "\n",
@@ -119,13 +195,15 @@ def test_refresh_manifest_prefers_precompressed_source_when_available(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest"
-                ),
-                (
-                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t"
-                    "ar122_taxonomy_r95.tsv.gz\ttrue"
+                RUNTIME_MANIFEST_HEADER,
+                build_runtime_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "ar122_taxonomy_r95.tsv.gz",
+                    "true",
+                    archaeal_sha256=DUMMY_SHA256,
+                    archaeal_rows=DUMMY_ROWS,
                 ),
             ],
         )
@@ -162,21 +240,25 @@ def test_refresh_manifest_tolerates_unrelated_duplicate_checksum_entries(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest"
-                ),
-                (
-                    "214.0\t214,214.0\tbac120_taxonomy_r214.tsv.gz\t"
-                    "ar53_taxonomy_r214.tsv.gz\tfalse"
+                RUNTIME_MANIFEST_HEADER,
+                build_runtime_manifest_row(
+                    "214.0",
+                    "214,214.0",
+                    "bac120_taxonomy_r214.tsv.gz",
+                    "ar53_taxonomy_r214.tsv.gz",
+                    "false",
+                    archaeal_sha256=DUMMY_SHA256,
+                    archaeal_rows=DUMMY_ROWS,
                 ),
             ],
         )
         + "\n",
     )
     release_root = tmp_path / "mirror" / "release214" / "214.0"
-    bacterial_gzip = gzip.compress(b"bac\n", mtime=0)
-    archaeal_gzip = gzip.compress(b"ar\n", mtime=0)
+    bacterial_plain = b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n"
+    bacterial_gzip = gzip.compress(bacterial_plain, mtime=0)
+    archaeal_plain = b"RS_GCF_000002.1\td__Archaea;g__Methanobrevibacter\n"
+    archaeal_gzip = gzip.compress(archaeal_plain, mtime=0)
     write_checksum_lines(
         release_root,
         "MD5SUM.txt",
@@ -214,14 +296,15 @@ def test_bootstrap_taxonomy_bundle_gzips_plain_tsv_payloads_deterministically(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "80.0\t80,80.0\tbac_taxonomy_r80.tsv.gz\t\tfalse\t"
-                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "80.0",
+                    "80,80.0",
+                    "bac_taxonomy_r80.tsv.gz",
+                    "",
+                    "false",
+                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -254,14 +337,19 @@ def test_bootstrap_taxonomy_bundle_preserves_upstream_gzip_payloads(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "226.0\t226,latest\t\tar53_taxonomy_r226.tsv.gz\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM.txt"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "226.0",
+                    "226,latest",
+                    "",
+                    "ar53_taxonomy_r226.tsv.gz",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM.txt",
+                    bacterial_sha256="",
+                    bacterial_rows="",
+                    archaeal_sha256=DUMMY_SHA256,
+                    archaeal_rows=DUMMY_ROWS,
                 ),
             ],
         )
@@ -285,19 +373,21 @@ def test_bootstrap_taxonomy_bundle_ignores_unrelated_duplicate_checksum_entries(
     manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
     data_root = manifest_path.parent
     source_root = tmp_path / "mirror" / "release214" / "214.0"
-    bacterial_gzip = gzip.compress(b"bac\n", mtime=0)
+    bacterial_plain = b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n"
+    bacterial_gzip = gzip.compress(bacterial_plain, mtime=0)
     write_manifest_text(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "214.0\t214,214.0\tbac120_taxonomy_r214.tsv.gz\t\tfalse\t"
-                    f"{source_root.as_uri()}/\tMD5SUM.txt"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "214.0",
+                    "214,214.0",
+                    "bac120_taxonomy_r214.tsv.gz",
+                    "",
+                    "false",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM.txt",
                 ),
             ],
         )
@@ -330,14 +420,15 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_file(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "80.0\t80,80.0\tbac_taxonomy_r80.tsv.gz\t\tfalse\t"
-                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "80.0",
+                    "80,80.0",
+                    "bac_taxonomy_r80.tsv.gz",
+                    "",
+                    "false",
+                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -360,14 +451,15 @@ def test_bootstrap_taxonomy_bundle_rejects_unresolvable_source_from_checksum_map
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -395,20 +487,24 @@ def test_bootstrap_taxonomy_bundle_rejects_checksum_mismatch(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
         + "\n",
     )
-    payload = gzip.compress(b"row\n", mtime=0)
+    payload = gzip.compress(
+        b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
+        mtime=0,
+    )
     write_checksum_file(
         source_root,
         "MD5SUM",
@@ -437,14 +533,15 @@ def test_bootstrap_taxonomy_bundle_preserves_existing_release_on_failure(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -483,19 +580,23 @@ def test_bootstrap_taxonomy_bundle_accepts_duplicate_identical_selected_checksum
     manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
     data_root = manifest_path.parent
     source_root = tmp_path / "mirror" / "release95" / "95.0"
-    payload = gzip.compress(b"row\n", mtime=0)
+    payload = gzip.compress(
+        b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
+        mtime=0,
+    )
     write_manifest_text(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -519,19 +620,23 @@ def test_bootstrap_taxonomy_bundle_rejects_conflicting_selected_checksum_entries
     manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
     data_root = manifest_path.parent
     source_root = tmp_path / "mirror" / "release95" / "95.0"
-    payload = gzip.compress(b"row\n", mtime=0)
+    payload = gzip.compress(
+        b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
+        mtime=0,
+    )
     write_manifest_text(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -561,11 +666,14 @@ def test_bootstrap_taxonomy_bundle_requires_refreshed_source_metadata(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest"
+                RUNTIME_MANIFEST_HEADER,
+                build_runtime_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
                 ),
-                "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue",
             ],
         )
         + "\n",
@@ -586,14 +694,15 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_inferred_source_name(
         manifest_path,
         "\n".join(
             [
-                (
-                    "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename"
-                ),
-                (
-                    "95.0\t95,95.0\tmissing_taxonomy.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM"
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "missing_taxonomy.tsv.gz",
+                    "",
+                    "true",
+                    f"{source_root.as_uri()}/",
+                    "MD5SUM",
                 ),
             ],
         )
@@ -617,6 +726,10 @@ def test_missing_taxonomy_error_recommends_bootstrap_command(
     missing_path = tmp_path / "data" / "gtdb_taxonomy" / "95.0" / "bac.tsv.gz"
 
     with pytest.raises(BundledDataError) as error_info:
-        validate_taxonomy_file(missing_path)
+        validate_configured_taxonomy_file(
+            missing_path,
+            expected_sha256=DUMMY_SHA256,
+            expected_row_count=1,
+        )
 
     assert BOOTSTRAP_COMMAND in str(error_info.value)

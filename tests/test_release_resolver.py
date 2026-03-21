@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from gtdb_genomes.bundled_data_validation import (
+    describe_taxonomy_file,
+    hash_sha256_file,
+)
 from gtdb_genomes.cli import main
 from gtdb_genomes.release_resolver import (
     BundledDataError,
@@ -21,15 +25,49 @@ from gtdb_genomes.taxonomy import load_release_taxonomy
 def write_manifest(manifest_path: Path, row: str) -> None:
     """Write a minimal test manifest to disk."""
 
+    expanded_rows = []
+    for raw_row in row.splitlines():
+        cells = raw_row.split("\t")
+        if len(cells) == 5:
+            resolved_release, aliases, bacterial_taxonomy, archaeal_taxonomy, is_latest = (
+                cells
+            )
+            bacterial_sha256 = (
+                "0" * 64 if bacterial_taxonomy.strip() else ""
+            )
+            archaeal_sha256 = (
+                "0" * 64 if archaeal_taxonomy.strip() else ""
+            )
+            bacterial_rows = "1" if bacterial_taxonomy.strip() else ""
+            archaeal_rows = "1" if archaeal_taxonomy.strip() else ""
+            expanded_rows.append(
+                "\t".join(
+                    (
+                        resolved_release,
+                        aliases,
+                        bacterial_taxonomy,
+                        archaeal_taxonomy,
+                        bacterial_sha256,
+                        archaeal_sha256,
+                        bacterial_rows,
+                        archaeal_rows,
+                        is_latest,
+                    ),
+                ),
+            )
+            continue
+        expanded_rows.append(raw_row)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
         "\n".join(
             [
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest"
+                    "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                    "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                    "archaeal_taxonomy_rows\tis_latest"
                 ),
-                row,
+                *expanded_rows,
             ],
         )
         + "\n",
@@ -58,6 +96,38 @@ def write_gzip_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(path, "wb") as handle:
         handle.write(content)
+
+
+def replace_manifest_row(
+    manifest_path: Path,
+    row: str,
+) -> None:
+    """Replace one test manifest with an explicit fully-populated row."""
+
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                    "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                    "archaeal_taxonomy_rows\tis_latest"
+                ),
+                row,
+            ],
+        )
+        + "\n",
+    )
+
+
+def build_integrity_row(path: Path | None) -> tuple[str, str]:
+    """Return one manifest SHA256 and row-count pair for a local taxonomy file."""
+
+    if path is None:
+        return "", ""
+    digest, row_count = describe_taxonomy_file(path)
+    return digest, str(row_count)
 
 
 def test_load_release_manifest_reads_real_bundled_manifest() -> None:
@@ -129,6 +199,20 @@ def test_resolve_and_validate_release_uses_local_taxonomy_files(
     release_dir = data_root / "95.0"
     write_gzip_text(release_dir / "bac.tsv.gz", "RS_GCF_000001.1\tlineage\n")
     write_gzip_text(release_dir / "ar.tsv.gz", "RS_GCF_000002.1\tlineage\n")
+    bacterial_sha256, bacterial_rows = build_integrity_row(
+        release_dir / "bac.tsv.gz",
+    )
+    archaeal_sha256, archaeal_rows = build_integrity_row(
+        release_dir / "ar.tsv.gz",
+    )
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+            f"{bacterial_sha256}\t{archaeal_sha256}\t"
+            f"{bacterial_rows}\t{archaeal_rows}\ttrue"
+        ),
+    )
 
     resolution = resolve_and_validate_release("95", data_root=data_root)
 
@@ -156,6 +240,20 @@ def test_load_release_taxonomy_reads_gzipped_tables_and_keeps_logical_names(
         release_dir / "ar.tsv.gz",
         "GB_GCA_000002.1\td__Archaea;g__Methanobrevibacter\n",
     )
+    bacterial_sha256, bacterial_rows = build_integrity_row(
+        release_dir / "bac.tsv.gz",
+    )
+    archaeal_sha256, archaeal_rows = build_integrity_row(
+        release_dir / "ar.tsv.gz",
+    )
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+            f"{bacterial_sha256}\t{archaeal_sha256}\t"
+            f"{bacterial_rows}\t{archaeal_rows}\ttrue"
+        ),
+    )
 
     taxonomy_frame = load_release_taxonomy(
         resolve_and_validate_release("95", data_root=data_root),
@@ -180,6 +278,16 @@ def test_load_release_taxonomy_keeps_legacy_uba_accessions(tmp_path: Path) -> No
         data_root / "80.0" / "bac.tsv.gz",
         "UBA0001\td__Bacteria;g__Legacy\n",
     )
+    bacterial_sha256, bacterial_rows = build_integrity_row(
+        data_root / "80.0" / "bac.tsv.gz",
+    )
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "80.0\t80,80.0\tbac.tsv.gz\t\t"
+            f"{bacterial_sha256}\t\t{bacterial_rows}\t\ttrue"
+        ),
+    )
 
     taxonomy_frame = load_release_taxonomy(
         resolve_and_validate_release("80", data_root=data_root),
@@ -200,11 +308,14 @@ def test_load_release_manifest_accepts_extra_build_columns(tmp_path: Path) -> No
             [
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
-                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
+                    "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                    "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                    "archaeal_taxonomy_rows\tis_latest\tsource_root_url\t"
                     "checksum_filename"
                 ),
                 (
-                    "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\ttrue\t"
+                    "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+                    f"{'0' * 64}\t{'1' * 64}\t1\t1\ttrue\t"
                     "https://example.invalid/release95/95.0/\tMD5SUM"
                 ),
             ],
@@ -233,9 +344,18 @@ def test_load_release_taxonomy_raises_for_invalid_gzip_payload(
         release_dir / "ar.tsv.gz",
         "GB_GCA_000002.1\td__Archaea;g__Methanobrevibacter\n",
     )
+    archaeal_sha256, archaeal_rows = build_integrity_row(release_dir / "ar.tsv.gz")
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+            f"{hash_sha256_file(release_dir / 'bac.tsv.gz')}\t{archaeal_sha256}\t"
+            f"1\t{archaeal_rows}\ttrue"
+        ),
+    )
 
-    with pytest.raises(BundledDataError, match="could not be parsed"):
-        load_release_taxonomy(resolve_and_validate_release("95", data_root=data_root))
+    with pytest.raises(BundledDataError, match="could not be decoded as UTF-8"):
+        resolve_and_validate_release("95", data_root=data_root)
 
 
 def test_load_release_manifest_raises_for_missing_manifest(tmp_path: Path) -> None:
@@ -279,8 +399,10 @@ def test_load_release_manifest_rejects_blank_required_fields(
         "\n".join(
             [
                 "resolved_release\taliases\tbacterial_taxonomy\t"
-                "archaeal_taxonomy\tis_latest",
-                "95.0\t \tbac.tsv\tar.tsv\ttrue",
+                "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                "archaeal_taxonomy_rows\tis_latest",
+                f"95.0\t \tbac.tsv\tar.tsv\t{'0' * 64}\t{'1' * 64}\t1\t1\ttrue",
             ],
         )
         + "\n",
@@ -301,8 +423,10 @@ def test_load_release_manifest_rejects_rows_with_too_many_columns(
         "\n".join(
             [
                 "resolved_release\taliases\tbacterial_taxonomy\t"
-                "archaeal_taxonomy\tis_latest",
-                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue\textra",
+                "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                "archaeal_taxonomy_rows\tis_latest",
+                f"95.0\t95,95.0\tbac.tsv\tar.tsv\t{'0' * 64}\t{'1' * 64}\t1\t1\ttrue\textra",
             ],
         )
         + "\n",
@@ -336,8 +460,10 @@ def test_resolve_and_validate_release_raises_for_malformed_manifest(
         "\n".join(
             [
                 "resolved_release\taliases\tbacterial_taxonomy\t"
-                "archaeal_taxonomy\tis_latest",
-                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue\textra",
+                "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                "archaeal_taxonomy_rows\tis_latest",
+                f"95.0\t95,95.0\tbac.tsv\tar.tsv\t{'0' * 64}\t{'1' * 64}\t1\t1\ttrue\textra",
             ],
         )
         + "\n",
@@ -359,8 +485,10 @@ def test_cli_returns_exit_code_three_for_malformed_manifest(
         "\n".join(
             [
                 "resolved_release\taliases\tbacterial_taxonomy\t"
-                "archaeal_taxonomy\tis_latest",
-                "95.0\t95,95.0\tbac.tsv\tar.tsv\ttrue\textra",
+                "archaeal_taxonomy\tbacterial_taxonomy_sha256\t"
+                "archaeal_taxonomy_sha256\tbacterial_taxonomy_rows\t"
+                "archaeal_taxonomy_rows\tis_latest",
+                f"95.0\t95,95.0\tbac.tsv\tar.tsv\t{'0' * 64}\t{'1' * 64}\t1\t1\ttrue\textra",
             ],
         )
         + "\n",
@@ -401,6 +529,15 @@ def test_cli_returns_exit_code_three_for_malformed_taxonomy_table(
         release_dir / "ar.tsv.gz",
         "GB_GCA_000002.1\td__Archaea;g__Methanobrevibacter\n",
     )
+    archaeal_sha256, archaeal_rows = build_integrity_row(release_dir / "ar.tsv.gz")
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+            f"{hash_sha256_file(release_dir / 'bac.tsv.gz')}\t{archaeal_sha256}\t"
+            f"1\t{archaeal_rows}\ttrue"
+        ),
+    )
     monkeypatch.setattr(
         "gtdb_genomes.release_resolver.get_bundled_data_root",
         lambda: data_root,
@@ -433,6 +570,16 @@ def test_resolve_and_validate_release_raises_for_missing_taxonomy_file(
     release_dir = data_root / "95.0"
     release_dir.mkdir(parents=True, exist_ok=True)
     write_gzip_text(release_dir / "bac.tsv.gz", "acc\tlineage\n")
+    bacterial_sha256, bacterial_rows = build_integrity_row(
+        release_dir / "bac.tsv.gz",
+    )
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+            f"{bacterial_sha256}\t{'1' * 64}\t{bacterial_rows}\t1\ttrue"
+        ),
+    )
 
     with pytest.raises(BundledDataError):
         resolve_and_validate_release("95", data_root=data_root)

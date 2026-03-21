@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import csv
-import gzip
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from gtdb_genomes.bundled_data_validation import (
+    hash_sha256_file,
+    normalise_optional_row_count,
+    normalise_optional_sha256,
+    validate_taxonomy_file,
+)
 from gtdb_genomes.taxonomy_bundle import BOOTSTRAP_COMMAND
 
 
@@ -30,6 +35,10 @@ class ReleaseManifestEntry:
     aliases: tuple[str, ...]
     bacterial_taxonomy: str | None
     archaeal_taxonomy: str | None
+    bacterial_taxonomy_sha256: str | None
+    archaeal_taxonomy_sha256: str | None
+    bacterial_taxonomy_rows: int | None
+    archaeal_taxonomy_rows: int | None
     is_latest: bool
 
 
@@ -41,11 +50,21 @@ class ReleaseResolution:
     resolved_release: str
     bacterial_taxonomy: Path | None
     archaeal_taxonomy: Path | None
+    release_manifest_path: Path
+    release_manifest_sha256: str
+    bacterial_taxonomy_sha256: str | None
+    archaeal_taxonomy_sha256: str | None
+    bacterial_taxonomy_rows: int | None
+    archaeal_taxonomy_rows: int | None
 
 
 REQUIRED_MANIFEST_FIELDS = (
     "resolved_release",
     "aliases",
+    "bacterial_taxonomy_sha256",
+    "archaeal_taxonomy_sha256",
+    "bacterial_taxonomy_rows",
+    "archaeal_taxonomy_rows",
     "is_latest",
 )
 
@@ -100,6 +119,79 @@ def parse_is_latest(raw_value: str) -> bool:
             "Bundled release manifest row has an invalid is_latest value",
         )
     return value == "true"
+
+
+def parse_manifest_integrity_field(
+    raw_value: str | None,
+    *,
+    field_name: str,
+    path: Path,
+    line_number: int,
+    parser,
+) -> str | int | None:
+    """Parse one optional integrity field with a bundled-data error wrapper."""
+
+    try:
+        return parser(raw_value)
+    except ValueError as error:
+        raise BundledDataError(
+            "Bundled release manifest row "
+            f"{line_number} has an invalid {field_name} value: {path} ({error})",
+        ) from error
+
+
+def validate_manifest_entry_integrity(
+    entry: ReleaseManifestEntry,
+    *,
+    path: Path,
+    line_number: int,
+) -> None:
+    """Validate one manifest row's taxonomy-path and integrity-field pairing."""
+
+    file_fields = (
+        (
+            "bacterial_taxonomy",
+            entry.bacterial_taxonomy,
+            "bacterial_taxonomy_sha256",
+            entry.bacterial_taxonomy_sha256,
+            "bacterial_taxonomy_rows",
+            entry.bacterial_taxonomy_rows,
+        ),
+        (
+            "archaeal_taxonomy",
+            entry.archaeal_taxonomy,
+            "archaeal_taxonomy_sha256",
+            entry.archaeal_taxonomy_sha256,
+            "archaeal_taxonomy_rows",
+            entry.archaeal_taxonomy_rows,
+        ),
+    )
+    for (
+        taxonomy_field_name,
+        taxonomy_path,
+        sha256_field_name,
+        sha256_value,
+        row_count_field_name,
+        row_count_value,
+    ) in file_fields:
+        if taxonomy_path is None:
+            if sha256_value is not None or row_count_value is not None:
+                raise BundledDataError(
+                    "Bundled release manifest row "
+                    f"{line_number} defines {sha256_field_name} or "
+                    f"{row_count_field_name} without {taxonomy_field_name}: {path}",
+                )
+            continue
+        if sha256_value is None:
+            raise BundledDataError(
+                f"Bundled release manifest row {line_number} is missing "
+                f"{sha256_field_name}: {path}",
+            )
+        if row_count_value is None:
+            raise BundledDataError(
+                f"Bundled release manifest row {line_number} is missing "
+                f"{row_count_field_name}: {path}",
+            )
 
 
 def validate_manifest_headers(
@@ -168,7 +260,7 @@ def parse_manifest_entry(
             f"Bundled release manifest row {line_number} has too many columns: "
             f"{path}",
         )
-    return ReleaseManifestEntry(
+    entry = ReleaseManifestEntry(
         resolved_release=get_required_manifest_value(
             row,
             "resolved_release",
@@ -185,6 +277,34 @@ def parse_manifest_entry(
         ),
         bacterial_taxonomy=parse_optional_path(row.get("bacterial_taxonomy")),
         archaeal_taxonomy=parse_optional_path(row.get("archaeal_taxonomy")),
+        bacterial_taxonomy_sha256=parse_manifest_integrity_field(
+            row.get("bacterial_taxonomy_sha256"),
+            field_name="bacterial_taxonomy_sha256",
+            path=path,
+            line_number=line_number,
+            parser=normalise_optional_sha256,
+        ),
+        archaeal_taxonomy_sha256=parse_manifest_integrity_field(
+            row.get("archaeal_taxonomy_sha256"),
+            field_name="archaeal_taxonomy_sha256",
+            path=path,
+            line_number=line_number,
+            parser=normalise_optional_sha256,
+        ),
+        bacterial_taxonomy_rows=parse_manifest_integrity_field(
+            row.get("bacterial_taxonomy_rows"),
+            field_name="bacterial_taxonomy_rows",
+            path=path,
+            line_number=line_number,
+            parser=normalise_optional_row_count,
+        ),
+        archaeal_taxonomy_rows=parse_manifest_integrity_field(
+            row.get("archaeal_taxonomy_rows"),
+            field_name="archaeal_taxonomy_rows",
+            path=path,
+            line_number=line_number,
+            parser=normalise_optional_row_count,
+        ),
         is_latest=parse_is_latest(
             get_required_manifest_value(
                 row,
@@ -194,6 +314,8 @@ def parse_manifest_entry(
             ),
         ),
     )
+    validate_manifest_entry_integrity(entry, path=path, line_number=line_number)
+    return entry
 
 
 def validate_manifest_aliases(
@@ -282,7 +404,8 @@ def resolve_release(
     """Resolve a release alias against the bundled GTDB manifest."""
 
     root = get_bundled_data_root() if data_root is None else data_root
-    entries = load_release_manifest(get_release_manifest_path(root))
+    manifest_path = get_release_manifest_path(root)
+    entries = load_release_manifest(manifest_path)
     entry = find_manifest_entry(requested_release, entries)
     return ReleaseResolution(
         requested_release=requested_release.strip(),
@@ -297,11 +420,22 @@ def resolve_release(
             entry.resolved_release,
             entry.archaeal_taxonomy,
         ),
+        release_manifest_path=manifest_path,
+        release_manifest_sha256=hash_sha256_file(manifest_path),
+        bacterial_taxonomy_sha256=entry.bacterial_taxonomy_sha256,
+        archaeal_taxonomy_sha256=entry.archaeal_taxonomy_sha256,
+        bacterial_taxonomy_rows=entry.bacterial_taxonomy_rows,
+        archaeal_taxonomy_rows=entry.archaeal_taxonomy_rows,
     )
 
 
-def validate_taxonomy_file(path: Path | None) -> None:
-    """Validate a bundled taxonomy file path when one is configured."""
+def validate_configured_taxonomy_file(
+    path: Path | None,
+    *,
+    expected_sha256: str | None,
+    expected_row_count: int | None,
+) -> None:
+    """Validate one configured bundled taxonomy file path and integrity record."""
 
     if path is None:
         return
@@ -313,16 +447,17 @@ def validate_taxonomy_file(path: Path | None) -> None:
     if not path.is_file():
         raise BundledDataError(f"Bundled taxonomy path is not a file: {path}")
     try:
-        if path.name.endswith(".gz"):
-            with gzip.open(path, "rt", encoding="ascii", errors="ignore") as handle:
-                handle.read(1)
-        else:
-            with path.open("r", encoding="ascii", errors="ignore") as handle:
-                handle.read(1)
-    except (OSError, gzip.BadGzipFile) as error:
-        raise BundledDataError(
-            f"Bundled taxonomy file could not be read: {path}",
-        ) from error
+        if expected_sha256 is None or expected_row_count is None:
+            raise BundledDataError(
+                f"Bundled taxonomy integrity metadata is missing for {path}",
+            )
+        validate_taxonomy_file(
+            path,
+            expected_sha256=expected_sha256,
+            expected_row_count=expected_row_count,
+        )
+    except (OSError, ValueError) as error:
+        raise BundledDataError(str(error)) from error
 
 
 def validate_release_resolution(resolution: ReleaseResolution) -> ReleaseResolution:
@@ -332,8 +467,16 @@ def validate_release_resolution(resolution: ReleaseResolution) -> ReleaseResolut
         raise BundledDataError(
             f"Bundled release has no taxonomy files configured: {resolution.resolved_release}",
         )
-    validate_taxonomy_file(resolution.bacterial_taxonomy)
-    validate_taxonomy_file(resolution.archaeal_taxonomy)
+    validate_configured_taxonomy_file(
+        resolution.bacterial_taxonomy,
+        expected_sha256=resolution.bacterial_taxonomy_sha256,
+        expected_row_count=resolution.bacterial_taxonomy_rows,
+    )
+    validate_configured_taxonomy_file(
+        resolution.archaeal_taxonomy,
+        expected_sha256=resolution.archaeal_taxonomy_sha256,
+        expected_row_count=resolution.archaeal_taxonomy_rows,
+    )
     return resolution
 
 

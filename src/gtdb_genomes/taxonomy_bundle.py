@@ -14,6 +14,12 @@ from urllib.error import URLError
 from urllib.parse import urljoin
 from urllib.request import urlopen
 
+from gtdb_genomes.bundled_data_validation import (
+    describe_taxonomy_file,
+    normalise_optional_row_count,
+    normalise_optional_sha256,
+)
+
 
 UQ_RELEASES_ROOT = "https://data.ace.uq.edu.au/public/gtdb/data/releases/"
 BOOTSTRAP_COMMAND = "uv run python -m gtdb_genomes.bootstrap_taxonomy"
@@ -22,6 +28,10 @@ BUILD_MANIFEST_FIELDS = (
     "aliases",
     "bacterial_taxonomy",
     "archaeal_taxonomy",
+    "bacterial_taxonomy_sha256",
+    "archaeal_taxonomy_sha256",
+    "bacterial_taxonomy_rows",
+    "archaeal_taxonomy_rows",
     "is_latest",
     "source_root_url",
     "checksum_filename",
@@ -31,6 +41,10 @@ REQUIRED_RUNTIME_FIELDS = (
     "aliases",
     "bacterial_taxonomy",
     "archaeal_taxonomy",
+    "bacterial_taxonomy_sha256",
+    "archaeal_taxonomy_sha256",
+    "bacterial_taxonomy_rows",
+    "archaeal_taxonomy_rows",
     "is_latest",
 )
 CHECKSUM_CANDIDATE_FILENAMES = ("MD5SUM.txt", "MD5SUM")
@@ -56,6 +70,10 @@ class TaxonomyBundleEntry:
     aliases: str
     bacterial_taxonomy: str | None
     archaeal_taxonomy: str | None
+    bacterial_taxonomy_sha256: str | None
+    archaeal_taxonomy_sha256: str | None
+    bacterial_taxonomy_rows: int | None
+    archaeal_taxonomy_rows: int | None
     is_latest: str
     source_root_url: str | None
     checksum_filename: str | None
@@ -93,6 +111,79 @@ def get_required_manifest_field(
             f"{manifest_path}",
         )
     return value
+
+
+def parse_manifest_integrity_field(
+    raw_value: str | None,
+    *,
+    field_name: str,
+    manifest_path: Path,
+    line_number: int,
+    parser,
+) -> str | int | None:
+    """Parse one optional runtime-integrity field from the manifest."""
+
+    try:
+        return parser(raw_value)
+    except ValueError as error:
+        raise TaxonomyBundleError(
+            f"Manifest row {line_number} has an invalid field {field_name}: "
+            f"{manifest_path} ({error})",
+        ) from error
+
+
+def validate_entry_integrity_fields(
+    entry: TaxonomyBundleEntry,
+    *,
+    manifest_path: Path,
+    line_number: int,
+) -> None:
+    """Validate one manifest row's taxonomy and integrity field pairing."""
+
+    field_sets = (
+        (
+            "bacterial_taxonomy",
+            entry.bacterial_taxonomy,
+            "bacterial_taxonomy_sha256",
+            entry.bacterial_taxonomy_sha256,
+            "bacterial_taxonomy_rows",
+            entry.bacterial_taxonomy_rows,
+        ),
+        (
+            "archaeal_taxonomy",
+            entry.archaeal_taxonomy,
+            "archaeal_taxonomy_sha256",
+            entry.archaeal_taxonomy_sha256,
+            "archaeal_taxonomy_rows",
+            entry.archaeal_taxonomy_rows,
+        ),
+    )
+    for (
+        taxonomy_field_name,
+        taxonomy_path,
+        sha256_field_name,
+        sha256_value,
+        row_count_field_name,
+        row_count_value,
+    ) in field_sets:
+        if taxonomy_path is None:
+            if sha256_value is not None or row_count_value is not None:
+                raise TaxonomyBundleError(
+                    f"Manifest row {line_number} defines {sha256_field_name} or "
+                    f"{row_count_field_name} without {taxonomy_field_name}: "
+                    f"{manifest_path}",
+                )
+            continue
+        if sha256_value is None:
+            raise TaxonomyBundleError(
+                f"Manifest row {line_number} is missing field "
+                f"{sha256_field_name}: {manifest_path}",
+            )
+        if row_count_value is None:
+            raise TaxonomyBundleError(
+                f"Manifest row {line_number} is missing field "
+                f"{row_count_field_name}: {manifest_path}",
+            )
 
 
 def validate_manifest_header(
@@ -135,7 +226,7 @@ def parse_manifest_row(
         raise TaxonomyBundleError(
             f"Manifest row {line_number} has too many columns: {manifest_path}",
         )
-    return TaxonomyBundleEntry(
+    entry = TaxonomyBundleEntry(
         resolved_release=get_required_manifest_field(
             row,
             "resolved_release",
@@ -150,6 +241,34 @@ def parse_manifest_row(
         ),
         bacterial_taxonomy=normalise_optional_field(row.get("bacterial_taxonomy")),
         archaeal_taxonomy=normalise_optional_field(row.get("archaeal_taxonomy")),
+        bacterial_taxonomy_sha256=parse_manifest_integrity_field(
+            row.get("bacterial_taxonomy_sha256"),
+            field_name="bacterial_taxonomy_sha256",
+            manifest_path=manifest_path,
+            line_number=line_number,
+            parser=normalise_optional_sha256,
+        ),
+        archaeal_taxonomy_sha256=parse_manifest_integrity_field(
+            row.get("archaeal_taxonomy_sha256"),
+            field_name="archaeal_taxonomy_sha256",
+            manifest_path=manifest_path,
+            line_number=line_number,
+            parser=normalise_optional_sha256,
+        ),
+        bacterial_taxonomy_rows=parse_manifest_integrity_field(
+            row.get("bacterial_taxonomy_rows"),
+            field_name="bacterial_taxonomy_rows",
+            manifest_path=manifest_path,
+            line_number=line_number,
+            parser=normalise_optional_row_count,
+        ),
+        archaeal_taxonomy_rows=parse_manifest_integrity_field(
+            row.get("archaeal_taxonomy_rows"),
+            field_name="archaeal_taxonomy_rows",
+            manifest_path=manifest_path,
+            line_number=line_number,
+            parser=normalise_optional_row_count,
+        ),
         is_latest=get_required_manifest_field(
             row,
             "is_latest",
@@ -159,6 +278,12 @@ def parse_manifest_row(
         source_root_url=normalise_optional_field(row.get("source_root_url")),
         checksum_filename=normalise_optional_field(row.get("checksum_filename")),
     )
+    validate_entry_integrity_fields(
+        entry,
+        manifest_path=manifest_path,
+        line_number=line_number,
+    )
+    return entry
 
 
 def load_taxonomy_bundle_manifest(
@@ -183,12 +308,12 @@ def load_taxonomy_bundle_manifest(
     return entries
 
 
-def serialise_manifest_value(value: str | None) -> str:
+def serialise_manifest_value(value: str | int | None) -> str:
     """Convert an optional manifest value into a writeable cell string."""
 
     if value is None:
         return ""
-    return value
+    return str(value)
 
 
 def write_taxonomy_bundle_manifest(
@@ -216,6 +341,18 @@ def write_taxonomy_bundle_manifest(
                     ),
                     "archaeal_taxonomy": serialise_manifest_value(
                         entry.archaeal_taxonomy,
+                    ),
+                    "bacterial_taxonomy_sha256": serialise_manifest_value(
+                        entry.bacterial_taxonomy_sha256,
+                    ),
+                    "archaeal_taxonomy_sha256": serialise_manifest_value(
+                        entry.archaeal_taxonomy_sha256,
+                    ),
+                    "bacterial_taxonomy_rows": serialise_manifest_value(
+                        entry.bacterial_taxonomy_rows,
+                    ),
+                    "archaeal_taxonomy_rows": serialise_manifest_value(
+                        entry.archaeal_taxonomy_rows,
                     ),
                     "is_latest": entry.is_latest,
                     "source_root_url": serialise_manifest_value(entry.source_root_url),
@@ -375,6 +512,10 @@ def refresh_manifest_entries(
                 aliases=entry.aliases,
                 bacterial_taxonomy=entry.bacterial_taxonomy,
                 archaeal_taxonomy=entry.archaeal_taxonomy,
+                bacterial_taxonomy_sha256=entry.bacterial_taxonomy_sha256,
+                archaeal_taxonomy_sha256=entry.archaeal_taxonomy_sha256,
+                bacterial_taxonomy_rows=entry.bacterial_taxonomy_rows,
+                archaeal_taxonomy_rows=entry.archaeal_taxonomy_rows,
                 is_latest=entry.is_latest,
                 source_root_url=source_root_url,
                 checksum_filename=checksum_filename,
@@ -491,6 +632,52 @@ def validate_bootstrap_entry(entry: TaxonomyBundleEntry) -> None:
         )
 
 
+def describe_local_taxonomy_payload(path: Path | None) -> tuple[str | None, int | None]:
+    """Return local taxonomy integrity details for one materialised payload."""
+
+    if path is None:
+        return None, None
+    digest, row_count = describe_taxonomy_file(path)
+    return digest, row_count
+
+
+def refresh_runtime_integrity_entries(
+    entries: tuple[TaxonomyBundleEntry, ...],
+    data_root: Path,
+) -> tuple[TaxonomyBundleEntry, ...]:
+    """Refresh runtime integrity fields from the local materialised payloads."""
+
+    refreshed_entries: list[TaxonomyBundleEntry] = []
+    for entry in entries:
+        release_directory = data_root / entry.resolved_release
+        bacterial_sha256, bacterial_rows = describe_local_taxonomy_payload(
+            release_directory / entry.bacterial_taxonomy
+            if entry.bacterial_taxonomy is not None
+            else None,
+        )
+        archaeal_sha256, archaeal_rows = describe_local_taxonomy_payload(
+            release_directory / entry.archaeal_taxonomy
+            if entry.archaeal_taxonomy is not None
+            else None,
+        )
+        refreshed_entries.append(
+            TaxonomyBundleEntry(
+                resolved_release=entry.resolved_release,
+                aliases=entry.aliases,
+                bacterial_taxonomy=entry.bacterial_taxonomy,
+                archaeal_taxonomy=entry.archaeal_taxonomy,
+                bacterial_taxonomy_sha256=bacterial_sha256,
+                archaeal_taxonomy_sha256=archaeal_sha256,
+                bacterial_taxonomy_rows=bacterial_rows,
+                archaeal_taxonomy_rows=archaeal_rows,
+                is_latest=entry.is_latest,
+                source_root_url=entry.source_root_url,
+                checksum_filename=entry.checksum_filename,
+            ),
+        )
+    return tuple(refreshed_entries)
+
+
 def swap_release_directories(
     staged_release_directory: Path,
     release_directory: Path,
@@ -587,4 +774,9 @@ def bootstrap_taxonomy_bundle(
     """Download and materialise all manifest-configured taxonomy payloads."""
 
     entries = load_taxonomy_bundle_manifest(manifest_path)
-    return bootstrap_manifest_entries(entries, data_root=data_root, logger=logger)
+    generated_paths = bootstrap_manifest_entries(entries, data_root=data_root, logger=logger)
+    write_taxonomy_bundle_manifest(
+        manifest_path,
+        refresh_runtime_integrity_entries(entries, data_root),
+    )
+    return generated_paths
