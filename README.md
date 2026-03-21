@@ -9,6 +9,9 @@
 GTDB taxonomy tables for local taxon resolution and the NCBI `datasets` CLI for
 all NCBI metadata and genome download operations.
 
+The detailed runtime contract, output layout, retry rules, and bundled-data
+notes live in [docs/usage-details.md](docs/usage-details.md).
+
 ## Licensing
 
 The project code and packaging glue are released under the MIT licence.
@@ -34,57 +37,25 @@ uv sync --group dev
 uv run gtdb-genomes --help
 ```
 
-## Command
+## Quick Start
 
 ```bash
 gtdb-genomes --gtdb-release latest --gtdb-taxon g__Escherichia --outdir results
 ```
 
-### Mandatory options
+## Command Contract
 
-- `--gtdb-release`: Accepts bundled aliases such as `latest`, `80`, `95`,
-  `214`, `226`, `220.0`, or `release220/220.0`.
+See [docs/usage-details.md](docs/usage-details.md) for the full CLI contract.
+In short:
 
-  `latest` is resolved from the bundled manifest row marked with
-  `is_latest=true`. GTDB release resolution never contacts GTDB over the
-  network.
-
-- `--gtdb-taxon`: Repeatable. A row is selected when its GTDB lineage contains
-  the requested GTDB token exactly after trimming surrounding whitespace only.
-  Matching is case-sensitive, internal species whitespace is preserved, and
-  suffix variants are separate taxa. For example,
-  `g__Frigididesulfovibrio` does not match `g__Frigididesulfovibrio_A`.
-  Species taxa contain spaces and must be quoted in the shell, for example
-  `--gtdb-taxon "s__Altiarchaeum hamiconexum"`. Unquoted shell input such as
-  `--gtdb-taxon s__Altiarchaeum hamiconexum` is invalid.
-
-- `--outdir`: Output directory must either not exist or exist as an empty
-  directory. The tool does not merge into or overwrite a populated output tree.
-
-
-### Optional options
-- `--prefer-genbank`
-- `--version-fixed`
-- `--threads`
-- `--ncbi-api-key`
-- `--include`
-- `--debug`
-- `--keep-temp`
-- `--dry-run`
-
-`--prefer-genbank` selects the preferred accession family from NCBI metadata
-and, by default, asks `datasets` for the latest available revision in that
-family. The downloaded version may differ from the RefSeq version.
-Use `--version-fixed` with `--prefer-genbank` to keep the exact selected
-version.
-
-Download strategy is always automatic. Smaller supported requests use batch
-direct `datasets download genome accession --inputfile ... --filename ...`
-passes, while larger requests switch to batch dehydrate/rehydrate.
-
-`--threads` chooses how many CPUs to use for the run. Default: `8`.
-
-Check `gtdb-genomes --help` for details and [usage-details](docs/usage-details.md) on optional options.
+- `--gtdb-release` accepts bundled release aliases, including `latest`
+- `--gtdb-taxon` is repeatable and matches exact GTDB lineage tokens
+- `--outdir` must be empty or absent
+- `--prefer-genbank` optionally prefers paired GenBank accessions
+- `--threads` configures supported workflow workers, but direct downloads stay
+  serial in the current workflow. See [docs/usage-details.md](docs/usage-details.md)
+  for the detailed contract.
+- `--dry-run` resolves and plans without creating genome payload output
 
 ## Examples
 
@@ -151,38 +122,8 @@ OUTPUT/
         `-- GCA_000005845.2/
 ```
 
-## Summary Files
-
-- `run_summary.tsv`: records requested and resolved release, chosen method, actual concurrency, worker usage, counts, output path, and exit code
-- `taxon_summary.tsv`: records matched rows, accession counts, duplicate-copy count, and output directory
-- `accession_map.tsv`: records lineage, original GTDB accession, final accession, conversion status, final method used, output path, and download status
-- `download_failures.tsv`: records collapsed taxon context, the attempted accession or accession set, the final accession or accession set when the failed step has a known final outcome, stage, retry counters, redacted error message, and final failure status
-- `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
-  - records lineage, accession mapping, output path, and whether the accession is duplicated across taxa
-
-When a failure comes from one shared metadata, batch download, or rehydrate
-command, the affected taxa and accessions are collapsed into semicolon-joined
-values instead of being repeated once per accession.
-
-
-## Workflow
-
-The tool:
-
-1. Resolves a GTDB release from the bundled release manifest.
-2. Loads the bundled GTDB taxonomy tables for that release.
-3. Selects genomes whose lineage contains one or more requested GTDB taxa.
-4. Starts from the accession recorded in the GTDB taxonomy table.
-5. Optionally prefers the paired GenBank family when `--prefer-genbank` is set,
-   then requests either the latest revision in that family or the exact
-   selected version when `--version-fixed` is also set.
-6. Uses the NCBI `datasets` command for metadata lookup and genome download.
-7. Chooses the download strategy automatically based on request size.
-8. Unzips and reorganises the downloaded payload into per-taxon folders.
-
-Detailed CLI behaviour, retry rules, output layout, runtime contract, and
-bundled-data notes are documented in
-[Usage details](docs/usage-details.md).
+For detailed summary-file definitions, retry rules, runtime codes, and bundled
+data notes, see [docs/usage-details.md](docs/usage-details.md).
 
 > [!IMPORTANT]
 > `--ncbi-api-key` expects an NCBI API key. The tool passes it only to the

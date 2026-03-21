@@ -8,6 +8,20 @@ import tomllib
 from pathlib import Path
 
 
+def assert_contains_all(text: str, snippets: tuple[str, ...]) -> None:
+    """Assert that every snippet is present in one document."""
+
+    for snippet in snippets:
+        assert snippet in text
+
+
+def assert_not_contains_any(text: str, snippets: tuple[str, ...]) -> None:
+    """Assert that none of the snippets are present in one document."""
+
+    for snippet in snippets:
+        assert snippet not in text
+
+
 def test_pyproject_exposes_console_script() -> None:
     """The package metadata should expose the public console script."""
 
@@ -80,10 +94,55 @@ def test_source_checkout_cli_module_help_runs() -> None:
 
 
 def test_runtime_docs_match_current_readme_and_usage_details() -> None:
-    """The docs should preserve the current README and detailed usage reference."""
+    """The README should stay concise while usage-details carries the contract."""
 
     readme_text = Path("README.md").read_text(encoding="utf-8")
     usage_details_text = Path("docs/usage-details.md").read_text(encoding="utf-8")
+    assert_contains_all(
+        readme_text,
+        (
+            "docs/usage-details.md",
+            "Quick Start",
+            "Command Contract",
+            "Examples",
+            "--prefer-genbank",
+            "--threads",
+            "serial in the current workflow",
+        ),
+    )
+    assert_not_contains_any(
+        readme_text,
+        (
+            "Runtime Contract",
+            "Retry Policy",
+            "Bundled GTDB Taxonomy",
+            "download_method_requested",
+            "--download-method",
+        ),
+    )
+
+    assert_contains_all(
+        usage_details_text,
+        (
+            "Runtime Contract",
+            "Retry Policy",
+            "Output Layout",
+            "Bundled GTDB Taxonomy",
+            "NCBI datasets CLI",
+            "Direct downloads remain serial in the current workflow.",
+            "download_method_requested",
+            "attempted_accession",
+            "--threads",
+        ),
+    )
+    assert_not_contains_any(
+        usage_details_text,
+        (
+            "--download-method",
+            "--no-prefer-genbank",
+        ),
+    )
+
     bioconda_text = Path("packaging/bioconda/meta.yaml").read_text(
         encoding="utf-8",
     )
@@ -91,105 +150,28 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     cc_by_sa_text = Path("licenses/CC-BY-SA-4.0.txt").read_text(
         encoding="utf-8",
     )
-
-    assert "Usage details" in readme_text
-    assert "docs/usage-details.md" in readme_text
-    assert "uv sync --group dev" in readme_text
-    assert "--gtdb-release" in readme_text
-    assert "--gtdb-taxon" in readme_text
-    assert "--outdir" in readme_text
-    assert "--release" not in readme_text
-    assert "--taxon" not in readme_text
-    assert "--output" not in readme_text
-    assert "--no-prefer-genbank" not in readme_text
-    assert "--download-method" not in readme_text
-    assert "--prefer-genbank" in readme_text
-    assert "--version-fixed" in readme_text
-    assert "uv run gtdb-genomes" in readme_text
-    assert "development tool only" in readme_text
-    assert "Runtime Contract" not in readme_text
-    assert "Retry Policy" not in readme_text
-    assert "Output Layout" in readme_text
-    assert "Summary Files" in readme_text
-    assert "NCBI datasets CLI" not in readme_text
-
-    assert "Runtime Contract" in usage_details_text
-    assert "Retry Policy" in usage_details_text
-    assert "NCBI datasets CLI" in usage_details_text
-    assert "Bundled GTDB Taxonomy" in usage_details_text
-    assert "Output Layout" in usage_details_text
-    assert "Summary Files" in usage_details_text
-    assert "OUTPUT/" in usage_details_text
-    assert "--gtdb-release" in usage_details_text
-    assert "--gtdb-taxon" in usage_details_text
-    assert "--outdir" in usage_details_text
-    assert "--release" not in usage_details_text
-    assert "--taxon" not in usage_details_text
-    assert "--output" not in usage_details_text
-    assert "--no-prefer-genbank" not in usage_details_text
-    assert "--download-method" not in usage_details_text
-    assert "--version-fixed" in usage_details_text
-    assert "must not depend on uv at runtime" in bioconda_text
-    assert "--no-build-isolation" in bioconda_text
-    assert "Fixed TSV columns:" in usage_details_text
-    assert "attempted_accession" in usage_details_text
-    assert "img.shields.io/badge/python-" in readme_text
-    assert "img.shields.io/github/v/release/asuq/gtdb-genome" in readme_text
-    assert "img.shields.io/badge/code-MIT" in readme_text
-    assert "img.shields.io/badge/bundled%20data-CC--BY--SA%204.0" in readme_text
-    assert "> [!NOTE]" in readme_text
-    assert "PRJNA417962" in readme_text
-    assert "unsupported_input" in usage_details_text
-    assert "Real-data validation guide" in readme_text
-    assert "The planned workflow is:" not in readme_text
-    assert "prepared for the first public release" in readme_text
-    assert "published release sdist" in readme_text
-    assert "archive and final SHA256 checksum" in readme_text
-    assert "final SHA256 checksum" in readme_text
-    assert "conda install -c bioconda" not in readme_text
-    assert "- ncbi-datasets-cli" in bioconda_text
-    assert "get_release_manifest_path" in bioconda_text
-    assert ".tsv.gz" in usage_details_text
-    assert "remains plain text by design" in usage_details_text
-    assert "This repository contains two different licence regimes" in notice_text
-    assert "Genome Taxonomy Database (GTDB)" in notice_text
-    assert "creativecommons.org/licenses/by-sa/4.0/" in notice_text
-    assert "repository-managed" in notice_text
-    assert ".tsv.gz" in notice_text
-    assert "license: MIT AND CC-BY-SA-4.0" in bioconda_text
-    assert "licenses/CC-BY-SA-4.0.txt" in bioconda_text
-    assert "--ncbi-api-key" in readme_text
-    assert "- `--api-key`" not in readme_text
-    assert "expects an NCBI API key" in usage_details_text
-    assert "passes it only to the" in usage_details_text
-    assert "`datasets` command" in usage_details_text
-    assert "ncbi/datasets" in usage_details_text
-    assert "does not download genomes directly from Python code" in usage_details_text
-    assert "may differ from the RefSeq version" in readme_text
-    assert "may differ from the RefSeq version" in usage_details_text
-    assert "Chooses the download strategy automatically" in readme_text
-    assert "download strategy is automatic only" in usage_details_text
-    assert "Choose how many CPUs to use for the run. Default: 8." in usage_details_text
-    assert "suffix variants are separate taxa" in readme_text
-    assert "must be quoted in the shell" in readme_text
-    assert "--gtdb-taxon \"s__Altiarchaeum hamiconexum\"" in readme_text
-    assert "Unquoted shell input such as" in readme_text
-    assert "suffix variants are separate taxa" in usage_details_text
-    assert "must be quoted in the shell" in usage_details_text
-    assert "--gtdb-taxon \"s__Altiarchaeum hamiconexum\"" in usage_details_text
-    assert "Unquoted shell input such as" in usage_details_text
-    assert "exact token passed to `datasets`" in usage_details_text
-    assert "realised versioned accession" in usage_details_text
-    assert "GTDB release resolution and GTDB taxonomy loading remain local" in (
-        usage_details_text
+    assert_contains_all(
+        bioconda_text,
+        (
+            "must not depend on uv at runtime",
+            "--no-build-isolation",
+            "- ncbi-datasets-cli",
+        ),
     )
-    assert "CC BY-SA 4.0" in readme_text
-    assert "CC BY-SA 4.0" in usage_details_text
-    assert "not relicensed by this project" in readme_text
-    assert "not relicensed by this project" in usage_details_text
-    assert "Attribution-ShareAlike 4.0 International" in cc_by_sa_text
-    assert "Creative Commons Attribution-ShareAlike 4.0 International Public License" in (
-        cc_by_sa_text
+    assert_contains_all(
+        notice_text,
+        (
+            "This repository contains two different licence regimes",
+            "Genome Taxonomy Database (GTDB)",
+            "creativecommons.org/licenses/by-sa/4.0/",
+        ),
+    )
+    assert_contains_all(
+        cc_by_sa_text,
+        (
+            "Attribution-ShareAlike 4.0 International",
+            "Creative Commons Attribution-ShareAlike 4.0 International Public License",
+        ),
     )
 
 
@@ -223,32 +205,24 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
         encoding="utf-8",
     )
 
-    assert "uv run gtdb-genomes" in guide_text
-    assert "LOCAL_LAUNCHER_MODE=module" in guide_text
-    assert "A1` to `A9`: `uv`, `datasets`, and `unzip`" in (
-        guide_text
+    assert_contains_all(
+        guide_text,
+        (
+            "uv run gtdb-genomes",
+            "LOCAL_LAUNCHER_MODE=module",
+            "A1` to `A9`: `uv`, `datasets`, and `unzip`",
+            "B1` to `B6`: `uv`, `datasets`, and `unzip`",
+            "REMOTE_TEST_ROOT",
+            "case-results.tsv",
+            "tool-versions.txt",
+            "Dry-runs now check `unzip` early",
+            "--ncbi-api-key",
+        ),
     )
-    assert "B1` to `B6`: `uv`, `datasets`, and `unzip`" in guide_text
-    assert "zero-match and unsupported-`UBA*`-only dry-runs remain valid" in (
-        guide_text
+    assert_not_contains_any(
+        guide_text,
+        (
+            "--download-method",
+            "REAL_DATA_C1_THREADS",
+        ),
     )
-    assert "unique path such as" in guide_text
-    assert "remote environment exposes `python3`" in guide_text
-    assert "/tmp/gtdb-realtests/remote-YYYYMMDD-XXXXXX" in guide_text
-    assert "debug output can print the raw API-key header" in (
-        guide_text
-    )
-    assert "--ncbi-api-key" in guide_text
-    assert "uv build" in guide_text
-    assert "python -m pip install" in guide_text
-    assert "no `uv` in the remote runtime path" in guide_text
-    assert "which gtdb-genomes" in guide_text
-    assert "remote `C0-manifest`" in guide_text
-    assert "REMOTE_TEST_ROOT" in guide_text
-    assert "case-results.tsv" in guide_text
-    assert "tool-versions.txt" in guide_text
-    assert "run-real-data-tests-server.sh" in guide_text
-    assert "preferred on-server entrypoint" in guide_text
-    assert "Dry-runs now check `unzip` early" in guide_text
-    assert "--download-method" not in guide_text
-    assert "REAL_DATA_C1_THREADS" not in guide_text

@@ -70,7 +70,8 @@ gtdb-genomes \
     batch rehydrate fails, the tool falls back to batch direct downloads and
     records `dehydrate_fallback_direct` as the final method used
 
-- `--threads`: Choose how many CPUs to use for the run. Default: 8.
+- `--threads`: Choose how many CPUs to use for the supported workflow steps.
+  Default: 8. Direct downloads remain serial in the current workflow.
 
 - `--ncbi-api-key`: This option expects an NCBI API key. The tool passes it only to the
   upstream `datasets` command and does not use it for GTDB release resolution,
