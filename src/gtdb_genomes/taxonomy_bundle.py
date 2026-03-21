@@ -272,15 +272,18 @@ def read_url_text(url: str) -> str:
         raise TaxonomyBundleError(f"Could not decode text URL: {url}") from error
 
 
-def parse_checksum_lines(checksum_text: str, checksum_url: str) -> dict[str, str]:
-    """Parse one mirror checksum listing into a filename-to-MD5 mapping."""
+def parse_checksum_lines(
+    checksum_text: str,
+    checksum_url: str,
+) -> dict[str, tuple[str, ...]]:
+    """Parse one mirror checksum listing into filename-to-MD5 entries."""
 
     tokens = checksum_text.split()
     if len(tokens) % 2 != 0:
         raise TaxonomyBundleError(
             f"Checksum file has a malformed token count: {checksum_url}",
         )
-    mapping: dict[str, str] = {}
+    mapping: dict[str, list[str]] = {}
     for index in range(0, len(tokens), 2):
         checksum = tokens[index].strip().lower()
         filename = tokens[index + 1].strip().removeprefix("./")
@@ -289,18 +292,19 @@ def parse_checksum_lines(checksum_text: str, checksum_url: str) -> dict[str, str
                 f"Checksum file has an invalid MD5 value for {filename}: "
                 f"{checksum_url}",
             )
-        if filename in mapping:
-            raise TaxonomyBundleError(
-                f"Checksum file defines {filename!r} more than once: {checksum_url}",
-            )
-        mapping[filename] = checksum
-    return mapping
+        entry_hashes = mapping.setdefault(filename, [])
+        if checksum not in entry_hashes:
+            entry_hashes.append(checksum)
+    return {
+        filename: tuple(entry_hashes)
+        for filename, entry_hashes in mapping.items()
+    }
 
 
 def load_checksum_mapping(
     source_root_url: str,
     checksum_filename: str,
-) -> dict[str, str]:
+) -> dict[str, tuple[str, ...]]:
     """Load one release checksum mapping from the mirror."""
 
     checksum_url = join_directory_url(source_root_url, checksum_filename)
@@ -325,7 +329,7 @@ def detect_checksum_filename(source_root_url: str) -> str:
 
 def resolve_source_name(
     target_name: str | None,
-    available_filenames: dict[str, str],
+    available_filenames: dict[str, tuple[str, ...]],
 ) -> str | None:
     """Resolve the best mirror source filename for one target taxonomy file."""
 
@@ -397,20 +401,26 @@ def refresh_taxonomy_bundle_manifest(
 
 def get_checksum_for_source(
     source_name: str | None,
-    checksum_mapping: dict[str, str],
+    checksum_mapping: dict[str, tuple[str, ...]],
     source_root_url: str,
 ) -> str | None:
     """Return the published checksum for one configured source file."""
 
     if source_name is None:
         return None
-    checksum = checksum_mapping.get(source_name)
-    if checksum is None:
+    checksums = checksum_mapping.get(source_name)
+    if checksums is None:
         raise TaxonomyBundleError(
             f"Checksum entry for {source_name!r} is missing under "
             f"{source_root_url}",
         )
-    return checksum
+    if len(checksums) > 1:
+        checksum_text = ", ".join(checksums)
+        raise TaxonomyBundleError(
+            "Checksum file defines conflicting entries for selected source file "
+            f"{source_name!r} under {source_root_url}: {checksum_text}",
+        )
+    return checksums[0]
 
 
 def verify_md5_checksum(
@@ -438,7 +448,7 @@ def materialise_taxonomy_file(
     source_root_url: str,
     target_name: str | None,
     target_path: Path | None,
-    checksum_mapping: dict[str, str],
+    checksum_mapping: dict[str, tuple[str, ...]],
 ) -> None:
     """Download, verify, and materialise one configured taxonomy file."""
 

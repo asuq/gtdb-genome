@@ -53,6 +53,16 @@ def write_checksum_file(
     write_bytes(root / filename, (content + "\n").encode("ascii"))
 
 
+def write_checksum_lines(
+    root: Path,
+    filename: str,
+    lines: tuple[str, ...],
+) -> None:
+    """Write one raw checksum listing for duplicate-entry fixtures."""
+
+    write_bytes(root / filename, ("\n".join(lines) + "\n").encode("ascii"))
+
+
 def read_gzip_text(path: Path) -> str:
     """Read one gzipped text fixture."""
 
@@ -142,6 +152,56 @@ def test_refresh_manifest_prefers_precompressed_source_when_available(
     assert entries[0].archaeal_taxonomy == "ar122_taxonomy_r95.tsv.gz"
 
 
+def test_refresh_manifest_tolerates_unrelated_duplicate_checksum_entries(
+    tmp_path: Path,
+) -> None:
+    """Refresh should ignore conflicting duplicate entries for unrelated files."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tis_latest"
+                ),
+                (
+                    "214.0\t214,214.0\tbac120_taxonomy_r214.tsv.gz\t"
+                    "ar53_taxonomy_r214.tsv.gz\tfalse"
+                ),
+            ],
+        )
+        + "\n",
+    )
+    release_root = tmp_path / "mirror" / "release214" / "214.0"
+    bacterial_gzip = gzip.compress(b"bac\n", mtime=0)
+    archaeal_gzip = gzip.compress(b"ar\n", mtime=0)
+    write_checksum_lines(
+        release_root,
+        "MD5SUM.txt",
+        (
+            build_md5_line("bac120_taxonomy_r214.tsv.gz", bacterial_gzip),
+            build_md5_line("ar53_taxonomy_r214.tsv.gz", archaeal_gzip),
+            build_md5_line(
+                "genomic_files_all/ar53_msa_marker_genes_all_r214.tar.gz",
+                b"first",
+            ),
+            build_md5_line(
+                "genomic_files_all/ar53_msa_marker_genes_all_r214.tar.gz",
+                b"second",
+            ),
+        ),
+    )
+
+    entries = refresh_taxonomy_bundle_manifest(
+        manifest_path,
+        releases_root_url=(tmp_path / "mirror").as_uri() + "/",
+    )
+
+    assert entries[0].checksum_filename == "MD5SUM.txt"
+
+
 def test_bootstrap_taxonomy_bundle_gzips_plain_tsv_payloads_deterministically(
     tmp_path: Path,
 ) -> None:
@@ -215,6 +275,49 @@ def test_bootstrap_taxonomy_bundle_preserves_upstream_gzip_payloads(
 
     output_path = data_root / "226.0" / "ar53_taxonomy_r226.tsv.gz"
     assert output_path.read_bytes() == archaeal_gzip
+
+
+def test_bootstrap_taxonomy_bundle_ignores_unrelated_duplicate_checksum_entries(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should tolerate conflicting duplicate entries for unrelated files."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    data_root = manifest_path.parent
+    source_root = tmp_path / "mirror" / "release214" / "214.0"
+    bacterial_gzip = gzip.compress(b"bac\n", mtime=0)
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
+                    "checksum_filename"
+                ),
+                (
+                    "214.0\t214,214.0\tbac120_taxonomy_r214.tsv.gz\t\tfalse\t"
+                    f"{source_root.as_uri()}/\tMD5SUM.txt"
+                ),
+            ],
+        )
+        + "\n",
+    )
+    write_checksum_lines(
+        source_root,
+        "MD5SUM.txt",
+        (
+            build_md5_line("bac120_taxonomy_r214.tsv.gz", bacterial_gzip),
+            build_md5_line("genomic_files_all/dup.tar.gz", b"first"),
+            build_md5_line("genomic_files_all/dup.tar.gz", b"second"),
+        ),
+    )
+    write_bytes(source_root / "bac120_taxonomy_r214.tsv.gz", bacterial_gzip)
+
+    bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+
+    output_path = data_root / "214.0" / "bac120_taxonomy_r214.tsv.gz"
+    assert output_path.read_bytes() == bacterial_gzip
 
 
 def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_file(
@@ -314,6 +417,82 @@ def test_bootstrap_taxonomy_bundle_rejects_checksum_mismatch(
     write_bytes(source_root / "bac120_taxonomy_r95.tsv.gz", payload)
 
     with pytest.raises(TaxonomyBundleError, match="Checksum mismatch"):
+        bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+
+
+def test_bootstrap_taxonomy_bundle_accepts_duplicate_identical_selected_checksum(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should accept repeated identical checksum entries for one target."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    data_root = manifest_path.parent
+    source_root = tmp_path / "mirror" / "release95" / "95.0"
+    payload = gzip.compress(b"row\n", mtime=0)
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
+                    "checksum_filename"
+                ),
+                (
+                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
+                    f"{source_root.as_uri()}/\tMD5SUM"
+                ),
+            ],
+        )
+        + "\n",
+    )
+    line = build_md5_line("bac120_taxonomy_r95.tsv.gz", payload)
+    write_checksum_lines(source_root, "MD5SUM", (line, line))
+    write_bytes(source_root / "bac120_taxonomy_r95.tsv.gz", payload)
+
+    bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+
+    output_path = data_root / "95.0" / "bac120_taxonomy_r95.tsv.gz"
+    assert output_path.read_bytes() == payload
+
+
+def test_bootstrap_taxonomy_bundle_rejects_conflicting_selected_checksum_entries(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should fail when the chosen source file has conflicting hashes."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    data_root = manifest_path.parent
+    source_root = tmp_path / "mirror" / "release95" / "95.0"
+    payload = gzip.compress(b"row\n", mtime=0)
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
+                    "checksum_filename"
+                ),
+                (
+                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
+                    f"{source_root.as_uri()}/\tMD5SUM"
+                ),
+            ],
+        )
+        + "\n",
+    )
+    write_checksum_lines(
+        source_root,
+        "MD5SUM",
+        (
+            build_md5_line("bac120_taxonomy_r95.tsv.gz", payload),
+            build_md5_line("bac120_taxonomy_r95.tsv.gz", gzip.compress(b"other\n", mtime=0)),
+        ),
+    )
+    write_bytes(source_root / "bac120_taxonomy_r95.tsv.gz", payload)
+
+    with pytest.raises(TaxonomyBundleError, match="conflicting entries for selected source file"):
         bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
 
 
