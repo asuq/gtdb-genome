@@ -420,6 +420,61 @@ def test_bootstrap_taxonomy_bundle_rejects_checksum_mismatch(
         bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
 
 
+def test_bootstrap_taxonomy_bundle_preserves_existing_release_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bootstrap should leave an existing release untouched when staging fails."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    data_root = manifest_path.parent
+    release_root = data_root / "95.0"
+    release_root.mkdir(parents=True)
+    sentinel_path = release_root / "sentinel.txt"
+    sentinel_path.write_text("original\n", encoding="ascii")
+    source_root = tmp_path / "mirror" / "release95" / "95.0"
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
+                    "checksum_filename"
+                ),
+                (
+                    "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
+                    f"{source_root.as_uri()}/\tMD5SUM"
+                ),
+            ],
+        )
+        + "\n",
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.load_checksum_mapping",
+        lambda source_root_url, checksum_filename: {
+            "bac120_taxonomy_r95.tsv.gz": ("checksum",),
+        },
+    )
+
+    def fail_materialise(*args, **kwargs) -> None:
+        """Raise a deterministic bootstrap failure during staging."""
+
+        raise TaxonomyBundleError("staging failed")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.materialise_taxonomy_file",
+        fail_materialise,
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="staging failed"):
+        bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+
+    assert sentinel_path.read_text(encoding="ascii") == "original\n"
+    assert release_root.is_dir()
+
+
 def test_bootstrap_taxonomy_bundle_accepts_duplicate_identical_selected_checksum(
     tmp_path: Path,
 ) -> None:

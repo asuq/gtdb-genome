@@ -9,6 +9,7 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.error import URLError
 from urllib.parse import urljoin
 from urllib.request import urlopen
@@ -32,7 +33,6 @@ REQUIRED_RUNTIME_FIELDS = (
     "archaeal_taxonomy",
     "is_latest",
 )
-OPTIONAL_BUILD_FIELDS = BUILD_MANIFEST_FIELDS[len(REQUIRED_RUNTIME_FIELDS) :]
 CHECKSUM_CANDIDATE_FILENAMES = ("MD5SUM.txt", "MD5SUM")
 
 
@@ -491,11 +491,30 @@ def validate_bootstrap_entry(entry: TaxonomyBundleEntry) -> None:
         )
 
 
-def clear_release_directory(release_directory: Path) -> None:
-    """Remove one generated release directory before re-materialising it."""
+def swap_release_directories(
+    staged_release_directory: Path,
+    release_directory: Path,
+) -> None:
+    """Atomically replace one release directory while preserving the old tree."""
 
+    backup_directory = release_directory.parent / (
+        f".{release_directory.name}.backup"
+    )
+    if backup_directory.exists():
+        shutil.rmtree(backup_directory)
     if release_directory.exists():
-        shutil.rmtree(release_directory)
+        release_directory.rename(backup_directory)
+    try:
+        staged_release_directory.rename(release_directory)
+    except Exception:
+        if backup_directory.exists():
+            if release_directory.exists():
+                shutil.rmtree(release_directory)
+            backup_directory.rename(release_directory)
+        raise
+    else:
+        if backup_directory.exists():
+            shutil.rmtree(backup_directory)
 
 
 def bootstrap_manifest_entries(
@@ -510,37 +529,51 @@ def bootstrap_manifest_entries(
         validate_bootstrap_entry(entry)
         assert entry.source_root_url is not None
         assert entry.checksum_filename is not None
+        release_directory = data_root / entry.resolved_release
         checksum_mapping = load_checksum_mapping(
             entry.source_root_url,
             entry.checksum_filename,
         )
-        release_directory = data_root / entry.resolved_release
-        clear_release_directory(release_directory)
-        bacterial_target = (
-            release_directory / entry.bacterial_taxonomy
-            if entry.bacterial_taxonomy is not None
-            else None
-        )
-        archaeal_target = (
-            release_directory / entry.archaeal_taxonomy
-            if entry.archaeal_taxonomy is not None
-            else None
-        )
-        materialise_taxonomy_file(
-            entry.source_root_url,
-            entry.bacterial_taxonomy,
-            bacterial_target,
-            checksum_mapping,
-        )
-        materialise_taxonomy_file(
-            entry.source_root_url,
-            entry.archaeal_taxonomy,
-            archaeal_target,
-            checksum_mapping,
-        )
+        with TemporaryDirectory(
+            prefix=f".{entry.resolved_release}.bootstrap.",
+            dir=data_root,
+        ) as temp_root:
+            staging_root = Path(temp_root)
+            staged_release_directory = staging_root / entry.resolved_release
+            staged_release_directory.mkdir(parents=True, exist_ok=True)
+            bacterial_target = (
+                staged_release_directory / entry.bacterial_taxonomy
+                if entry.bacterial_taxonomy is not None
+                else None
+            )
+            archaeal_target = (
+                staged_release_directory / entry.archaeal_taxonomy
+                if entry.archaeal_taxonomy is not None
+                else None
+            )
+            materialise_taxonomy_file(
+                entry.source_root_url,
+                entry.bacterial_taxonomy,
+                bacterial_target,
+                checksum_mapping,
+            )
+            materialise_taxonomy_file(
+                entry.source_root_url,
+                entry.archaeal_taxonomy,
+                archaeal_target,
+                checksum_mapping,
+            )
+            swap_release_directories(staged_release_directory, release_directory)
         if logger is not None:
             logger.info("Bootstrapped release %s", entry.resolved_release)
-        for generated_path in (bacterial_target, archaeal_target):
+        for generated_path in (
+            release_directory / entry.bacterial_taxonomy
+            if entry.bacterial_taxonomy is not None
+            else None,
+            release_directory / entry.archaeal_taxonomy
+            if entry.archaeal_taxonomy is not None
+            else None,
+        ):
             if generated_path is not None:
                 generated_paths.append(generated_path)
     return tuple(generated_paths)
