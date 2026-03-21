@@ -84,14 +84,14 @@ jobs:
         shell: bash -el {0}
         run: |
           python - <<'PY'
-from gtdb_genomes.release_resolver import resolve_and_validate_release
-from gtdb_genomes.taxonomy import load_release_taxonomy
+          from gtdb_genomes.release_resolver import resolve_and_validate_release
+          from gtdb_genomes.taxonomy import load_release_taxonomy
 
-resolution = resolve_and_validate_release('latest')
-frame = load_release_taxonomy(resolution)
-assert resolution.bacterial_taxonomy is not None, resolution
-assert frame.height > 0, frame
-PY
+          resolution = resolve_and_validate_release('latest')
+          frame = load_release_taxonomy(resolution)
+          assert resolution.bacterial_taxonomy is not None, resolution
+          assert frame.height > 0, frame
+          PY
 
       - name: Run release validation cases
         env:

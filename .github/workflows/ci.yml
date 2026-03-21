@@ -204,14 +204,14 @@ jobs:
         run: |
           python -c "import shutil; assert shutil.which('uv') is None"
           python - <<'PY'
-from gtdb_genomes.release_resolver import resolve_and_validate_release
-from gtdb_genomes.taxonomy import load_release_taxonomy
+          from gtdb_genomes.release_resolver import resolve_and_validate_release
+          from gtdb_genomes.taxonomy import load_release_taxonomy
 
-resolution = resolve_and_validate_release('latest')
-frame = load_release_taxonomy(resolution)
-assert resolution.bacterial_taxonomy is not None, resolution
-assert frame.height > 0, frame
-PY
+          resolution = resolve_and_validate_release('latest')
+          frame = load_release_taxonomy(resolution)
+          assert resolution.bacterial_taxonomy is not None, resolution
+          assert frame.height > 0, frame
+          PY
 
       - name: Run C validation cases
         env:
