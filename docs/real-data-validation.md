@@ -80,12 +80,12 @@ Required commands by case family:
 - `A1` to `A9`: `uv`, `datasets`, and `unzip`
 - `B1` to `B6`: `uv`, `datasets`, and `unzip`
 
-Required environment:
+Optional environment:
 
 - `NCBI_API_KEY` for metadata-heavy cases such as `B2` and `B6`
 
 The local runner passes `NCBI_API_KEY` to the CLI as `--ncbi-api-key` for the
-cases that need NCBI metadata or download access.
+cases that provide it.
 
 The local runner uses:
 
@@ -135,10 +135,27 @@ The remote runner uses:
 
 Required environment:
 
-- `NCBI_API_KEY` for `C2`, `C3`, `C5`, and `C7`
+- `NCBI_API_KEY` for `C5` and `C7`
+
+Optional environment:
+
+- `NCBI_API_KEY` for `C2` and `C3`
 
 The remote runner passes `NCBI_API_KEY` to the installed command as
-`--ncbi-api-key`.
+`--ncbi-api-key` when it is provided.
+
+## GitHub CI Coverage
+
+The main GitHub Actions CI workflow runs:
+
+- `A1` to `A9`
+- `B1` to `B6`
+- `C1`, `C2`, `C3`, `C4`, and `C6`
+
+The CI workflow excludes:
+
+- `C5`
+- `C7`
 
 ## Remote Server Quickstart
 
@@ -229,12 +246,16 @@ checkout. Otherwise, use the copied scripts and keep the installed wheel on
 Optional environment:
 
 - `REMOTE_TEST_ROOT` to override the default unique suite root
-- `NCBI_API_KEY` for `C2`, `C3`, `C5`, and `C7`
+- `NCBI_API_KEY` for `C2` and `C3`
 - `RUN_OPTIONAL_LARGE=1` to include the optional `C7` stress case
 - `REAL_DATA_PYTHON_FAULTHANDLER=1` to prefix remote case commands with
   `PYTHONFAULTHANDLER=1`
 - `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to no-key cases such as
   `C1`, `C4`, and `C6`
+
+Required environment for full remote coverage:
+
+- `NCBI_API_KEY` for `C5` and `C7`
 
 Examples:
 
