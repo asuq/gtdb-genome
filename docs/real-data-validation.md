@@ -3,6 +3,14 @@
 This guide turns the release-variant real-data test plan into a repeatable
 validation workflow for `gtdb-genomes`.
 
+Supported external-tool window for the first public release:
+
+- `ncbi-datasets-cli >=18.21.0,<18.22.0`
+- `unzip >=6.0,<7.0`
+
+GitHub Actions currently pins `ncbi-datasets-cli=18.21.0` and `unzip=6.0`
+inside that supported window.
+
 It is split into three passes:
 
 1. local release-coverage dry-runs

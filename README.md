@@ -1,7 +1,7 @@
 # gtdb-genomes
 
 [![Python >=3.12](https://img.shields.io/badge/python-%3E%3D3.12-3776AB.svg)](https://www.python.org/downloads/)
-[![GitHub release](https://img.shields.io/github/v/release/asuq/gtdb-genome)](https://github.com/asuq/gtdb-genome/releases)
+[![GitHub release](https://img.shields.io/github/v/release/asuq/gtdb-genomes)](https://github.com/asuq/gtdb-genomes/releases)
 [![Code licence: MIT](https://img.shields.io/badge/code-MIT-green.svg)](LICENSE)
 [![Bundled data licence: CC BY-SA 4.0](https://img.shields.io/badge/bundled%20data-CC--BY--SA%204.0-blue.svg)](licenses/CC-BY-SA-4.0.txt)
 
@@ -13,9 +13,11 @@ The detailed runtime contract, output layout, retry rules, and bundled-data note
 ## Installation
 
 The checked-in Bioconda recipe at
-[packaging/bioconda/meta.yaml](packaging/bioconda/meta.yaml) is prepared for
-the first public release, but it still awaits the published release sdist
-archive and final SHA256 checksum before it can be submitted.
+[packaging/bioconda/meta.yaml](packaging/bioconda/meta.yaml) tracks the tagged
+release sdist metadata and the supported packaged-runtime tool window:
+
+- `ncbi-datasets-cli >=18.21.0,<18.22.0`
+- `unzip >=6.0,<7.0`
 
 ```bash
 uv sync --group dev
@@ -51,7 +53,7 @@ In short:
 - `--prefer-genbank`: prefers paired GenBank accessions and keeps the exact selected version by default
 - `--version-latest`: paired with `--prefer-genbank`, opts into the latest available revision within the selected GenBank family, e.g. `GCA_000005845.2` -> `GCA_000005845.3` if the latter is available
 - `--threads`: number of threads to run, defaults to 8
-- `--include`: downloads extra annotation files from NCBI, e.g. `genome,gff3,protein`, see [NCBI datasets docuemntation](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/genomes/download-genome/#choosing-which-data-files-to-include-in-the-data-package)
+- `--include`: locally supported tokens are `genome`, `gff3`, and `protein`, e.g. `genome,gff3,protein`, see [NCBI datasets documentation](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/genomes/download-genome/#choosing-which-data-files-to-include-in-the-data-package)
 - `--ncbi-api-key`: NCBI API key, passed only to the `datasets` command
 - `--dry-run`: supported with automatic planning, prints the planned download list without downloading
 
@@ -98,6 +100,14 @@ gtdb-genomes \
   --outdir /tmp/gtdb_dry_run
 ```
 
+## Operational Notes
+
+- Taxon matching is exact-token and case-sensitive.
+- `--outdir` must be empty or absent before each run.
+- If one genome matches multiple requested taxa, the downloaded package is copied into each matching taxon directory.
+- Direct downloads remain serial in the current workflow.
+- `--include` accepts only `genome`, `gff3`, and `protein`; see [docs/usage-details.md](docs/usage-details.md) for the full runtime contract.
+
 ## Output Layout
 
 ```text
@@ -140,9 +150,8 @@ Supported workflows:
   `uv run python -m gtdb_genomes.bootstrap_taxonomy`
 - maintainer manifest refresh through
   `uv run python -m gtdb_genomes.refresh_taxonomy_manifest`
-- the checked-in Bioconda recipe is prepared for the first public release, but
-  it still needs the published release archive URL and SHA256 checksum before
-  submission
+- the checked-in Bioconda recipe tracks the tagged sdist metadata and the
+  supported packaged-runtime tool window for public releases
 
 `uv` is a development tool only. Packaged runtime use should not depend on it.
 
