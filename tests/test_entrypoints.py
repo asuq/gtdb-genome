@@ -2,10 +2,104 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
+import tarfile
 import tomllib
+import zipfile
 from pathlib import Path
+
+import pytest
+
+
+def copy_project_for_build_fixture(destination_root: Path) -> Path:
+    """Copy the project into a temporary build fixture directory."""
+
+    project_root = Path.cwd()
+    fixture_root = destination_root / "project"
+    shutil.copytree(
+        project_root,
+        fixture_root,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".venv",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".untracked",
+            "build",
+            "dist",
+        ),
+    )
+    taxonomy_root = fixture_root / "data" / "gtdb_taxonomy"
+    for child_path in taxonomy_root.iterdir():
+        if child_path.name == "releases.tsv":
+            continue
+        if child_path.is_dir():
+            shutil.rmtree(child_path)
+            continue
+        child_path.unlink()
+    return fixture_root
+
+
+def build_fixture_project(
+    project_root: Path,
+    output_root: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Build one copied fixture project into a dedicated output directory."""
+
+    uv_path = shutil.which("uv")
+    if uv_path is None:
+        pytest.skip("uv is required for packaging regression tests")
+    environment = os.environ.copy()
+    environment["UV_CACHE_DIR"] = str(project_root / ".uv-cache")
+    return subprocess.run(
+        [uv_path, "build", "--out-dir", str(output_root)],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+
+
+def assert_build_result_succeeded(result: subprocess.CompletedProcess[str]) -> None:
+    """Assert that one fixture build succeeded or skip on local offline limits."""
+
+    if result.returncode == 0:
+        return
+    if (
+        os.environ.get("CI") != "true"
+        and "Failed to resolve requirements from `build-system.requires`"
+        in result.stderr
+    ):
+        pytest.skip("uv build cannot resolve hatchling in this local offline shell")
+    pytest.fail(
+        "uv build failed\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}",
+    )
+
+
+def archive_members_with_fragment(archive_path: Path, fragment: str) -> set[str]:
+    """Return archive members that contain one selected path fragment."""
+
+    if archive_path.suffix == ".whl":
+        with zipfile.ZipFile(archive_path) as handle:
+            return {
+                member_name
+                for member_name in handle.namelist()
+                if fragment in member_name
+            }
+    with tarfile.open(archive_path, "r:gz") as handle:
+        return {
+            member_name
+            for member_name in handle.getnames()
+            if fragment in member_name
+        }
 
 
 def assert_contains_all(text: str, snippets: tuple[str, ...]) -> None:
@@ -48,13 +142,70 @@ def test_pyproject_build_targets_include_runtime_package_sources() -> None:
     wheel_packages = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"][
         "packages"
     ]
+    wheel_force_include = pyproject["tool"]["hatch"]["build"]["targets"][
+        "wheel"
+    ]["force-include"]
     sdist_include = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"][
         "include"
     ]
+    sdist_artifacts = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"][
+        "artifacts"
+    ]
 
     assert wheel_packages == ["src/gtdb_genomes"]
+    assert wheel_force_include["data/gtdb_taxonomy"] == (
+        "gtdb_genomes/data/gtdb_taxonomy"
+    )
     assert "src/gtdb_genomes/**" in sdist_include
-    assert "data/gtdb_taxonomy/**" in sdist_include
+    assert "data/gtdb_taxonomy/**" in sdist_artifacts
+    assert "data/gtdb_taxonomy/**" not in sdist_include
+
+
+def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
+    tmp_path: Path,
+) -> None:
+    """A build should ship generated taxonomy payloads in both artifacts."""
+
+    fixture_root = copy_project_for_build_fixture(tmp_path)
+    taxonomy_root = fixture_root / "data" / "gtdb_taxonomy" / "999.0"
+    taxonomy_root.mkdir(parents=True, exist_ok=True)
+    bacterial_payload = taxonomy_root / "bac120_taxonomy_r999.tsv.gz"
+    archaeal_payload = taxonomy_root / "ar53_taxonomy_r999.tsv.gz"
+    bacterial_payload.write_bytes(b"synthetic bacterial taxonomy payload\n")
+    archaeal_payload.write_bytes(b"synthetic archaeal taxonomy payload\n")
+
+    dist_root = tmp_path / "dist"
+    build_result = build_fixture_project(fixture_root, dist_root)
+    assert_build_result_succeeded(build_result)
+
+    sdist_path = next(dist_root.glob("*.tar.gz"))
+    wheel_path = next(dist_root.glob("*.whl"))
+
+    sdist_members = archive_members_with_fragment(
+        sdist_path,
+        "data/gtdb_taxonomy/999.0/",
+    )
+    wheel_members = archive_members_with_fragment(
+        wheel_path,
+        "gtdb_genomes/data/gtdb_taxonomy/999.0/",
+    )
+
+    assert any(
+        member_name.endswith("data/gtdb_taxonomy/999.0/bac120_taxonomy_r999.tsv.gz")
+        for member_name in sdist_members
+    )
+    assert any(
+        member_name.endswith("data/gtdb_taxonomy/999.0/ar53_taxonomy_r999.tsv.gz")
+        for member_name in sdist_members
+    )
+    assert (
+        "gtdb_genomes/data/gtdb_taxonomy/999.0/bac120_taxonomy_r999.tsv.gz"
+        in wheel_members
+    )
+    assert (
+        "gtdb_genomes/data/gtdb_taxonomy/999.0/ar53_taxonomy_r999.tsv.gz"
+        in wheel_members
+    )
 
 
 def test_module_entrypoint_help_runs() -> None:
