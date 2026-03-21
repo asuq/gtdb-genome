@@ -153,6 +153,4 @@ Supported workflows:
 
 - [Usage details](docs/usage-details.md)
 - [Real-data validation guide](docs/real-data-validation.md)
-- [Pipeline concept](docs/pipeline-concept.md)
-- [Step-wise development plan](docs/development-plan.md)
 - [Bioconda recipe](packaging/bioconda/meta.yaml)

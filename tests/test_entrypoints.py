@@ -118,6 +118,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Bundled GTDB Taxonomy",
             "download_method_requested",
             "--download-method",
+            "Pipeline concept",
+            "Step-wise development plan",
         ),
     )
 
