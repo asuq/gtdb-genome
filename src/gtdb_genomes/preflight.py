@@ -18,10 +18,20 @@ class PreflightError(Exception):
         return self.message
 
 
-def get_required_tools(
+def get_early_required_tools(
     dry_run: bool,
 ) -> tuple[str, ...]:
-    """Return the external tools required for the requested execution path."""
+    """Return tools that must be checked before dry-run planning exits."""
+
+    if not dry_run:
+        return ()
+    return ("unzip",)
+
+
+def get_supported_preflight_tools(
+    dry_run: bool,
+) -> tuple[str, ...]:
+    """Return tools required for supported planning and execution paths."""
 
     if dry_run:
         return ("datasets",)

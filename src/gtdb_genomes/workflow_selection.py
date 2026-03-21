@@ -19,7 +19,11 @@ from gtdb_genomes.layout import (
     write_zero_match_outputs,
 )
 from gtdb_genomes.logging_utils import close_logger
-from gtdb_genomes.preflight import check_required_tools, get_required_tools
+from gtdb_genomes.preflight import (
+    check_required_tools,
+    get_early_required_tools,
+    get_supported_preflight_tools,
+)
 from gtdb_genomes.release_resolver import ReleaseResolution, resolve_and_validate_release
 from gtdb_genomes.selection import attach_taxon_slugs, build_taxon_slug_map, select_taxa
 from gtdb_genomes.taxonomy import load_release_taxonomy
@@ -198,10 +202,11 @@ def run_early_dry_run_unzip_check(
 ) -> None:
     """Check `unzip` early so dry-runs surface the real-run requirement sooner."""
 
-    if not args.dry_run:
+    required_tools = get_early_required_tools(args.dry_run)
+    if not required_tools:
         return
     logger.info("Checking unzip availability for dry-run")
-    check_required_tools(("unzip",))
+    check_required_tools(required_tools)
 
 
 def run_supported_preflight(
@@ -212,7 +217,7 @@ def run_supported_preflight(
 
     if supported_selected_frame.is_empty():
         return
-    required_tools = get_required_tools(
+    required_tools = get_supported_preflight_tools(
         dry_run=args.dry_run,
     )
     if required_tools:
