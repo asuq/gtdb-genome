@@ -163,6 +163,10 @@ jobs:
         shell: bash -el {0}
         run: python -m pip install --force-reinstall dist/*.whl
 
+      - name: Verify installed bundled taxonomy
+        shell: bash -el {0}
+        run: python -c "from gtdb_genomes.release_resolver import resolve_and_validate_release; resolution = resolve_and_validate_release('latest'); assert resolution.bacterial_taxonomy is not None, resolution"
+
       - name: Run C validation cases
         env:
           REMOTE_TEST_ROOT: /tmp/gtdb-realtests/ci-c

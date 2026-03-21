@@ -39,6 +39,10 @@ jobs:
         shell: bash -el {0}
         run: uv sync --locked --group dev
 
+      - name: Bootstrap GTDB taxonomy data
+        shell: bash -el {0}
+        run: uv run python -m gtdb_genomes.bootstrap_taxonomy
+
       - name: Run live validation case B1
         shell: bash -el {0}
         env:

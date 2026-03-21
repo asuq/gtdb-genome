@@ -259,6 +259,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "bin/run-real-data-tests-remote.sh C1 C2 C3 C4 C6",
             "uv build",
             "python -m pip install --force-reinstall dist/*.whl",
+            "resolve_and_validate_release('latest')",
         ),
     )
     assert_not_contains_any(
@@ -266,6 +267,25 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
         (
             "bin/run-real-data-tests-remote.sh C5",
             "bin/run-real-data-tests-remote.sh C7",
+            "LOCAL_LAUNCHER_MODE: module",
+        ),
+    )
+
+
+def test_live_validation_workflow_bootstraps_before_b1() -> None:
+    """The live validation workflow should bootstrap taxonomy before B1."""
+
+    live_text = Path(".github/workflows/live-validation.yml").read_text(
+        encoding="utf-8",
+    )
+
+    assert_contains_all(
+        live_text,
+        (
+            "validation-live:",
+            "uv sync --locked --group dev",
+            "uv run python -m gtdb_genomes.bootstrap_taxonomy",
+            "bin/run-real-data-tests-local.sh B1",
             "LOCAL_LAUNCHER_MODE: module",
         ),
     )

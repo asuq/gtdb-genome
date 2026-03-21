@@ -164,7 +164,8 @@ The main GitHub Actions CI workflow runs:
 - `B1` to `B6`
 - `C1`, `C2`, `C3`, `C4`, and `C6`
 
-Before `pytest`, `A`, `B`, and `C`, CI runs:
+Before `pytest`, `A`, `B`, `C`, and the separate live-validation source-checkout
+runner, GitHub Actions runs:
 
 - `uv run python -m gtdb_genomes.bootstrap_taxonomy`
 
