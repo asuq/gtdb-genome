@@ -595,6 +595,30 @@ def test_bioconda_recipe_uses_real_upstream_metadata() -> None:
     )
 
 
+def test_citation_file_uses_canonical_release_metadata() -> None:
+    """The citation metadata should match the tracked software release identity."""
+
+    citation_text = Path("CITATION.cff").read_text(encoding="utf-8")
+
+    assert_contains_all(
+        citation_text,
+        (
+            "cff-version: 1.2.0",
+            'title: "gtdb-genomes"',
+            'version: "0.1.0"',
+            "date-released: 2026-03-21",
+            "repository-code: 'https://github.com/asuq/gtdb-genomes'",
+            'family-names: "Shima"',
+            'given-names: "Akito"',
+            "orcid: 'https://orcid.org/0000-0002-7092-7720'",
+            "abstract: CLI to download genomes by GTDB taxon and GTDB release",
+            "# identifiers:",
+            "#   - type: doi",
+            "#     value: xx.yyyy/zenodo.zzzz",
+        ),
+    )
+
+
 def test_real_data_validation_guide_describes_local_requirements() -> None:
     """The real-data guide should document the local runner environment split."""
 
