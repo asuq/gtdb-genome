@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from gtdb_genomes.cli import CliArgs, main
 
 
@@ -29,8 +31,10 @@ def test_main_passes_normalised_arguments_into_workflow(
             " latest ",
             "--gtdb-taxon",
             " g__Escherichia ",
+            " s__Escherichia coli ",
             "--gtdb-taxon",
             "g__Escherichia",
+            "g__Bacillus",
             "--outdir",
             str(tmp_path / "output"),
             "--threads",
@@ -46,7 +50,11 @@ def test_main_passes_normalised_arguments_into_workflow(
     assert captured_args == [
         CliArgs(
             gtdb_release="latest",
-            gtdb_taxa=("g__Escherichia",),
+            gtdb_taxa=(
+                "g__Escherichia",
+                "s__Escherichia coli",
+                "g__Bacillus",
+            ),
             outdir=tmp_path / "output",
             prefer_genbank=False,
             version_latest=False,
@@ -58,6 +66,25 @@ def test_main_passes_normalised_arguments_into_workflow(
             dry_run=True,
         ),
     ]
+
+
+def test_main_rejects_shell_split_species_input_under_multi_value_taxa(
+    tmp_path: Path,
+) -> None:
+    """Shell-split species input should still fail under the new parser form."""
+
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "--gtdb-taxon",
+                "s__Altiarchaeum",
+                "hamiconexum",
+                "--outdir",
+                str(tmp_path / "output"),
+            ],
+        )
+
+    assert error.value.code == 2
 
 
 def test_main_defaults_release_to_latest_when_flag_is_omitted(

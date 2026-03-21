@@ -10,7 +10,10 @@ from pathlib import Path
 
 from gtdb_genomes.download import validate_include_value
 from gtdb_genomes.preflight import PreflightError
-from gtdb_genomes.taxon_normalisation import normalise_requested_taxon
+from gtdb_genomes.taxon_normalisation import (
+    is_complete_requested_taxon,
+    normalise_requested_taxon,
+)
 
 DEFAULT_THREADS = 8
 
@@ -43,20 +46,26 @@ def normalise_release(parser: argparse.ArgumentParser, release: str) -> str:
 
 def normalise_taxa(
     parser: argparse.ArgumentParser,
-    taxa: Sequence[str],
+    taxa: Sequence[Sequence[str]],
 ) -> tuple[str, ...]:
-    """Trim, validate, and deduplicate requested taxa."""
+    """Trim, validate, flatten, and deduplicate requested taxa."""
 
     ordered_taxa: list[str] = []
     seen: set[str] = set()
-    for raw_taxon in taxa:
-        taxon = normalise_requested_taxon(raw_taxon)
-        if not taxon:
-            parser.error("argument --gtdb-taxon: value must not be empty")
-        if taxon in seen:
-            continue
-        seen.add(taxon)
-        ordered_taxa.append(taxon)
+    for taxon_group in taxa:
+        for raw_taxon in taxon_group:
+            taxon = normalise_requested_taxon(raw_taxon)
+            if not taxon:
+                parser.error("argument --gtdb-taxon: value must not be empty")
+            if not is_complete_requested_taxon(taxon):
+                parser.error(
+                    "argument --gtdb-taxon: each value must be one complete GTDB "
+                    "taxon token with a recognised rank prefix",
+                )
+            if taxon in seen:
+                continue
+            seen.add(taxon)
+            ordered_taxa.append(taxon)
     return tuple(ordered_taxa)
 
 
@@ -125,9 +134,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gtdb-taxon",
         action="append",
+        nargs="+",
         required=True,
         help=(
-            "Exact GTDB taxon token. Repeat to request multiple taxa. "
+            "Exact GTDB taxon token. Accept one or more values per use and "
+            "repeat as needed. "
             "Quote species taxa with spaces, for example "
             "\"s__Altiarchaeum hamiconexum\"."
         ),

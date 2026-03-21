@@ -28,7 +28,10 @@ def test_help_includes_documented_flags() -> None:
     assert "--debug" in help_text
     assert "--keep-temp" in help_text
     assert "--dry-run" in help_text
-    assert "Quote species taxa with spaces" in help_text
+    assert "Accept one or more values per" in help_text
+    assert "use and repeat as needed." in help_text
+    assert "Quote species taxa with" in help_text
+    assert 'spaces, for example "s__Altiarchaeum hamiconexum".' in help_text
     assert "direct downloads remain serial" in help_text
     assert "Default: latest." in help_text
     assert "8." in help_text
@@ -52,8 +55,8 @@ def test_parse_args_defaults_release_to_latest(tmp_path: Path) -> None:
     assert args.gtdb_release == "latest"
 
 
-def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
-    """Repeated taxa should be trimmed and deduplicated in order."""
+def test_parse_args_accepts_multiple_taxa_after_one_flag(tmp_path: Path) -> None:
+    """One `--gtdb-taxon` occurrence should accept multiple complete taxa."""
 
     parser = build_parser()
     args = parse_args(
@@ -63,9 +66,6 @@ def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
             " latest ",
             "--gtdb-taxon",
             " g__Escherichia ",
-            "--gtdb-taxon",
-            "g__Escherichia",
-            "--gtdb-taxon",
             " s__Escherichia coli ",
             "--outdir",
             str(tmp_path),
@@ -77,6 +77,37 @@ def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
     assert args.gtdb_taxa == ("g__Escherichia", "s__Escherichia coli")
     assert args.prefer_genbank is False
     assert args.version_latest is False
+
+
+def test_parse_args_normalises_and_deduplicates_taxa_across_taxon_groups(
+    tmp_path: Path,
+) -> None:
+    """Multi-value and repeated taxon groups should deduplicate in order."""
+
+    parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "--gtdb-release",
+            " latest ",
+            "--gtdb-taxon",
+            " g__Escherichia ",
+            " s__Escherichia coli ",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "g__Bacillus",
+            "--outdir",
+            str(tmp_path),
+        ],
+    )
+
+    assert isinstance(args, CliArgs)
+    assert args.gtdb_release == "latest"
+    assert args.gtdb_taxa == (
+        "g__Escherichia",
+        "s__Escherichia coli",
+        "g__Bacillus",
+    )
 
 
 def test_parse_args_uses_fixed_default_threads(tmp_path: Path) -> None:
@@ -111,6 +142,27 @@ def test_parse_args_rejects_shell_split_species_taxon(tmp_path: Path) -> None:
                 "--gtdb-taxon",
                 "s__Altiarchaeum",
                 "hamiconexum",
+                "--outdir",
+                str(tmp_path),
+            ],
+        )
+    assert error.value.code == 2
+
+
+def test_parse_args_rejects_taxon_without_recognised_rank_prefix(
+    tmp_path: Path,
+) -> None:
+    """Each parsed value should be validated as one complete GTDB taxon token."""
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as error:
+        parse_args(
+            parser,
+            [
+                "--gtdb-release",
+                "latest",
+                "--gtdb-taxon",
+                "Escherichia",
                 "--outdir",
                 str(tmp_path),
             ],
