@@ -201,13 +201,11 @@ def test_load_release_manifest_accepts_extra_build_columns(tmp_path: Path) -> No
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
                     "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename\tbacterial_source_name\t"
-                    "archaeal_source_name"
+                    "checksum_filename"
                 ),
                 (
                     "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\ttrue\t"
-                    "https://example.invalid/release95/95.0/\tMD5SUM\t"
-                    "bac.tsv.gz\tar.tsv.gz"
+                    "https://example.invalid/release95/95.0/\tMD5SUM"
                 ),
             ],
         )

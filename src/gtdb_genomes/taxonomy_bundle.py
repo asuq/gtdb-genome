@@ -24,8 +24,6 @@ BUILD_MANIFEST_FIELDS = (
     "is_latest",
     "source_root_url",
     "checksum_filename",
-    "bacterial_source_name",
-    "archaeal_source_name",
 )
 REQUIRED_RUNTIME_FIELDS = (
     "resolved_release",
@@ -61,8 +59,6 @@ class TaxonomyBundleEntry:
     is_latest: str
     source_root_url: str | None
     checksum_filename: str | None
-    bacterial_source_name: str | None
-    archaeal_source_name: str | None
 
 
 def normalise_optional_field(raw_value: str | None) -> str | None:
@@ -162,10 +158,6 @@ def parse_manifest_row(
         ),
         source_root_url=normalise_optional_field(row.get("source_root_url")),
         checksum_filename=normalise_optional_field(row.get("checksum_filename")),
-        bacterial_source_name=normalise_optional_field(
-            row.get("bacterial_source_name"),
-        ),
-        archaeal_source_name=normalise_optional_field(row.get("archaeal_source_name")),
     )
 
 
@@ -229,12 +221,6 @@ def write_taxonomy_bundle_manifest(
                     "source_root_url": serialise_manifest_value(entry.source_root_url),
                     "checksum_filename": serialise_manifest_value(
                         entry.checksum_filename,
-                    ),
-                    "bacterial_source_name": serialise_manifest_value(
-                        entry.bacterial_source_name,
-                    ),
-                    "archaeal_source_name": serialise_manifest_value(
-                        entry.archaeal_source_name,
                     ),
                 },
             )
@@ -371,14 +357,8 @@ def refresh_manifest_entries(
         )
         checksum_filename = detect_checksum_filename(source_root_url)
         checksum_mapping = load_checksum_mapping(source_root_url, checksum_filename)
-        bacterial_source_name = resolve_source_name(
-            entry.bacterial_taxonomy,
-            checksum_mapping,
-        )
-        archaeal_source_name = resolve_source_name(
-            entry.archaeal_taxonomy,
-            checksum_mapping,
-        )
+        resolve_source_name(entry.bacterial_taxonomy, checksum_mapping)
+        resolve_source_name(entry.archaeal_taxonomy, checksum_mapping)
         if logger is not None:
             logger.info(
                 "Refreshed release %s from %s",
@@ -394,8 +374,6 @@ def refresh_manifest_entries(
                 is_latest=entry.is_latest,
                 source_root_url=source_root_url,
                 checksum_filename=checksum_filename,
-                bacterial_source_name=bacterial_source_name,
-                archaeal_source_name=archaeal_source_name,
             ),
         )
     return tuple(refreshed_entries)
@@ -458,14 +436,15 @@ def compress_tsv_bytes(data: bytes) -> bytes:
 
 def materialise_taxonomy_file(
     source_root_url: str,
-    source_name: str | None,
+    target_name: str | None,
     target_path: Path | None,
     checksum_mapping: dict[str, str],
 ) -> None:
     """Download, verify, and materialise one configured taxonomy file."""
 
-    if source_name is None or target_path is None:
+    if target_name is None or target_path is None:
         return
+    source_name = resolve_source_name(target_name, checksum_mapping)
     source_url = join_directory_url(source_root_url, source_name)
     expected_checksum = get_checksum_for_source(
         source_name,
@@ -499,16 +478,6 @@ def validate_bootstrap_entry(entry: TaxonomyBundleEntry) -> None:
         raise TaxonomyBundleError(
             f"Release {entry.resolved_release} is missing checksum_filename in the "
             "manifest. Run the refresh command first.",
-        )
-    if entry.bacterial_taxonomy is not None and entry.bacterial_source_name is None:
-        raise TaxonomyBundleError(
-            f"Release {entry.resolved_release} is missing bacterial_source_name in "
-            "the manifest. Run the refresh command first.",
-        )
-    if entry.archaeal_taxonomy is not None and entry.archaeal_source_name is None:
-        raise TaxonomyBundleError(
-            f"Release {entry.resolved_release} is missing archaeal_source_name in "
-            "the manifest. Run the refresh command first.",
         )
 
 
@@ -549,13 +518,13 @@ def bootstrap_manifest_entries(
         )
         materialise_taxonomy_file(
             entry.source_root_url,
-            entry.bacterial_source_name,
+            entry.bacterial_taxonomy,
             bacterial_target,
             checksum_mapping,
         )
         materialise_taxonomy_file(
             entry.source_root_url,
-            entry.archaeal_source_name,
+            entry.archaeal_taxonomy,
             archaeal_target,
             checksum_mapping,
         )

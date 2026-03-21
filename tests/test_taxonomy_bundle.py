@@ -93,11 +93,10 @@ def test_refresh_manifest_adds_uq_source_metadata_for_plain_tsv_release(
     assert len(entries) == 1
     assert entries[0].source_root_url == release_root.as_uri() + "/"
     assert entries[0].checksum_filename == "MD5SUM"
-    assert entries[0].bacterial_source_name == "bac_taxonomy_r80.tsv"
-    assert entries[0].archaeal_source_name is None
     manifest_text = manifest_path.read_text(encoding="ascii")
     assert "source_root_url" in manifest_text
-    assert "bacterial_source_name" in manifest_text
+    assert "bacterial_source_name" not in manifest_text
+    assert "archaeal_source_name" not in manifest_text
 
 
 def test_refresh_manifest_prefers_precompressed_source_when_available(
@@ -139,8 +138,8 @@ def test_refresh_manifest_prefers_precompressed_source_when_available(
     )
 
     assert entries[0].checksum_filename == "MD5SUM"
-    assert entries[0].bacterial_source_name == "bac120_taxonomy_r95.tsv.gz"
-    assert entries[0].archaeal_source_name == "ar122_taxonomy_r95.tsv.gz"
+    assert entries[0].bacterial_taxonomy == "bac120_taxonomy_r95.tsv.gz"
+    assert entries[0].archaeal_taxonomy == "ar122_taxonomy_r95.tsv.gz"
 
 
 def test_bootstrap_taxonomy_bundle_gzips_plain_tsv_payloads_deterministically(
@@ -158,13 +157,11 @@ def test_bootstrap_taxonomy_bundle_gzips_plain_tsv_payloads_deterministically(
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
                     "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename\tbacterial_source_name\t"
-                    "archaeal_source_name"
+                    "checksum_filename"
                 ),
                 (
                     "80.0\t80,80.0\tbac_taxonomy_r80.tsv.gz\t\tfalse\t"
-                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/\t"
-                    "MD5SUM\tbac_taxonomy_r80.tsv\t"
+                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/\tMD5SUM"
                 ),
             ],
         )
@@ -200,13 +197,11 @@ def test_bootstrap_taxonomy_bundle_preserves_upstream_gzip_payloads(
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
                     "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename\tbacterial_source_name\t"
-                    "archaeal_source_name"
+                    "checksum_filename"
                 ),
                 (
                     "226.0\t226,latest\t\tar53_taxonomy_r226.tsv.gz\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM.txt\t\t"
-                    "ar53_taxonomy_r226.tsv.gz"
+                    f"{source_root.as_uri()}/\tMD5SUM.txt"
                 ),
             ],
         )
@@ -235,13 +230,11 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_file(
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
                     "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename\tbacterial_source_name\t"
-                    "archaeal_source_name"
+                    "checksum_filename"
                 ),
                 (
                     "80.0\t80,80.0\tbac_taxonomy_r80.tsv.gz\t\tfalse\t"
-                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/\t"
-                    "MD5SUM\tbac_taxonomy_r80.tsv\t"
+                    f"{(tmp_path / 'mirror' / 'release80' / '80.0').as_uri()}/\tMD5SUM"
                 ),
             ],
         )
@@ -252,10 +245,10 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_file(
         bootstrap_taxonomy_bundle(manifest_path, data_root=manifest_path.parent)
 
 
-def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_entry(
+def test_bootstrap_taxonomy_bundle_rejects_unresolvable_source_from_checksum_map(
     tmp_path: Path,
 ) -> None:
-    """Bootstrap should fail when the checksum listing omits one source file."""
+    """Bootstrap should fail when no matching source name exists in the checksum map."""
 
     manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
     data_root = manifest_path.parent
@@ -267,13 +260,11 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_entry(
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
                     "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename\tbacterial_source_name\t"
-                    "archaeal_source_name"
+                    "checksum_filename"
                 ),
                 (
                     "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM\t"
-                    "bac120_taxonomy_r95.tsv.gz\t"
+                    f"{source_root.as_uri()}/\tMD5SUM"
                 ),
             ],
         )
@@ -285,7 +276,7 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_entry(
         gzip.compress(b"row\n", mtime=0),
     )
 
-    with pytest.raises(TaxonomyBundleError, match="Checksum entry"):
+    with pytest.raises(TaxonomyBundleError, match="mirror source matching"):
         bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
 
 
@@ -304,13 +295,11 @@ def test_bootstrap_taxonomy_bundle_rejects_checksum_mismatch(
                 (
                     "resolved_release\taliases\tbacterial_taxonomy\t"
                     "archaeal_taxonomy\tis_latest\tsource_root_url\t"
-                    "checksum_filename\tbacterial_source_name\t"
-                    "archaeal_source_name"
+                    "checksum_filename"
                 ),
                 (
                     "95.0\t95,95.0\tbac120_taxonomy_r95.tsv.gz\t\ttrue\t"
-                    f"{source_root.as_uri()}/\tMD5SUM\t"
-                    "bac120_taxonomy_r95.tsv.gz\t"
+                    f"{source_root.as_uri()}/\tMD5SUM"
                 ),
             ],
         )
@@ -349,6 +338,40 @@ def test_bootstrap_taxonomy_bundle_requires_refreshed_source_metadata(
     )
 
     with pytest.raises(TaxonomyBundleError, match="Run the refresh command first"):
+        bootstrap_taxonomy_bundle(manifest_path, data_root=manifest_path.parent)
+
+
+def test_bootstrap_taxonomy_bundle_rejects_missing_inferred_source_name(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should fail when a taxonomy filename cannot be inferred upstream."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    source_root = tmp_path / "mirror" / "release95" / "95.0"
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                (
+                    "resolved_release\taliases\tbacterial_taxonomy\t"
+                    "archaeal_taxonomy\tis_latest\tsource_root_url\t"
+                    "checksum_filename"
+                ),
+                (
+                    "95.0\t95,95.0\tmissing_taxonomy.tsv.gz\t\ttrue\t"
+                    f"{source_root.as_uri()}/\tMD5SUM"
+                ),
+            ],
+        )
+        + "\n",
+    )
+    write_checksum_file(
+        source_root,
+        "MD5SUM",
+        {"bac120_taxonomy_r95.tsv.gz": gzip.compress(b"row\n", mtime=0)},
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="mirror source matching"):
         bootstrap_taxonomy_bundle(manifest_path, data_root=manifest_path.parent)
 
 
