@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from gtdb_genomes.download import CommandFailureRecord, get_ordered_unique_accessions
+from gtdb_genomes.download import (
+    CommandFailureRecord,
+    DEFAULT_REQUESTED_DOWNLOAD_METHOD,
+    get_ordered_unique_accessions,
+)
 from gtdb_genomes.layout import (
     cleanup_working_directories,
     initialise_run_directories,
@@ -244,7 +248,7 @@ def handle_zero_match_exit(
             args,
             args.gtdb_release,
             resolution.resolved_release,
-            args.download_method,
+            DEFAULT_REQUESTED_DOWNLOAD_METHOD,
             0,
             0,
             0,
@@ -282,7 +286,13 @@ def handle_zero_match_exit(
     logger.info(
         "Run finished: successful_accessions=0 failed_accessions=0 exit_code=4",
     )
-    close_logger(logger)
     if not args.keep_temp:
-        cleanup_working_directories(run_directories)
+        cleanup_error = cleanup_working_directories(run_directories)
+        if cleanup_error is not None:
+            logger.warning(
+                "Could not remove working directory %s: %s",
+                run_directories.working_root,
+                cleanup_error,
+            )
+    close_logger(logger)
     return 4, None

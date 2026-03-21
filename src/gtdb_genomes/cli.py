@@ -24,7 +24,6 @@ class CliArgs:
     outdir: Path
     prefer_genbank: bool
     version_fixed: bool
-    download_method: str
     threads: int
     ncbi_api_key: str | None
     include: str
@@ -103,7 +102,6 @@ def parse_args(
         outdir=validate_output_path(parser, namespace.outdir),
         prefer_genbank=namespace.prefer_genbank,
         version_fixed=namespace.version_fixed,
-        download_method="auto",
         threads=namespace.threads,
         ncbi_api_key=namespace.ncbi_api_key,
         include=normalise_include(parser, namespace.include),
@@ -158,7 +156,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_THREADS,
         help=(
-            "Choose how many CPUs to use for the run; defaults to 8."
+            "Choose the worker count used by compatible workflow steps; "
+            "direct downloads remain serial. Default: 8."
         ),
     )
     parser.add_argument(

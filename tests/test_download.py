@@ -143,10 +143,10 @@ def test_select_download_method_uses_preview_size_and_count_thresholds() -> None
     with pytest.raises(PreviewError, match="required in auto mode"):
         select_download_method("auto", 5, None)
 
-    with pytest.raises(PreviewError, match="could not parse"):
+    with pytest.raises(PreviewError, match="could not determine package size"):
         select_download_method("auto", 5, "No size here")
 
-    with pytest.raises(PreviewError, match="could not parse"):
+    with pytest.raises(PreviewError, match="could not determine package size"):
         select_download_method(
             "auto",
             5,

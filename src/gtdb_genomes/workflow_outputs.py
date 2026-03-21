@@ -6,12 +6,15 @@ from collections import defaultdict
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 import uuid
 
 import polars as pl
 
-from gtdb_genomes.download import CommandFailureRecord
+from gtdb_genomes.download import (
+    CommandFailureRecord,
+    DEFAULT_REQUESTED_DOWNLOAD_METHOD,
+)
 from gtdb_genomes.layout import (
     RunDirectories,
     copy_accession_payload,
@@ -20,7 +23,7 @@ from gtdb_genomes.layout import (
     write_root_manifests,
     write_taxon_accessions,
 )
-from gtdb_genomes.logging_utils import close_logger, configure_logging, redact_text
+from gtdb_genomes.logging_utils import attach_debug_log_handler, redact_text
 from gtdb_genomes.metadata import SUPPRESSED_ASSEMBLY_NOTE
 from gtdb_genomes.workflow_execution import (
     AccessionExecution,
@@ -36,19 +39,106 @@ if TYPE_CHECKING:
 # Logger and output-root helpers.
 
 
+class RunSummaryRow(TypedDict):
+    """Structured row for `run_summary.tsv`."""
+
+    run_id: str
+    started_at: str
+    finished_at: str
+    requested_release: str
+    resolved_release: str
+    download_method_requested: str
+    download_method_used: str
+    threads_requested: int
+    download_concurrency_used: int
+    rehydrate_workers_used: int
+    include: str
+    prefer_genbank: str
+    debug_enabled: str
+    requested_taxa_count: int
+    matched_rows: int
+    unique_gtdb_accessions: int
+    final_accessions: int
+    successful_accessions: int
+    failed_accessions: int
+    output_dir: str
+    exit_code: int
+
+
+class TaxonSummaryRow(TypedDict):
+    """Structured row for `taxon_summary.tsv`."""
+
+    requested_taxon: str
+    taxon_slug: str
+    matched_rows: int
+    unique_gtdb_accessions: int
+    final_accessions: int
+    successful_accessions: int
+    failed_accessions: int
+    duplicate_copies_written: int
+    output_dir: str
+
+
+class EnrichedOutputRow(TypedDict):
+    """Structured workflow row enriched with execution state."""
+
+    requested_taxon: str
+    taxon_slug: str
+    resolved_release: str
+    taxonomy_file: str
+    lineage: str
+    gtdb_accession: str
+    ncbi_accession: str
+    final_accession: str
+    accession_type_original: str
+    accession_type_final: str
+    conversion_status: str
+    download_method_used: str
+    download_batch: str
+    output_relpath: str
+    download_status: str
+    duplicate_across_taxa: bool
+
+
+class PerTaxonOutputRow(TypedDict):
+    """Structured row for `taxon_accessions.tsv`."""
+
+    requested_taxon: str
+    taxon_slug: str
+    lineage: str
+    gtdb_accession: str
+    final_accession: str
+    conversion_status: str
+    output_relpath: str
+    download_status: str
+    duplicate_across_taxa: str
+
+
+class FailureManifestRow(TypedDict):
+    """Structured row for `download_failures.tsv`."""
+
+    requested_taxon: str
+    taxon_slug: str
+    gtdb_accession: str
+    attempted_accession: str
+    final_accession: str
+    stage: str
+    attempt_index: int
+    max_attempts: int
+    error_type: str
+    error_message_redacted: str
+    final_status: str
+
+
 def configure_output_logger(
     args: CliArgs,
     logger: logging.Logger,
     run_directories: RunDirectories,
 ) -> logging.Logger:
-    """Switch from console-only logging to the output-root logger."""
+    """Attach the output-root debug log handler for real runs when needed."""
 
-    close_logger(logger)
-    logger, _ = configure_logging(
-        debug=args.debug,
-        dry_run=False,
-        output_root=run_directories.output_root,
-    )
+    if args.debug:
+        attach_debug_log_handler(logger, run_directories.output_root)
     return logger
 
 
@@ -56,17 +146,17 @@ def configure_output_logger(
 
 
 def build_taxon_summary_rows(
-    accession_rows: list[dict[str, Any]],
+    accession_rows: list[EnrichedOutputRow],
     duplicate_counts: dict[str, int],
     run_directories: RunDirectories,
-) -> list[dict[str, Any]]:
+) -> list[TaxonSummaryRow]:
     """Build `taxon_summary.tsv` rows from accession-level output rows."""
 
-    grouped_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped_rows: dict[str, list[EnrichedOutputRow]] = defaultdict(list)
     for row in accession_rows:
         grouped_rows[row["requested_taxon"]].append(row)
 
-    summary_rows: list[dict[str, Any]] = []
+    summary_rows: list[TaxonSummaryRow] = []
     for requested_taxon, rows in grouped_rows.items():
         taxon_slug = rows[0]["taxon_slug"]
         summary_rows.append(
@@ -119,7 +209,7 @@ def build_run_summary_row(
     exit_code: int,
     started_at: str,
     finished_at: str,
-) -> dict[str, Any]:
+) -> RunSummaryRow:
     """Build the single `run_summary.tsv` row."""
 
     return {
@@ -128,7 +218,7 @@ def build_run_summary_row(
         "finished_at": finished_at,
         "requested_release": requested_release,
         "resolved_release": resolved_release,
-        "download_method_requested": args.download_method,
+        "download_method_requested": DEFAULT_REQUESTED_DOWNLOAD_METHOD,
         "download_method_used": method_used,
         "threads_requested": args.threads,
         "download_concurrency_used": download_concurrency_used,
@@ -164,7 +254,7 @@ def build_run_summary_row(
 
 
 def join_unique_row_values(
-    rows: list[dict[str, Any]],
+    rows: list[EnrichedOutputRow],
     field_name: str,
 ) -> str:
     """Collapse one row field into a deterministic semicolon-joined value."""
@@ -181,10 +271,10 @@ def join_unique_row_values(
 
 
 def build_shared_failure_rows(
-    rows: list[dict[str, Any]],
+    rows: list[EnrichedOutputRow],
     failures: tuple[CommandFailureRecord, ...],
     secrets: tuple[str, ...],
-) -> list[dict[str, Any]]:
+) -> list[FailureManifestRow]:
     """Build one failure-manifest row per shared command attempt."""
 
     if not rows or not failures:
@@ -218,18 +308,18 @@ def build_shared_failure_rows(
 
 
 def build_failure_rows(
-    enriched_rows: list[dict[str, Any]],
+    enriched_rows: list[EnrichedOutputRow],
     executions: dict[str, AccessionExecution],
     metadata_failures: tuple[CommandFailureRecord, ...],
     shared_failures: tuple[SharedFailureContext, ...],
     secrets: tuple[str, ...],
-    shared_context_rows: list[dict[str, Any]] | None = None,
+    shared_context_rows: list[EnrichedOutputRow] | None = None,
     suppressed_notes: dict[str, SuppressedAccessionNote] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[FailureManifestRow]:
     """Build attempt-centric `download_failures.tsv` rows."""
 
     context_rows = enriched_rows if shared_context_rows is None else shared_context_rows
-    failure_rows: list[dict[str, Any]] = []
+    failure_rows: list[FailureManifestRow] = []
     suppressed_accessions = (
         {}
         if suppressed_notes is None
@@ -239,7 +329,7 @@ def build_failure_rows(
         build_shared_failure_rows(context_rows, metadata_failures, secrets),
     )
 
-    rows_by_accession: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    rows_by_accession: dict[str, list[EnrichedOutputRow]] = defaultdict(list)
     for row in enriched_rows:
         rows_by_accession[row["ncbi_accession"]].append(row)
 
@@ -308,9 +398,9 @@ def build_enriched_output_rows(
     run_directories: RunDirectories,
     logger: logging.Logger,
 ) -> tuple[
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    dict[str, list[dict[str, Any]]],
+    list[EnrichedOutputRow],
+    list[EnrichedOutputRow],
+    dict[str, list[PerTaxonOutputRow]],
     dict[str, int],
 ]:
     """Build manifest rows and copy payloads into their final taxon directories."""
@@ -319,8 +409,8 @@ def build_enriched_output_rows(
         **execution_result.executions,
         **unsupported_executions,
     }
-    enriched_rows: list[dict[str, Any]] = []
-    supported_enriched_rows: list[dict[str, Any]] = []
+    enriched_rows: list[EnrichedOutputRow] = []
+    supported_enriched_rows: list[EnrichedOutputRow] = []
     for row in mapped_frame.rows(named=True):
         execution = executions[row["ncbi_accession"]]
         final_accession = execution.final_accession or ""
@@ -356,7 +446,7 @@ def build_enriched_output_rows(
     seen_taxon_accessions: set[tuple[str, str]] = set()
     seen_accessions: set[str] = set()
     duplicate_counts: dict[str, int] = defaultdict(int)
-    per_taxon_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    per_taxon_rows: dict[str, list[PerTaxonOutputRow]] = defaultdict(list)
 
     # Copy once per taxon-accession pair, then reuse the recorded path for
     # duplicate rows that point to the same final payload within that taxon.
@@ -414,7 +504,7 @@ def build_enriched_output_rows(
 
 
 def resolve_exit_code(
-    enriched_rows: list[dict[str, Any]],
+    enriched_rows: list[EnrichedOutputRow],
 ) -> tuple[int, int, int]:
     """Return success count, failure count, and workflow exit code."""
 

@@ -320,6 +320,45 @@ def test_parse_summary_status_map_extracts_suppressed_fields() -> None:
     }
 
 
+def test_parse_summary_status_map_stays_primary_accession_scoped() -> None:
+    """Status mapping should not depend on paired-record output order."""
+
+    requested_accessions = ["GCF_000306725.1", "GCA_000306725.1"]
+    payload_gcf = (
+        '{"accession":"GCF_000306725.1",'
+        '"assemblyInfo":{"assemblyStatus":"suppressed",'
+        '"pairedAssembly":{"accession":"GCA_000306725.1","status":"current"}}}\n'
+    )
+    payload_gca = (
+        '{"accession":"GCA_000306725.1",'
+        '"assemblyInfo":{"assemblyStatus":"current"}}\n'
+    )
+
+    parsed_a = parse_summary_status_map(
+        payload_gcf + payload_gca,
+        requested_accessions,
+    )
+    parsed_b = parse_summary_status_map(
+        payload_gca + payload_gcf,
+        requested_accessions,
+    )
+
+    assert parsed_a == parsed_b == {
+        "GCF_000306725.1": AssemblyStatusInfo(
+            assembly_status="suppressed",
+            suppression_reason=None,
+            paired_accession="GCA_000306725.1",
+            paired_assembly_status="current",
+        ),
+        "GCA_000306725.1": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
+            paired_accession=None,
+            paired_assembly_status=None,
+        ),
+    }
+
+
 def test_run_summary_lookup_with_retries_retries_invalid_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

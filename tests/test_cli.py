@@ -28,7 +28,7 @@ def test_help_includes_documented_flags() -> None:
     assert "--keep-temp" in help_text
     assert "--dry-run" in help_text
     assert "Quote species taxa with spaces" in help_text
-    assert "Choose how many CPUs to use for the run" in help_text
+    assert "direct downloads remain serial" in help_text
     assert "8." in help_text
 
 
@@ -57,7 +57,6 @@ def test_parse_args_normalises_and_deduplicates_taxa(tmp_path: Path) -> None:
     assert args.gtdb_taxa == ("g__Escherichia", "s__Escherichia coli")
     assert args.prefer_genbank is False
     assert args.version_fixed is False
-    assert args.download_method == "auto"
 
 
 def test_parse_args_uses_fixed_default_threads(tmp_path: Path) -> None:

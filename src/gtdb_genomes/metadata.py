@@ -95,6 +95,9 @@ SUPPRESSED_ASSEMBLY_NOTE = (
     "NCBI metadata marked this assembly as suppressed; "
     "the genome payload may no longer be downloadable."
 )
+DATASETS_SUMMARY_JSON_ERROR = (
+    "datasets summary returned incompatible JSON-lines output"
+)
 
 
 def build_summary_command(
@@ -206,6 +209,27 @@ def extract_explicit_assembly_accessions(payload: object) -> set[str]:
     if parsed_accession is not None:
         found.add(parsed_accession.accession)
     return found
+
+
+def extract_primary_assembly_accession(payload: object) -> str | None:
+    """Extract the primary assembly accession from one summary payload."""
+
+    candidates = [
+        candidate
+        for candidate in (
+            get_nested_string_value(payload, "accession"),
+            get_nested_string_value(payload, "assembly", "accession"),
+        )
+        if candidate is not None and parse_assembly_accession(candidate) is not None
+    ]
+    unique_candidates = tuple(dict.fromkeys(candidates))
+    if not unique_candidates:
+        return None
+    if len(unique_candidates) > 1:
+        raise MetadataLookupError(
+            f"{DATASETS_SUMMARY_JSON_ERROR}: conflicting primary assembly accessions",
+        )
+    return unique_candidates[0]
 
 
 def run_summary_lookup_with_retries(
@@ -378,15 +402,32 @@ def parse_summary_output(
         try:
             payload = json.loads(line)
         except JSONDecodeError as error:
-            raise MetadataLookupError("datasets summary returned invalid JSON") from error
+            raise MetadataLookupError(DATASETS_SUMMARY_JSON_ERROR) from error
         discovered = extract_structured_accessions(payload)
+        primary_accession = extract_primary_assembly_accession(payload)
+        if primary_accession is None:
+            if len(discovered) == 1:
+                primary_accession = next(iter(discovered))
+            elif requested.intersection(discovered):
+                raise MetadataLookupError(
+                    f"{DATASETS_SUMMARY_JSON_ERROR}: missing primary assembly accession",
+                )
+        if primary_accession is not None:
+            discovered.add(primary_accession)
         matching_requested = requested.intersection(discovered)
         if not matching_requested:
             continue
         status_info = build_assembly_status_info(payload)
         for requested_accession in matching_requested:
             summaries[requested_accession] = discovered
-            statuses[requested_accession] = status_info
+        if primary_accession is None or primary_accession not in requested:
+            continue
+        if primary_accession in statuses:
+            raise MetadataLookupError(
+                f"{DATASETS_SUMMARY_JSON_ERROR}: duplicate primary record for "
+                f"{primary_accession}",
+            )
+        statuses[primary_accession] = status_info
     return ParsedSummaryOutput(summary_map=summaries, status_map=statuses)
 
 

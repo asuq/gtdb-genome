@@ -13,6 +13,7 @@ import polars as pl
 
 from gtdb_genomes.download import (
     CommandFailureRecord,
+    DEFAULT_REQUESTED_DOWNLOAD_METHOD,
     build_preview_command,
     get_ordered_unique_accessions,
     run_preview_command,
@@ -92,7 +93,6 @@ def build_accession_plans(
     return tuple(
         AccessionPlan(
             original_accession=row["ncbi_accession"],
-            selected_accession=row["final_accession"],
             download_request_accession=build_download_request_accession(
                 row["final_accession"],
                 prefer_genbank=prefer_genbank,
@@ -122,6 +122,18 @@ def build_suppressed_accession_notes(
     for row in unique_rows:
         original_accession = row["ncbi_accession"]
         selected_accession = row["final_accession"]
+        selected_status_info = status_map.get(selected_accession)
+        if (
+            selected_status_info is not None
+            and is_suppressed_status(selected_status_info.assembly_status)
+        ):
+            suppressed_notes[original_accession] = SuppressedAccessionNote(
+                original_accession=original_accession,
+                selected_accession=selected_accession,
+                suppression_reason=selected_status_info.suppression_reason,
+            )
+            continue
+
         status_info = status_map.get(original_accession)
         if status_info is None:
             continue
@@ -220,48 +232,69 @@ def resolve_supported_accession_preferences(
 ]:
     """Resolve preferred accessions for supported selected rows."""
 
+    if supported_selected_frame.is_empty():
+        return (
+            apply_accession_preferences(
+                supported_selected_frame,
+                {},
+                prefer_genbank=args.prefer_genbank,
+            ),
+            (),
+            {},
+        )
+    if not args.prefer_genbank:
+        logger.info("Skipping metadata lookup because --prefer-genbank is disabled")
+        return (
+            apply_accession_preferences(
+                supported_selected_frame,
+                {},
+                prefer_genbank=False,
+            ),
+            (),
+            {},
+        )
+
     summary_map: dict[str, set[str]] = {}
     status_map: dict[str, AssemblyStatusInfo] = {}
     metadata_failures: tuple[CommandFailureRecord, ...] = ()
     supported_accessions = get_ordered_unique_accessions(
         supported_selected_frame.get_column("ncbi_accession").to_list(),
     )
-    if not supported_selected_frame.is_empty():
-        logger.info(
-            "Running metadata lookup for %d supported accession(s)",
-            len(supported_accessions),
+    logger.info(
+        "Running metadata lookup for %d supported accession(s)",
+        len(supported_accessions),
+    )
+    with create_staging_directory("gtdb_genomes_metadata_") as metadata_directory:
+        metadata_accession_file = write_accession_input_file(
+            Path(metadata_directory) / "accessions.txt",
+            supported_accessions,
         )
-        with create_staging_directory("gtdb_genomes_metadata_") as metadata_directory:
-            metadata_accession_file = write_accession_input_file(
-                Path(metadata_directory) / "accessions.txt",
+        metadata_command = build_summary_command(
+            metadata_accession_file,
+            ncbi_api_key=args.ncbi_api_key,
+        )
+        logger.debug("Running %s", redact_command(metadata_command, secrets))
+        try:
+            summary_lookup = run_summary_lookup_with_retries(
                 supported_accessions,
-            )
-            metadata_command = build_summary_command(
                 metadata_accession_file,
                 ncbi_api_key=args.ncbi_api_key,
             )
-            logger.debug("Running %s", redact_command(metadata_command, secrets))
-            try:
-                summary_lookup = run_summary_lookup_with_retries(
-                    supported_accessions,
-                    metadata_accession_file,
-                    ncbi_api_key=args.ncbi_api_key,
-                )
-                summary_map = summary_lookup.summary_map
-                status_map = summary_lookup.status_map
-                metadata_failures = summary_lookup.failures
-                logger.info(
-                    "Metadata lookup finished with %d preferred mapping(s)",
-                    len(summary_map),
-                )
-            except MetadataLookupError as error:
-                metadata_failures = error.failures
-                logger.warning(
-                    "Metadata lookup failed; falling back to original accessions: %s",
-                    redact_text(str(error), secrets),
-                )
-                summary_map = {}
-                status_map = {}
+            summary_map = summary_lookup.summary_map
+            status_map = summary_lookup.status_map
+            metadata_failures = summary_lookup.failures
+            logger.info(
+                "Metadata lookup finished with %d preferred mapping(s)",
+                len(summary_map),
+            )
+        except MetadataLookupError as error:
+            metadata_failures = error.failures
+            logger.warning(
+                "Metadata lookup failed; falling back to original accessions: %s",
+                redact_text(str(error), secrets),
+            )
+            summary_map = {}
+            status_map = {}
     mapped_frame = apply_accession_preferences(
         supported_selected_frame,
         summary_map,
@@ -291,7 +324,7 @@ def plan_supported_downloads(
         version_fixed=args.version_fixed,
     )
     if not accession_plans:
-        return (), args.download_method
+        return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD
 
     preview_accessions = get_ordered_unique_accessions(
         plan.download_request_accession for plan in accession_plans
@@ -316,7 +349,7 @@ def plan_supported_downloads(
         )
 
     decision = select_download_method(
-        args.download_method,
+        DEFAULT_REQUESTED_DOWNLOAD_METHOD,
         len(preview_accessions),
         preview_text=preview_text,
     )

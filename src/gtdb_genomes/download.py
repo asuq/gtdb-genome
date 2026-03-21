@@ -22,6 +22,7 @@ DEHYDRATE_ACCESSION_THRESHOLD = 1000
 DEHYDRATE_SIZE_GB_THRESHOLD = 15.0
 REHYDRATE_WORKER_CAP = 30
 RETRY_DELAYS_SECONDS = (5, 15, 45)
+DEFAULT_REQUESTED_DOWNLOAD_METHOD = "auto"
 SIZE_PATTERN = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*([KMGT]?B)\b")
 SIZE_UNITS = {
     "B": 1,
@@ -328,7 +329,9 @@ def select_download_method(
         raise PreviewError("datasets preview output is required in auto mode")
     preview_size_bytes = parse_preview_size_bytes(preview_text)
     if preview_size_bytes is None:
-        raise PreviewError("could not parse datasets preview output")
+        raise PreviewError(
+            "datasets preview output is incompatible; could not determine package size",
+        )
     method_used = "direct"
     if (
         accession_count >= DEHYDRATE_ACCESSION_THRESHOLD

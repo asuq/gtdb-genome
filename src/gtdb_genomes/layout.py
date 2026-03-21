@@ -186,11 +186,17 @@ def extract_archive(
     return destination
 
 
-def cleanup_working_directories(run_directories: RunDirectories) -> None:
-    """Remove the internal working directory tree for a completed run."""
+def cleanup_working_directories(
+    run_directories: RunDirectories,
+) -> OSError | None:
+    """Remove the internal working directory tree and report cleanup errors."""
 
     if run_directories.working_root.exists():
-        shutil.rmtree(run_directories.working_root)
+        try:
+            shutil.rmtree(run_directories.working_root)
+        except OSError as error:
+            return error
+    return None
 
 
 def get_root_manifest_paths(output_root: Path) -> dict[str, Path]:

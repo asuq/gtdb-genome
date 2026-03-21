@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import logging
+from logging.handlers import MemoryHandler
 from pathlib import Path
 import shlex
 
 
 LOGGER_NAME = "gtdb_genomes"
+DEBUG_LOG_BUFFER_CAPACITY = 10_000
 
 
 def normalise_secrets(secrets: Iterable[str | None]) -> tuple[str, ...]:
@@ -71,7 +73,17 @@ def configure_logging(
 
     logger = configure_console_logging(debug=debug)
     debug_log_path: Path | None = None
-    if debug and not dry_run and output_root is not None:
+    if debug and not dry_run and output_root is None:
+        buffer_handler = MemoryHandler(
+            capacity=DEBUG_LOG_BUFFER_CAPACITY,
+            flushLevel=logging.CRITICAL + 1,
+        )
+        buffer_handler.setLevel(logging.DEBUG)
+        buffer_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s"),
+        )
+        logger.addHandler(buffer_handler)
+    elif debug and not dry_run and output_root is not None:
         debug_log_path = output_root / "debug.log"
         debug_log_path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(debug_log_path, encoding="utf-8")
@@ -81,6 +93,32 @@ def configure_logging(
         )
         logger.addHandler(file_handler)
     return logger, debug_log_path
+
+
+def attach_debug_log_handler(
+    logger: logging.Logger,
+    output_root: Path,
+) -> Path | None:
+    """Attach the real-run debug log handler and flush any buffered records."""
+
+    if logger.level > logging.DEBUG:
+        return None
+    debug_log_path = output_root / "debug.log"
+    debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(debug_log_path, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(message)s"),
+    )
+    logger.addHandler(file_handler)
+    for handler in tuple(logger.handlers):
+        if not isinstance(handler, MemoryHandler):
+            continue
+        handler.setTarget(file_handler)
+        handler.flush()
+        handler.close()
+        logger.removeHandler(handler)
+    return debug_log_path
 
 
 def close_logger(logger: logging.Logger) -> None:

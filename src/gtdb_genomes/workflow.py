@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from gtdb_genomes.download import PreviewError
+from gtdb_genomes.download import DEFAULT_REQUESTED_DOWNLOAD_METHOD, PreviewError
 from gtdb_genomes.layout import cleanup_working_directories, initialise_run_directories
 from gtdb_genomes.logging_utils import close_logger, configure_logging, redact_text
 from gtdb_genomes.release_resolver import BundledDataError
@@ -124,7 +124,7 @@ def run_workflow(args: CliArgs) -> int:
     else:
         execution_result = workflow_execution.DownloadExecutionResult(
             executions={},
-            method_used=args.download_method,
+            method_used=DEFAULT_REQUESTED_DOWNLOAD_METHOD,
             download_concurrency_used=0,
             rehydrate_workers_used=0,
             shared_failures=(),
@@ -155,7 +155,13 @@ def run_workflow(args: CliArgs) -> int:
     )
     if failed_suppressed_warning is not None:
         logger.warning("%s", failed_suppressed_warning)
-    close_logger(logger)
     if not args.keep_temp:
-        cleanup_working_directories(run_directories)
+        cleanup_error = cleanup_working_directories(run_directories)
+        if cleanup_error is not None:
+            logger.warning(
+                "Could not remove working directory %s: %s",
+                run_directories.working_root,
+                cleanup_error,
+            )
+    close_logger(logger)
     return exit_code
