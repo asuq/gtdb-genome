@@ -98,6 +98,13 @@ def write_gzip_bytes(path: Path, content: bytes) -> None:
         handle.write(content)
 
 
+def write_bytes(path: Path, content: bytes) -> None:
+    """Write raw bytes for a bundled-data test case."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
 def replace_manifest_row(
     manifest_path: Path,
     row: str,
@@ -298,6 +305,81 @@ def test_load_release_taxonomy_keeps_legacy_uba_accessions(tmp_path: Path) -> No
     ).height > 0
 
 
+@pytest.mark.parametrize(
+    "payload_bytes, expected_bacterial_sha256, expected_bacterial_rows, expected_message",
+    [
+        (
+            gzip.compress(
+                b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
+                mtime=0,
+            ),
+            "0" * 64,
+            "1",
+            "checksum mismatch",
+        ),
+        (
+            gzip.compress(
+                (
+                    b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n"
+                    b"RS_GCF_000002.1\td__Bacteria;g__Escherichia\n"
+                ),
+                mtime=0,
+            ),
+            None,
+            "1",
+            "row count mismatch",
+        ),
+        (
+            gzip.compress(b"\xff\xfe\xfd", mtime=0),
+            None,
+            "1",
+            "could not be decoded as UTF-8",
+        ),
+        (
+            b"not-a-gzip-payload",
+            None,
+            "1",
+            "could not be decompressed",
+        ),
+    ],
+)
+def test_load_release_taxonomy_surfaces_bundled_data_corruption(
+    tmp_path: Path,
+    payload_bytes: bytes,
+    expected_bacterial_sha256: str | None,
+    expected_bacterial_rows: str,
+    expected_message: str,
+) -> None:
+    """Runtime taxonomy loading should own bundled-data corruption checks."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest(
+        get_release_manifest_path(data_root),
+        "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\ttrue",
+    )
+    release_dir = data_root / "95.0"
+    write_bytes(release_dir / "bac.tsv.gz", payload_bytes)
+    write_gzip_text(
+        release_dir / "ar.tsv.gz",
+        "GB_GCA_000002.1\td__Archaea;g__Methanobrevibacter\n",
+    )
+    observed_bacterial_sha256 = hash_sha256_file(release_dir / "bac.tsv.gz")
+    archaeal_sha256, archaeal_rows = build_integrity_row(release_dir / "ar.tsv.gz")
+    replace_manifest_row(
+        get_release_manifest_path(data_root),
+        (
+            "95.0\t95,95.0\tbac.tsv.gz\tar.tsv.gz\t"
+            f"{expected_bacterial_sha256 or observed_bacterial_sha256}\t"
+            f"{archaeal_sha256}\t{expected_bacterial_rows}\t{archaeal_rows}\ttrue"
+        ),
+    )
+
+    resolution = resolve_release("95", data_root=data_root)
+
+    with pytest.raises(BundledDataError, match=expected_message):
+        load_release_taxonomy(resolution)
+
+
 def test_load_release_manifest_accepts_extra_build_columns(tmp_path: Path) -> None:
     """Runtime manifest loading should ignore named build-only metadata columns."""
 
@@ -354,8 +436,10 @@ def test_load_release_taxonomy_raises_for_invalid_gzip_payload(
         ),
     )
 
+    resolution = resolve_and_validate_release("95", data_root=data_root)
+
     with pytest.raises(BundledDataError, match="could not be decoded as UTF-8"):
-        resolve_and_validate_release("95", data_root=data_root)
+        load_release_taxonomy(resolution)
 
 
 def test_load_release_manifest_raises_for_missing_manifest(tmp_path: Path) -> None:
@@ -385,6 +469,44 @@ def test_load_release_manifest_rejects_missing_required_headers(
     )
 
     with pytest.raises(BundledDataError, match="missing required columns"):
+        load_release_manifest(get_release_manifest_path(data_root))
+
+
+def test_load_release_manifest_rejects_missing_bacterial_taxonomy_header(
+    tmp_path: Path,
+) -> None:
+    """Manifest loading should require the bacterial taxonomy column."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        (
+            "resolved_release\taliases\tarchaeal_taxonomy\t"
+            "bacterial_taxonomy_sha256\tarchaeal_taxonomy_sha256\t"
+            "bacterial_taxonomy_rows\tarchaeal_taxonomy_rows\tis_latest\n"
+        ),
+    )
+
+    with pytest.raises(BundledDataError, match="bacterial_taxonomy"):
+        load_release_manifest(get_release_manifest_path(data_root))
+
+
+def test_load_release_manifest_rejects_missing_archaeal_taxonomy_header(
+    tmp_path: Path,
+) -> None:
+    """Manifest loading should require the archaeal taxonomy column."""
+
+    data_root = tmp_path / "gtdb_taxonomy"
+    write_manifest_text(
+        get_release_manifest_path(data_root),
+        (
+            "resolved_release\taliases\tbacterial_taxonomy\t"
+            "bacterial_taxonomy_sha256\tarchaeal_taxonomy_sha256\t"
+            "bacterial_taxonomy_rows\tarchaeal_taxonomy_rows\tis_latest\n"
+        ),
+    )
+
+    with pytest.raises(BundledDataError, match="archaeal_taxonomy"):
         load_release_manifest(get_release_manifest_path(data_root))
 
 

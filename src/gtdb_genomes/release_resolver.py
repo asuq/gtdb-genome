@@ -61,6 +61,8 @@ class ReleaseResolution:
 REQUIRED_MANIFEST_FIELDS = (
     "resolved_release",
     "aliases",
+    "bacterial_taxonomy",
+    "archaeal_taxonomy",
     "bacterial_taxonomy_sha256",
     "archaeal_taxonomy_sha256",
     "bacterial_taxonomy_rows",
@@ -397,6 +399,37 @@ def build_taxonomy_path(
     return data_root / resolved_release / relative_path
 
 
+def build_release_resolution(
+    entry: ReleaseManifestEntry,
+    *,
+    requested_release: str,
+    data_root: Path,
+    manifest_path: Path,
+) -> ReleaseResolution:
+    """Build one release resolution from a previously loaded manifest row."""
+
+    return ReleaseResolution(
+        requested_release=requested_release.strip(),
+        resolved_release=entry.resolved_release,
+        bacterial_taxonomy=build_taxonomy_path(
+            data_root,
+            entry.resolved_release,
+            entry.bacterial_taxonomy,
+        ),
+        archaeal_taxonomy=build_taxonomy_path(
+            data_root,
+            entry.resolved_release,
+            entry.archaeal_taxonomy,
+        ),
+        release_manifest_path=manifest_path,
+        release_manifest_sha256=hash_sha256_file(manifest_path),
+        bacterial_taxonomy_sha256=entry.bacterial_taxonomy_sha256,
+        archaeal_taxonomy_sha256=entry.archaeal_taxonomy_sha256,
+        bacterial_taxonomy_rows=entry.bacterial_taxonomy_rows,
+        archaeal_taxonomy_rows=entry.archaeal_taxonomy_rows,
+    )
+
+
 def resolve_release(
     requested_release: str,
     data_root: Path | None = None,
@@ -407,25 +440,11 @@ def resolve_release(
     manifest_path = get_release_manifest_path(root)
     entries = load_release_manifest(manifest_path)
     entry = find_manifest_entry(requested_release, entries)
-    return ReleaseResolution(
-        requested_release=requested_release.strip(),
-        resolved_release=entry.resolved_release,
-        bacterial_taxonomy=build_taxonomy_path(
-            root,
-            entry.resolved_release,
-            entry.bacterial_taxonomy,
-        ),
-        archaeal_taxonomy=build_taxonomy_path(
-            root,
-            entry.resolved_release,
-            entry.archaeal_taxonomy,
-        ),
-        release_manifest_path=manifest_path,
-        release_manifest_sha256=hash_sha256_file(manifest_path),
-        bacterial_taxonomy_sha256=entry.bacterial_taxonomy_sha256,
-        archaeal_taxonomy_sha256=entry.archaeal_taxonomy_sha256,
-        bacterial_taxonomy_rows=entry.bacterial_taxonomy_rows,
-        archaeal_taxonomy_rows=entry.archaeal_taxonomy_rows,
+    return build_release_resolution(
+        entry,
+        requested_release=requested_release,
+        data_root=root,
+        manifest_path=manifest_path,
     )
 
 
@@ -446,18 +465,10 @@ def validate_configured_taxonomy_file(
         )
     if not path.is_file():
         raise BundledDataError(f"Bundled taxonomy path is not a file: {path}")
-    try:
-        if expected_sha256 is None or expected_row_count is None:
-            raise BundledDataError(
-                f"Bundled taxonomy integrity metadata is missing for {path}",
-            )
-        validate_taxonomy_file(
-            path,
-            expected_sha256=expected_sha256,
-            expected_row_count=expected_row_count,
+    if expected_sha256 is None or expected_row_count is None:
+        raise BundledDataError(
+            f"Bundled taxonomy integrity metadata is missing for {path}",
         )
-    except (OSError, ValueError) as error:
-        raise BundledDataError(str(error)) from error
 
 
 def validate_release_resolution(resolution: ReleaseResolution) -> ReleaseResolution:
@@ -477,6 +488,38 @@ def validate_release_resolution(resolution: ReleaseResolution) -> ReleaseResolut
         expected_sha256=resolution.archaeal_taxonomy_sha256,
         expected_row_count=resolution.archaeal_taxonomy_rows,
     )
+    return resolution
+
+
+def validate_release_payload(resolution: ReleaseResolution) -> ReleaseResolution:
+    """Fully validate one resolved bundled release payload for packaging."""
+
+    validate_release_resolution(resolution)
+    file_entries = (
+        (
+            resolution.bacterial_taxonomy,
+            resolution.bacterial_taxonomy_sha256,
+            resolution.bacterial_taxonomy_rows,
+        ),
+        (
+            resolution.archaeal_taxonomy,
+            resolution.archaeal_taxonomy_sha256,
+            resolution.archaeal_taxonomy_rows,
+        ),
+    )
+    for path, expected_sha256, expected_row_count in file_entries:
+        if path is None:
+            continue
+        assert expected_sha256 is not None
+        assert expected_row_count is not None
+        try:
+            validate_taxonomy_file(
+                path,
+                expected_sha256=expected_sha256,
+                expected_row_count=expected_row_count,
+            )
+        except (OSError, ValueError) as error:
+            raise BundledDataError(str(error)) from error
     return resolution
 
 

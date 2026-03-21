@@ -1032,3 +1032,39 @@ def test_failure_manifest_collapses_shared_metadata_attempts() -> None:
     assert failure_rows[0]["final_accession"] == (
         "GCF_000001.1;GCF_000002.1"
     )
+
+
+def test_failure_manifest_preserves_metadata_candidate_accession_set() -> None:
+    """Metadata failure rows should keep the paired-GCA candidate accession set."""
+
+    metadata_failures = (
+        CommandFailureRecord(
+            stage="metadata_lookup",
+            attempt_index=1,
+            max_attempts=4,
+            error_type="metadata_lookup",
+            error_message="partial paired-GCA metadata",
+            final_status="retry_exhausted",
+            attempted_accession="GCA_000001.2;GCA_000001.3",
+        ),
+    )
+    shared_context_rows = [
+        {
+            "requested_taxon": "g__Escherichia",
+            "taxon_slug": "g__Escherichia",
+            "gtdb_accession": "RS_GCF_000001.1",
+            "ncbi_accession": "GCF_000001.1",
+            "final_accession": "GCF_000001.1",
+        },
+    ]
+
+    failure_rows = build_failure_rows(
+        [],
+        {},
+        metadata_failures,
+        (),
+        (),
+        shared_context_rows=shared_context_rows,
+    )
+
+    assert failure_rows[0]["attempted_accession"] == "GCA_000001.2;GCA_000001.3"

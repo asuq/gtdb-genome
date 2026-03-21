@@ -23,11 +23,11 @@ from gtdb_genomes.download import (
 from gtdb_genomes.logging_utils import redact_command
 from gtdb_genomes.metadata import (
     AssemblyStatusInfo,
+    find_incomplete_genbank_metadata_accessions,
     MetadataLookupError,
     SUPPRESSED_ASSEMBLY_NOTE,
     apply_accession_preferences,
     build_download_request_accession,
-    build_summary_command,
     is_suppressed_status,
     run_summary_lookup_with_retries,
 )
@@ -258,6 +258,7 @@ def resolve_supported_accession_preferences(
 
     summary_map: dict[str, set[str]] = {}
     status_map: dict[str, AssemblyStatusInfo] = {}
+    incomplete_genbank_accessions: set[str] = set()
     metadata_failures: tuple[CommandFailureRecord, ...] = ()
     supported_accessions = get_ordered_unique_accessions(
         supported_selected_frame.get_column("ncbi_accession").to_list(),
@@ -271,11 +272,6 @@ def resolve_supported_accession_preferences(
             Path(metadata_directory) / "accessions.txt",
             supported_accessions,
         )
-        metadata_command = build_summary_command(
-            metadata_accession_file,
-            ncbi_api_key=args.ncbi_api_key,
-        )
-        logger.debug("Running %s", redact_command(metadata_command, secrets))
         summary_lookup = run_summary_lookup_with_retries(
             supported_accessions,
             metadata_accession_file,
@@ -304,14 +300,6 @@ def resolve_supported_accession_preferences(
                 Path(metadata_directory) / "paired-gca-accessions.txt",
                 candidate_accessions,
             )
-            candidate_metadata_command = build_summary_command(
-                candidate_accession_file,
-                ncbi_api_key=args.ncbi_api_key,
-            )
-            logger.debug(
-                "Running %s",
-                redact_command(candidate_metadata_command, secrets),
-            )
             try:
                 candidate_lookup = run_summary_lookup_with_retries(
                     candidate_accessions,
@@ -328,10 +316,18 @@ def resolve_supported_accession_preferences(
                 **status_map,
                 **candidate_lookup.status_map,
             }
+            if candidate_lookup.failures:
+                incomplete_genbank_accessions = (
+                    find_incomplete_genbank_metadata_accessions(
+                        summary_map,
+                        status_map,
+                    )
+                )
     mapped_frame = apply_accession_preferences(
         supported_selected_frame,
         summary_map,
         status_map=status_map,
+        incomplete_genbank_accessions=incomplete_genbank_accessions,
         prefer_genbank=args.prefer_genbank,
     )
     return (

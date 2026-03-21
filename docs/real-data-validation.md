@@ -128,7 +128,7 @@ Remote validation assumes:
 Suggested remote setup:
 
 ```bash
-mamba create -n gtdb-genome-test python=3.12 pip unzip ncbi-datasets-cli
+mamba create -n gtdb-genome-test python=3.12 pip unzip=6.0 ncbi-datasets-cli=18.21.0
 mamba activate gtdb-genome-test
 python -m pip install /path/to/dist/gtdb_genomes-0.1.0-py3-none-any.whl
 which gtdb-genomes
@@ -151,10 +151,11 @@ Required environment:
 
 Optional environment:
 
-- `NCBI_API_KEY` for `C2`, `C3`, and `C5`
+- `NCBI_API_KEY` for `C2` and `C3`
 
 The remote runner passes `NCBI_API_KEY` to the installed command as
-`--ncbi-api-key` when it is provided.
+`--ncbi-api-key` when it is provided. `C5` now runs without the key and uses
+it opportunistically when present.
 
 ## GitHub CI Coverage
 
@@ -174,7 +175,10 @@ runner, GitHub Actions runs:
 The packaged-runtime `C` coverage is split into separate build and runtime
 jobs. The build job uses `uv` to bootstrap and build the wheel, while the
 runtime job installs that wheel into a clean mamba environment with no `uv` on
-`PATH` before running the remote cases.
+`PATH` before running the remote cases. The runtime sanity check also loads the
+bundled taxonomy tables so the installed payload is exercised, not just the
+manifest header. In workflow terms, that check resolves `latest` and then
+calls `load_release_taxonomy()`.
 
 The CI workflow excludes:
 
@@ -212,7 +216,7 @@ SSH to the remote server and create a fresh packaged-runtime environment:
 
 ```bash
 ssh user@remote
-mamba create -n gtdb-genome-test python=3.12 pip unzip ncbi-datasets-cli
+mamba create -n gtdb-genome-test python=3.12 pip unzip=6.0 ncbi-datasets-cli=18.21.0
 mamba activate gtdb-genome-test
 python -m pip install /tmp/gtdb-genome-remote/gtdb_genomes-0.1.0-py3-none-any.whl
 which gtdb-genomes

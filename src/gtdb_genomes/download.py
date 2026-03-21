@@ -31,6 +31,7 @@ SIZE_UNITS = {
     "GB": 1024**3,
     "TB": 1024**4,
 }
+SUPPORTED_INCLUDE_TOKENS = frozenset({"genome", "gff3", "protein"})
 
 
 @dataclass(slots=True)
@@ -94,6 +95,11 @@ def validate_include_value(include: str) -> str:
         token = raw_token.strip()
         if not token:
             raise ValueError("argument --include: values must not be empty")
+        if token not in SUPPORTED_INCLUDE_TOKENS:
+            raise ValueError(
+                "argument --include: unsupported include token "
+                f"{token!r}; supported values are genome, gff3, protein",
+            )
         tokens.append(token)
     if "genome" not in tokens:
         raise ValueError("argument --include: value must contain 'genome'")

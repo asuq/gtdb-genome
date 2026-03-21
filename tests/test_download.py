@@ -29,9 +29,17 @@ def test_validate_include_value_requires_genome() -> None:
     """The include value should stay genome-centric."""
 
     assert validate_include_value(" genome , gff3 ") == "genome,gff3"
+    assert validate_include_value("genome,gff3,protein") == "genome,gff3,protein"
 
     with pytest.raises(ValueError, match="must contain 'genome'"):
         validate_include_value("protein,gff3")
+
+
+def test_validate_include_value_rejects_unknown_tokens() -> None:
+    """Unsupported include tokens should fail locally."""
+
+    with pytest.raises(ValueError, match="unsupported include token"):
+        validate_include_value("genome,mrna")
 
 
 def test_command_builders_match_datasets_cli_shape() -> None:

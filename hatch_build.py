@@ -20,10 +20,10 @@ from gtdb_genomes.provenance import (
 )
 from gtdb_genomes.release_resolver import (
     BundledDataError,
+    build_release_resolution,
     get_release_manifest_path,
     load_release_manifest,
-    resolve_release,
-    validate_release_resolution,
+    validate_release_payload,
 )
 
 
@@ -58,8 +58,16 @@ class CustomBuildHook(BuildHookInterface):
             raise RuntimeError(
                 f"Bundled release manifest is empty: {manifest_path}",
             )
+        data_root = manifest_path.parent
         for entry in entries:
-            validate_release_resolution(resolve_release(entry.resolved_release))
+            validate_release_payload(
+                build_release_resolution(
+                    entry,
+                    requested_release=entry.resolved_release,
+                    data_root=data_root,
+                    manifest_path=manifest_path,
+                ),
+            )
 
     def initialize(
         self,

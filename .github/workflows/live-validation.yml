@@ -32,8 +32,8 @@ jobs:
           create-args: >-
             python=3.12
             uv
-            ncbi-datasets-cli
-            unzip
+            ncbi-datasets-cli=18.21.0
+            unzip=6.0
 
       - name: Sync project dependencies
         shell: bash -el {0}

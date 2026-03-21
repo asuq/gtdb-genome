@@ -122,6 +122,38 @@ def describe_taxonomy_bytes(
     )
 
 
+def load_validated_taxonomy_text(
+    path: Path,
+    *,
+    expected_sha256: str,
+    expected_row_count: int,
+) -> str:
+    """Return validated taxonomy text from one materialised payload file."""
+
+    data = path.read_bytes()
+    observed_sha256 = hash_sha256_bytes(data)
+    if observed_sha256 != expected_sha256:
+        raise ValueError(
+            "Bundled taxonomy file checksum mismatch for "
+            f"{path}: expected {expected_sha256}, observed {observed_sha256}",
+        )
+    taxonomy_text = decode_taxonomy_bytes(
+        data,
+        compressed=path.suffix == ".gz",
+        source_label=str(path),
+    )
+    observed_row_count = count_and_validate_taxonomy_rows(
+        taxonomy_text,
+        source_label=str(path),
+    )
+    if observed_row_count != expected_row_count:
+        raise ValueError(
+            "Bundled taxonomy file row count mismatch for "
+            f"{path}: expected {expected_row_count}, observed {observed_row_count}",
+        )
+    return taxonomy_text
+
+
 def describe_taxonomy_file(path: Path) -> tuple[str, int]:
     """Return the SHA256 digest and validated row count for one file."""
 

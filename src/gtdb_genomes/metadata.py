@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Set
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 from pathlib import Path
@@ -97,6 +97,12 @@ SUPPRESSED_ASSEMBLY_NOTE = (
 )
 DATASETS_SUMMARY_JSON_ERROR = (
     "datasets summary returned incompatible JSON-lines output"
+)
+UNKNOWN_ASSEMBLY_STATUS_INFO = AssemblyStatusInfo(
+    assembly_status=None,
+    suppression_reason=None,
+    paired_accession=None,
+    paired_assembly_status=None,
 )
 
 
@@ -245,6 +251,7 @@ def run_summary_lookup_with_retries(
     ordered_accessions = tuple(dict.fromkeys(accessions))
     if not ordered_accessions:
         return SummaryLookupResult(summary_map={}, failures=())
+    attempted_accessions = ";".join(ordered_accessions)
     command_runner = subprocess.run if runner is None else runner
     command = build_summary_command(
         accession_file,
@@ -304,6 +311,7 @@ def run_summary_lookup_with_retries(
                     error_type=error_type,
                     error_message=error_message,
                     final_status="retry_scheduled",
+                    attempted_accession=attempted_accessions,
                 ),
             )
             sleep_func(RETRY_DELAYS_SECONDS[attempt_index - 1])
@@ -316,6 +324,7 @@ def run_summary_lookup_with_retries(
                 error_type=error_type,
                 error_message=error_message,
                 final_status="retry_exhausted",
+                attempted_accession=attempted_accessions,
             ),
         )
         raise MetadataLookupError(error_message, failures=tuple(failures))
@@ -476,12 +485,10 @@ def find_matching_genbank_accessions(
     matching_accessions.sort(
         key=lambda accession: (
             is_suppressed_status(
-                accession_status_map.get(accession.accession, AssemblyStatusInfo(
-                    assembly_status=None,
-                    suppression_reason=None,
-                    paired_accession=None,
-                    paired_assembly_status=None,
-                )).assembly_status,
+                accession_status_map.get(
+                    accession.accession,
+                    UNKNOWN_ASSEMBLY_STATUS_INFO,
+                ).assembly_status,
             ),
             -accession.version,
             accession.accession,
@@ -490,10 +497,32 @@ def find_matching_genbank_accessions(
     return tuple(accession.accession for accession in matching_accessions)
 
 
+def find_incomplete_genbank_metadata_accessions(
+    summary_map: dict[str, set[str]],
+    status_map: dict[str, AssemblyStatusInfo],
+) -> set[str]:
+    """Return requested accessions with unresolved paired-GenBank metadata."""
+
+    incomplete_accessions: set[str] = set()
+    for requested_accession, discovered_accessions in summary_map.items():
+        if requested_accession.startswith("GCA_"):
+            continue
+        matching_genbank = find_matching_genbank_accessions(
+            requested_accession,
+            discovered_accessions,
+        )
+        if matching_genbank and any(
+            accession not in status_map for accession in matching_genbank
+        ):
+            incomplete_accessions.add(requested_accession)
+    return incomplete_accessions
+
+
 def choose_preferred_accession(
     requested_accession: str,
     discovered_accessions: set[str] | None,
     status_map: dict[str, AssemblyStatusInfo] | None = None,
+    incomplete_genbank_accessions: Set[str] | None = None,
     prefer_genbank: bool = True,
 ) -> tuple[str, str]:
     """Choose the final accession and conversion status for one request."""
@@ -504,6 +533,11 @@ def choose_preferred_accession(
         return requested_accession, "unchanged_original"
     if discovered_accessions is None:
         return requested_accession, "metadata_lookup_failed_fallback_original"
+    if (
+        incomplete_genbank_accessions is not None
+        and requested_accession in incomplete_genbank_accessions
+    ):
+        return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
     paired_genbank = find_matching_genbank_accessions(
         requested_accession,
         discovered_accessions,
@@ -514,12 +548,7 @@ def choose_preferred_accession(
         if is_suppressed_status(
             (status_map or {}).get(
                 preferred_accession,
-                AssemblyStatusInfo(
-                    assembly_status=None,
-                    suppression_reason=None,
-                    paired_accession=None,
-                    paired_assembly_status=None,
-                ),
+                UNKNOWN_ASSEMBLY_STATUS_INFO,
             ).assembly_status,
         ):
             return requested_accession, "paired_gca_suppressed_fallback_original"
@@ -541,6 +570,7 @@ def build_accession_preference_table(
     accessions: Iterable[str],
     summary_map: dict[str, set[str]],
     status_map: dict[str, AssemblyStatusInfo] | None = None,
+    incomplete_genbank_accessions: Set[str] | None = None,
     prefer_genbank: bool = True,
 ) -> pl.DataFrame:
     """Build a Polars table describing the chosen accession for each request."""
@@ -551,6 +581,7 @@ def build_accession_preference_table(
             requested_accession,
             summary_map.get(requested_accession),
             status_map=status_map,
+            incomplete_genbank_accessions=incomplete_genbank_accessions,
             prefer_genbank=prefer_genbank,
         )
         rows.append(
@@ -580,6 +611,7 @@ def apply_accession_preferences(
     selection_frame: pl.DataFrame,
     summary_map: dict[str, set[str]],
     status_map: dict[str, AssemblyStatusInfo] | None = None,
+    incomplete_genbank_accessions: Set[str] | None = None,
     prefer_genbank: bool = True,
 ) -> pl.DataFrame:
     """Attach preferred-accession metadata to a selected taxonomy frame."""
@@ -595,6 +627,7 @@ def apply_accession_preferences(
         selection_frame.get_column("ncbi_accession").to_list(),
         summary_map,
         status_map=status_map,
+        incomplete_genbank_accessions=incomplete_genbank_accessions,
         prefer_genbank=prefer_genbank,
     )
     return selection_frame.join(

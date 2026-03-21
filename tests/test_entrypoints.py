@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 
-def copy_project_for_build_fixture(destination_root: Path) -> Path:
-    """Copy the project into a temporary build fixture directory."""
+def copy_manifest_only_project_fixture(destination_root: Path) -> Path:
+    """Copy the project and strip any bootstrapped bundled taxonomy payloads."""
 
     project_root = Path.cwd()
     fixture_root = destination_root / "project"
@@ -37,6 +37,15 @@ def copy_project_for_build_fixture(destination_root: Path) -> Path:
             "dist",
         ),
     )
+    taxonomy_root = fixture_root / "data" / "gtdb_taxonomy"
+    if taxonomy_root.exists():
+        for child_path in taxonomy_root.iterdir():
+            if child_path.name == "releases.tsv":
+                continue
+            if child_path.is_dir():
+                shutil.rmtree(child_path)
+            else:
+                child_path.unlink()
     return fixture_root
 
 
@@ -184,7 +193,7 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
 ) -> None:
     """A build should ship generated taxonomy payloads in both artifacts."""
 
-    fixture_root = copy_project_for_build_fixture(tmp_path)
+    fixture_root = copy_manifest_only_project_fixture(tmp_path)
     taxonomy_root = fixture_root / "data" / "gtdb_taxonomy" / "999.0"
     bacterial_payload = taxonomy_root / "bac120_taxonomy_r999.tsv.gz"
     archaeal_payload = taxonomy_root / "ar53_taxonomy_r999.tsv.gz"
@@ -253,7 +262,7 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
 def test_uv_build_rejects_manifest_only_source_fixture(tmp_path: Path) -> None:
     """A source build should fail clearly when the payload is not bootstrapped."""
 
-    fixture_root = copy_project_for_build_fixture(tmp_path)
+    fixture_root = copy_manifest_only_project_fixture(tmp_path)
 
     dist_root = tmp_path / "dist"
     build_result = build_fixture_project(fixture_root, dist_root)
@@ -270,7 +279,7 @@ def test_clean_runtime_wheel_install_validates_bundled_latest_release(
 ) -> None:
     """A built wheel should validate bundled data without `uv` on `PATH`."""
 
-    fixture_root = copy_project_for_build_fixture(tmp_path)
+    fixture_root = copy_manifest_only_project_fixture(tmp_path)
     taxonomy_root = fixture_root / "data" / "gtdb_taxonomy" / "999.0"
     bacterial_payload = taxonomy_root / "bac120_taxonomy_r999.tsv.gz"
     archaeal_payload = taxonomy_root / "ar53_taxonomy_r999.tsv.gz"
@@ -436,7 +445,16 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "NCBI datasets CLI",
             "Direct downloads remain serial in the current workflow.",
             "download_method_requested",
+            "version_latest",
+            "package_version",
+            "git_revision",
+            "datasets_version",
+            "unzip_version",
+            "release_manifest_sha256",
+            "bacterial_taxonomy_sha256",
+            "archaeal_taxonomy_sha256",
             "attempted_accession",
+            "download_request_accession",
             "Defaults to `latest`",
             "refresh_taxonomy_manifest",
             "--version-latest",
@@ -536,9 +554,12 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "C5",
             "C7",
             "`NCBI_API_KEY` for `C7`",
-            "`NCBI_API_KEY` for `C2`, `C3`, and `C5`",
+            "`NCBI_API_KEY` for `C2` and `C3`",
             "packaged-runtime `C` coverage is split into separate build and runtime",
             "no `uv` on `PATH`",
+            "ncbi-datasets-cli=18.21.0",
+            "unzip=6.0",
+            "load_release_taxonomy()",
         ),
     )
     assert_not_contains_any(
@@ -568,6 +589,8 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "environment-name: gtdb-genome",
             "- \"3.13\"",
             "- \"3.14\"",
+            "ncbi-datasets-cli=18.21.0",
+            "unzip=6.0",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "bin/run-real-data-tests-local.sh A1 A2 A3 A4 A5 A6 A7 A8 A9",
             "bin/run-real-data-tests-local.sh B1 B2 B3 B4 B5 B6",
@@ -576,7 +599,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "actions/download-artifact@v5",
             "python -m pip install --force-reinstall dist/*.whl",
             "shutil.which('uv') is None",
-            "resolve_and_validate_release('latest')",
+            "load_release_taxonomy(resolution)",
         ),
     )
     assert_not_contains_any(
@@ -608,7 +631,10 @@ def test_release_workflow_enforces_build_then_clean_runtime() -> None:
             "actions/download-artifact@v5",
             "python -m pip install --force-reinstall dist/*.whl",
             "shutil.which('uv') is None",
+            "load_release_taxonomy(resolution)",
             "bin/run-real-data-tests-remote.sh C1 C2 C3 C4 C5 C6",
+            "publish:",
+            "softprops/action-gh-release@v2",
         ),
     )
 
@@ -628,5 +654,7 @@ def test_live_validation_workflow_bootstraps_before_b1() -> None:
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "bin/run-real-data-tests-local.sh B1",
             "LOCAL_LAUNCHER_MODE: module",
+            "ncbi-datasets-cli=18.21.0",
+            "unzip=6.0",
         ),
     )

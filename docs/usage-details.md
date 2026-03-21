@@ -264,6 +264,8 @@ Status values:
   - `unchanged_original`
   - `paired_to_gca`
   - `metadata_lookup_failed_fallback_original`
+  - `paired_gca_metadata_incomplete_fallback_original`
+  - `paired_gca_suppressed_fallback_original`
   - `paired_to_gca_fallback_original_on_download_failure`
   - `failed_no_usable_accession`
 - `download_status`
@@ -289,30 +291,36 @@ Fixed TSV columns:
   - `run_id`, `started_at`, `finished_at`, `requested_release`,
     `resolved_release`, `download_method_requested`, `download_method_used`,
     `threads_requested`, `download_concurrency_used`,
-    `rehydrate_workers_used`, `include`, `prefer_genbank`, `debug_enabled`,
-    `requested_taxa_count`, `matched_rows`, `unique_gtdb_accessions`,
-    `final_accessions`, `successful_accessions`, `failed_accessions`,
-    `output_dir`, `exit_code`
+    `rehydrate_workers_used`, `include`, `prefer_genbank`, `version_latest`,
+    `package_version`, `git_revision`, `datasets_version`, `unzip_version`,
+    `release_manifest_sha256`, `bacterial_taxonomy_sha256`,
+    `archaeal_taxonomy_sha256`, `debug_enabled`, `requested_taxa_count`,
+    `matched_rows`, `unique_gtdb_accessions`, `final_accessions`,
+    `successful_accessions`, `failed_accessions`, `output_dir`, `exit_code`
 - `taxon_summary.tsv`
   - `requested_taxon`, `taxon_slug`, `matched_rows`,
     `unique_gtdb_accessions`, `final_accessions`, `successful_accessions`,
     `failed_accessions`, `duplicate_copies_written`, `output_dir`
 - `accession_map.tsv`
   - `requested_taxon`, `taxon_slug`, `resolved_release`, `taxonomy_file`,
-    `lineage`, `gtdb_accession`, `final_accession`,
+    `lineage`, `gtdb_accession`, `ncbi_accession`, `selected_accession`,
+    `download_request_accession`, `final_accession`,
     `accession_type_original`, `accession_type_final`, `conversion_status`,
     `download_method_used`, `download_batch`, `output_relpath`,
     `download_status`
+  - `ncbi_accession` records the original requested accession, while
+    `download_request_accession` records the exact token passed to `datasets`.
     `final_accession` is the realised versioned accession from the extracted
     payload on successful downloads.
 - `download_failures.tsv`
   - `requested_taxon`, `taxon_slug`, `gtdb_accession`,
     `attempted_accession`, `final_accession`, `stage`, `attempt_index`,
     `max_attempts`, `error_type`, `error_message_redacted`, `final_status`
-    `attempted_accession` records the exact token passed to `datasets`, which
-    may be an unversioned accession stem when `--version-latest` is active.
+  - `attempted_accession` is failure-path provenance and records the exact
+    token or semicolon-joined accession set passed to `datasets`.
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - `requested_taxon`, `taxon_slug`, `lineage`, `gtdb_accession`,
+    `ncbi_accession`, `selected_accession`, `download_request_accession`,
     `final_accession`, `conversion_status`, `output_relpath`,
     `download_status`, `duplicate_across_taxa`
 
