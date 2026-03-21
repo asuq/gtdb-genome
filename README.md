@@ -12,24 +12,22 @@ The detailed runtime contract, output layout, retry rules, and bundled-data note
 
 ## Installation
 
-The checked-in Bioconda recipe at
-[packaging/bioconda/meta.yaml](packaging/bioconda/meta.yaml) tracks the tagged
-release sdist metadata and the supported packaged-runtime tool window:
+Install the packaged release from Bioconda:
+
+```bash
+mamba create -n gtdb-genomes -c conda-forge -c bioconda gtdb-genomes
+mamba activate gtdb-genomes
+gtdb-genomes --help
+```
+
+The packaged runtime is validated against:
 
 - `ncbi-datasets-cli >=18.21.0,<18.22.0`
 - `unzip >=6.0,<7.0`
 
-```bash
-uv sync --group dev
-uv run python -m gtdb_genomes.bootstrap_taxonomy
-uv run gtdb-genomes --help
-```
-
-The bootstrap step downloads the configured GTDB taxonomy files from the UQ
-mirror, verifies them against the release `MD5SUM` listing, and materialises
-the local `data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by a source
-checkout. Built wheels, sdists, and Conda packages already include that
-generated payload and do not need a post-install bootstrap step.
+Bioconda installs the normal `gtdb-genomes` console entrypoint. Built wheels,
+sdists, and Conda packages already include the bundled GTDB taxonomy payload,
+so packaged installs do not need a post-install taxonomy bootstrap step.
 
 
 ## Quick Start
@@ -145,13 +143,26 @@ data notes, see [docs/usage-details.md](docs/usage-details.md).
 
 Supported workflows:
 
-- source-checkout development through `uv run gtdb-genomes ...` or
-  `uv run python -m gtdb_genomes ...` after
-  `uv run python -m gtdb_genomes.bootstrap_taxonomy`
+- source-checkout development through `uv`
+- packaged runtime use through the Bioconda installation shown above
 - maintainer manifest refresh through
   `uv run python -m gtdb_genomes.refresh_taxonomy_manifest`
 - the checked-in Bioconda recipe tracks the tagged sdist metadata and the
   supported packaged-runtime tool window for public releases
+
+Source checkouts use the development workflow:
+
+```bash
+uv sync --group dev
+uv run python -m gtdb_genomes.bootstrap_taxonomy
+uv run gtdb-genomes --help
+```
+
+A Git checkout tracks only `data/gtdb_taxonomy/releases.tsv`. The bootstrap
+step downloads the configured GTDB taxonomy files from the UQ mirror, verifies
+them against the release `MD5SUM` listing, and materialises the local
+`data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by a source checkout and
+source build.
 
 `uv` is a development tool only. Packaged runtime use should not depend on it.
 

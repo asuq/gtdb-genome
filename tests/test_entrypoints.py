@@ -143,6 +143,17 @@ def assert_not_contains_any(text: str, snippets: tuple[str, ...]) -> None:
         assert snippet not in text
 
 
+def markdown_level_two_section(document_text: str, heading: str) -> str:
+    """Return the body for one level-two Markdown section."""
+
+    heading_marker = f"## {heading}\n"
+    start_index = document_text.index(heading_marker) + len(heading_marker)
+    end_index = document_text.find("\n## ", start_index)
+    if end_index == -1:
+        return document_text[start_index:]
+    return document_text[start_index:end_index]
+
+
 def test_pyproject_exposes_console_script() -> None:
     """The package metadata should expose the public console script."""
 
@@ -404,6 +415,11 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
 
     readme_text = Path("README.md").read_text(encoding="utf-8")
     usage_details_text = Path("docs/usage-details.md").read_text(encoding="utf-8")
+    installation_text = markdown_level_two_section(readme_text, "Installation")
+    development_text = markdown_level_two_section(
+        readme_text,
+        "Development And Packaging",
+    )
     assert_contains_all(
         readme_text,
         (
@@ -412,7 +428,6 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Command options",
             "Examples",
             "gtdb release number, defaults to `latest`",
-            "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "refresh_taxonomy_manifest",
             "--version-latest",
             "keep the exact selected version",
@@ -425,7 +440,39 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "`genome`, `gff3`, and `protein`",
             "`ncbi-datasets-cli >=18.21.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
+            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
+            "uv sync --group dev",
             '--gtdb-taxon "p__Pseudomonadota" "c__Alphaproteobacteria"',
+        ),
+    )
+    assert_contains_all(
+        installation_text,
+        (
+            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
+            "mamba activate gtdb-genomes",
+            "gtdb-genomes --help",
+            "`ncbi-datasets-cli >=18.21.0,<18.22.0`",
+            "`unzip >=6.0,<7.0`",
+            "do not need a post-install taxonomy bootstrap step",
+        ),
+    )
+    assert_not_contains_any(
+        installation_text,
+        (
+            "uv sync --group dev",
+            "uv run python -m gtdb_genomes.bootstrap_taxonomy",
+            "uv run gtdb-genomes --help",
+        ),
+    )
+    assert_contains_all(
+        development_text,
+        (
+            "uv sync --group dev",
+            "uv run python -m gtdb_genomes.bootstrap_taxonomy",
+            "uv run gtdb-genomes --help",
+            "data/gtdb_taxonomy/releases.tsv",
+            "MD5SUM",
+            "refresh_taxonomy_manifest",
         ),
     )
     assert_not_contains_any(
