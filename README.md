@@ -15,15 +15,16 @@ notes live in [docs/usage-details.md](docs/usage-details.md).
 ## Licensing
 
 The project code and packaging glue are released under the MIT licence.
-Published source and wheel archives also bundle GTDB taxonomy tables under
-`data/gtdb_taxonomy`, and those bundled data files remain under
-CC BY-SA 4.0 rather than MIT.
+Published source and wheel archives bundle generated GTDB taxonomy tables under
+`data/gtdb_taxonomy`, and those bundled data files remain under CC BY-SA 4.0
+rather than MIT.
 
-The bundled GTDB taxonomy payload is shipped as separate `.tsv.gz` release
-tables for runtime use and packaging convenience. Attribution and redistribution
-details for that bundled data are recorded in [NOTICE](NOTICE) and the included
-[CC BY-SA 4.0 licence text](licenses/CC-BY-SA-4.0.txt). The bundled taxonomy
-payload is not relicensed by this project.
+The Git checkout tracks only the plain-text `data/gtdb_taxonomy/releases.tsv`
+manifest. Source checkouts materialise the generated `.tsv.gz` taxonomy payload
+with `uv run python -m gtdb_genomes.bootstrap_taxonomy`. Attribution and
+redistribution details for the bundled data are recorded in [NOTICE](NOTICE)
+and the included [CC BY-SA 4.0 licence text](licenses/CC-BY-SA-4.0.txt). The
+generated taxonomy payload is not relicensed by this project.
 
 ## Installation
 
@@ -34,8 +35,15 @@ archive and final SHA256 checksum before it can be submitted.
 
 ```bash
 uv sync --group dev
+uv run python -m gtdb_genomes.bootstrap_taxonomy
 uv run gtdb-genomes --help
 ```
+
+The bootstrap step downloads the configured GTDB taxonomy files from the UQ
+mirror, verifies them against the release `MD5SUM` listing, and materialises
+the local `data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by a source
+checkout. Built wheels, sdists, and Conda packages already include that
+generated payload and do not need a post-install bootstrap step.
 
 ## Quick Start
 
@@ -141,7 +149,10 @@ data notes, see [docs/usage-details.md](docs/usage-details.md).
 Supported workflows:
 
 - source-checkout development through `uv run gtdb-genomes ...` or
-  `uv run python -m gtdb_genomes ...`
+  `uv run python -m gtdb_genomes ...` after
+  `uv run python -m gtdb_genomes.bootstrap_taxonomy`
+- maintainer manifest refresh through
+  `uv run python -m gtdb_genomes.refresh_taxonomy_manifest`
 - the checked-in Bioconda recipe is prepared for the first public release, but
   it still needs the published release archive URL and SHA256 checksum before
   submission

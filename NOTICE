@@ -6,18 +6,21 @@ This repository contains two different licence regimes.
 Project code and packaging metadata for `gtdb-genomes` are provided under the
 MIT licence in `LICENSE`.
 
-Bundled GTDB taxonomy data under `data/gtdb_taxonomy/**` is redistributed as
-separate GTDB release tables for runtime use and package tests. That bundled
-data is not relicensed by this project.
+Published distribution archives bundle GTDB taxonomy data under
+`data/gtdb_taxonomy/<release>/*.tsv.gz` for runtime use and package tests. The
+source repository tracks only `data/gtdb_taxonomy/releases.tsv`, and source
+checkouts generate the release payload directories during bootstrap. The GTDB
+taxonomy data is not relicensed by this project.
 
 Attribution for the bundled GTDB taxonomy data:
 - source: Genome Taxonomy Database (GTDB)
-- source page: https://gtdb.ecogenomic.org/downloads
+- bootstrap mirror: https://data.ace.uq.edu.au/public/gtdb/data/releases/
 - applicable licence: Creative Commons Attribution-ShareAlike 4.0 International
 - licence URL: https://creativecommons.org/licenses/by-sa/4.0/
 - included licence text: licenses/CC-BY-SA-4.0.txt
 
-The bundled GTDB taxonomy payload is shipped in repository-managed `.tsv.gz`
-form for packaging convenience. Users redistributing or adapting those files
-must comply with the applicable CC BY-SA 4.0 terms, attribution requirements,
-and any downstream ShareAlike obligations.
+The bundled GTDB taxonomy payload shipped in built distribution archives is
+generated from the recorded UQ mirror release sources and checksum listings.
+Users redistributing or adapting those files must comply with the applicable
+CC BY-SA 4.0 terms, attribution requirements, and any downstream ShareAlike
+obligations.

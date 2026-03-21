@@ -38,7 +38,7 @@ requirements:
 test:
   commands:
     - gtdb-genomes --help
-    - python -c "from gtdb_genomes.release_resolver import get_release_manifest_path; path = get_release_manifest_path(); assert path.is_file(), path"
+    - python -c "from gtdb_genomes.release_resolver import resolve_and_validate_release; resolution = resolve_and_validate_release('latest'); assert resolution.bacterial_taxonomy is not None, resolution"
   imports:
     - gtdb_genomes
 
@@ -49,10 +49,12 @@ about:
     gtdb-genomes downloads NCBI genomes by GTDB taxon and GTDB release using
     bundled GTDB taxonomy tables for local release and taxon resolution plus
     the packaged ncbi-datasets-cli dependency for metadata lookup and genome
-    downloads. The Conda package installs the standard gtdb-genomes console
-    entrypoint, ships the bundled GTDB release manifest and taxonomy payload
-    needed for offline release resolution, and does not depend on uv at
-    runtime. Because the package bundles GTDB taxonomy data, the release
+    downloads. Source checkouts bootstrap those GTDB taxonomy payloads from the
+    recorded UQ mirror metadata before building, while the Conda package itself
+    installs the standard gtdb-genomes console entrypoint and ships the
+    generated GTDB release manifest and taxonomy payload needed for offline
+    release resolution. The install step does not fetch GTDB data or depend on
+    uv at runtime. Because the package bundles GTDB taxonomy data, the release
     metadata reflects both the MIT-licensed code and the CC BY-SA 4.0 bundled
     data.
   license: MIT AND CC-BY-SA-4.0

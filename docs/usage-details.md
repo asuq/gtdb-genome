@@ -317,27 +317,51 @@ Fixed TSV columns:
 
 ## Bundled GTDB Taxonomy
 
-GTDB taxonomy tables ship with the software as compressed `.tsv.gz` files and
-are decompressed transparently at read time. They are loaded from bundled data,
-not fetched at runtime.
+GTDB taxonomy tables are consumed at runtime as compressed `.tsv.gz` files and
+are decompressed transparently at read time. Runtime release resolution stays
+local and does not fetch from GTDB.
 
-Bundled data layout:
+Source checkout layout:
 
 ```text
-data/gtdb_taxonomy/<resolved_release>/
 data/gtdb_taxonomy/releases.tsv
+data/gtdb_taxonomy/<resolved_release>/
 ```
 
-`releases.tsv` remains plain text by design so the bundled manifest stays easy
-to inspect and validate.
+`releases.tsv` remains plain text by design so the manifest stays easy to
+inspect and validate. It now carries both the runtime release mapping columns
+and build-only UQ mirror metadata used by the bootstrap flow.
 
-First run does not contact GTDB. Missing bundled taxonomy for a requested
-release is treated as a local installation or packaging error.
+Fresh source checkouts do not track the generated `<resolved_release>/`
+payload directories in Git. Before GTDB-dependent source-checkout runs, build
+the local runtime payload with:
+
+```bash
+uv run python -m gtdb_genomes.bootstrap_taxonomy
+```
+
+The bootstrap step downloads the configured taxonomy files from the UQ mirror
+release directory recorded in `releases.tsv`, verifies each source file against
+the release `MD5SUM` or `MD5SUM.txt` listing, and materialises the local
+`.tsv.gz` runtime layout.
+
+Maintainers can refresh the build-only mirror metadata for the existing release
+rows with:
+
+```bash
+uv run python -m gtdb_genomes.refresh_taxonomy_manifest
+```
+
+Built wheels, sdists, and Conda packages already include the generated taxonomy
+payload, so installed package runtimes remain offline and do not need a
+post-install bootstrap step. Missing taxonomy for a requested release is
+treated as a local bootstrap or packaging error.
 
 Published distribution archives include MIT-licensed project code plus bundled
 GTDB taxonomy data under CC BY-SA 4.0. The bundled taxonomy payload is shipped
-as separate `.tsv.gz` package data and is not relicensed by this project. See
-`NOTICE` and `licenses/CC-BY-SA-4.0.txt` for attribution and licence details.
+as separate `.tsv.gz` package data generated from the UQ mirror and is not
+relicensed by this project. See `NOTICE` and `licenses/CC-BY-SA-4.0.txt` for
+attribution and licence details.
 
 ## Failure Handling
 
@@ -354,4 +378,5 @@ non-dry runs.
 - very large requests still depend on upstream `datasets` performance and NCBI
   availability
 - direct mode may need several batch passes before all payloads resolve
-- package size grows because bundled GTDB taxonomy releases ship locally
+- published distribution size grows because bundled GTDB taxonomy releases ship
+  locally

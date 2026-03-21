@@ -106,6 +106,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Command Contract",
             "Examples",
             "defaults to `latest`",
+            "uv run python -m gtdb_genomes.bootstrap_taxonomy",
+            "refresh_taxonomy_manifest",
             "--prefer-genbank",
             "--threads",
             "serial in the current workflow",
@@ -136,6 +138,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "download_method_requested",
             "attempted_accession",
             "Defaults to `latest`",
+            "refresh_taxonomy_manifest",
+            "MD5SUM",
             "--threads",
         ),
     )
@@ -160,6 +164,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "must not depend on uv at runtime",
             "--no-build-isolation",
             "- ncbi-datasets-cli",
+            "resolve_and_validate_release('latest')",
         ),
     )
     assert_contains_all(
@@ -167,6 +172,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         (
             "This repository contains two different licence regimes",
             "Genome Taxonomy Database (GTDB)",
+            "bootstrap mirror",
             "creativecommons.org/licenses/by-sa/4.0/",
         ),
     )
