@@ -40,7 +40,7 @@ uv run gtdb-genomes --help
 ## Quick Start
 
 ```bash
-gtdb-genomes --gtdb-release latest --gtdb-taxon g__Escherichia --outdir results
+gtdb-genomes --gtdb-taxon g__Escherichia --outdir results
 ```
 
 ## Command Contract
@@ -48,7 +48,7 @@ gtdb-genomes --gtdb-release latest --gtdb-taxon g__Escherichia --outdir results
 See [docs/usage-details.md](docs/usage-details.md) for the full CLI contract.
 In short:
 
-- `--gtdb-release` accepts bundled release aliases, including `latest`
+- `--gtdb-release` is optional, accepts bundled release aliases, and defaults to `latest`
 - `--gtdb-taxon` is repeatable and matches exact GTDB lineage tokens
 - `--outdir` must be empty or absent
 - `--prefer-genbank` optionally prefers paired GenBank accessions
@@ -63,7 +63,6 @@ Small download where automatic planning stays on the direct path:
 
 ```bash
 gtdb-genomes \
-  --gtdb-release latest \
   --gtdb-taxon g__Escherichia \
   --outdir results/escherichia
 ```

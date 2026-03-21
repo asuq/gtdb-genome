@@ -105,6 +105,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Quick Start",
             "Command Contract",
             "Examples",
+            "defaults to `latest`",
             "--prefer-genbank",
             "--threads",
             "serial in the current workflow",
@@ -134,6 +135,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Direct downloads remain serial in the current workflow.",
             "download_method_requested",
             "attempted_accession",
+            "Defaults to `latest`",
             "--threads",
         ),
     )

@@ -8,7 +8,6 @@ contract.
 
 ```bash
 gtdb-genomes \
-  --gtdb-release latest \
   --gtdb-taxon g__Escherichia \
   --outdir results
 ```
@@ -16,13 +15,6 @@ gtdb-genomes \
 ## Options
 
 ### Mandatory options
-
-- `--gtdb-release`: Accepts bundled aliases such as `latest`, `80`, `95`,
-  `214`, `226`, `220.0`, or `release220/220.0`.
-
-  `latest` is resolved from the bundled manifest row marked with
-  `is_latest=true`. GTDB release resolution never contacts GTDB over the
-  network.
 
 - `--gtdb-taxon`: Repeatable. A row is selected when its GTDB lineage contains
   the requested GTDB token exactly after trimming surrounding whitespace only.
@@ -37,6 +29,13 @@ gtdb-genomes \
   directory. The tool does not merge into or overwrite a populated output tree.
 
 ### Optional options
+
+- `--gtdb-release`: Defaults to `latest`. Accepts bundled aliases such as
+  `latest`, `80`, `95`, `214`, `226`, `220.0`, or `release220/220.0`.
+
+  `latest` is resolved from the bundled manifest row marked with
+  `is_latest=true`. GTDB release resolution never contacts GTDB over the
+  network.
 
 - `--prefer-genbank`: Disabled by default. When enabled, a requested `GCF_*`
   accession triggers NCBI metadata lookup and prefers a `GCA_*` accession only
