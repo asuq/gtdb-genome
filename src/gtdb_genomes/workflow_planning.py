@@ -312,15 +312,18 @@ def resolve_supported_accession_preferences(
                     ncbi_api_key=args.ncbi_api_key,
                 )
             except MetadataLookupError as error:
-                raise MetadataLookupError(
-                    str(error),
-                    failures=metadata_failures + error.failures,
-                ) from error
-            metadata_failures = metadata_failures + candidate_lookup.failures
-            status_map = {
-                **status_map,
-                **candidate_lookup.status_map,
-            }
+                logger.warning(
+                    "Candidate metadata lookup failed for %d paired GenBank "
+                    "accession(s); falling back to original accessions",
+                    len(candidate_accessions),
+                )
+                metadata_failures = metadata_failures + error.failures
+            else:
+                metadata_failures = metadata_failures + candidate_lookup.failures
+                status_map = {
+                    **status_map,
+                    **candidate_lookup.status_map,
+                }
             incomplete_genbank_accessions.update(
                 find_incomplete_genbank_metadata_accessions(
                     summary_map,

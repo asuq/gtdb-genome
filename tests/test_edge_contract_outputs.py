@@ -20,6 +20,7 @@ from gtdb_genomes.layout import (
 )
 from gtdb_genomes.metadata import (
     AssemblyStatusInfo,
+    MetadataLookupError,
     SummaryLookupResult,
     SUPPRESSED_ASSEMBLY_NOTE,
 )
@@ -27,6 +28,7 @@ from gtdb_genomes.provenance import RuntimeProvenance
 from gtdb_genomes.workflow_execution import (
     AccessionExecution,
     DownloadExecutionResult,
+    SharedFailureContext,
 )
 from gtdb_genomes.workflow_outputs import (
     build_enriched_output_rows,
@@ -1348,6 +1350,262 @@ def test_build_enriched_output_rows_uses_execution_request_accession(
     assert enriched_rows[0]["download_request_accession"] == "GCF_001881595.2"
     assert enriched_rows[0]["final_accession"] == "GCF_001881595.2"
     assert enriched_rows[0]["accession_type_final"] == "GCF"
+
+
+def test_direct_success_manifest_preserves_shared_retry_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Successful direct rows should keep earlier shared retry failures."""
+
+    payload_directory = tmp_path / "retry-success-payload"
+    payload_directory.mkdir()
+    (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
+
+    def fake_execute_accession_plans(
+        *args,
+        **kwargs,
+    ) -> DownloadExecutionResult:
+        """Return one successful execution with shared retry history."""
+
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=payload_directory,
+                    failures=(),
+                    request_accession_used="GCF_000001.1",
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+            shared_failures=(
+                SharedFailureContext(
+                    affected_original_accessions=("GCF_000001.1",),
+                    failures=(
+                        CommandFailureRecord(
+                            stage="preferred_download",
+                            attempt_index=1,
+                            max_attempts=4,
+                            error_type="subprocess",
+                            error_message="temporary datasets failure",
+                            final_status="retry_scheduled",
+                            attempted_accession="GCF_000001.1",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "direct-retry-success-manifest"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 0
+    accession_header, accession_rows = parse_tsv(output_dir / "accession_map.tsv")
+    accession_map = dict(zip(accession_header, accession_rows[0], strict=True))
+    assert accession_map["download_status"] == "downloaded"
+    assert accession_map["download_request_accession"] == "GCF_000001.1"
+
+    failure_header, failure_rows = parse_tsv(output_dir / "download_failures.tsv")
+    assert len(failure_rows) == 1
+    failure = dict(zip(failure_header, failure_rows[0], strict=True))
+    assert failure["gtdb_accession"] == "RS_GCF_000001.1"
+    assert failure["attempted_accession"] == "GCF_000001.1"
+    assert failure["final_accession"] == "GCF_000001.1"
+    assert failure["stage"] == "preferred_download"
+    assert failure["final_status"] == "retry_scheduled"
+
+
+def test_candidate_lookup_failure_falls_back_to_original_and_keeps_failure_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Candidate metadata lookup failures should degrade without aborting."""
+
+    payload_directory = tmp_path / "candidate-lookup-fallback-payload"
+    payload_directory.mkdir()
+    (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
+    lookup_calls: list[tuple[str, ...]] = []
+
+    def fake_run_summary_lookup_with_retries(
+        accessions,
+        accession_file,
+        ncbi_api_key=None,
+        datasets_bin="datasets",
+        sleep_func=None,
+        runner=None,
+    ) -> SummaryLookupResult:
+        """Return one preferred lookup, then fail the paired-GCA lookup."""
+
+        del accession_file, ncbi_api_key, datasets_bin, sleep_func, runner
+        ordered_accessions = tuple(accessions)
+        lookup_calls.append(ordered_accessions)
+        if len(lookup_calls) == 1:
+            return SummaryLookupResult(
+                summary_map={
+                    "GCF_001881595.2": {
+                        "GCF_001881595.2",
+                        "GCA_001881595.3",
+                    },
+                },
+                status_map={
+                    "GCF_001881595.2": AssemblyStatusInfo(
+                        assembly_status="current",
+                        suppression_reason=None,
+                        paired_accession="GCA_001881595.3",
+                        paired_assembly_status=None,
+                    ),
+                },
+                failures=(),
+            )
+        raise MetadataLookupError(
+            "candidate lookup failed",
+            failures=(
+                CommandFailureRecord(
+                    stage="metadata_lookup",
+                    attempt_index=1,
+                    max_attempts=4,
+                    error_type="metadata_lookup",
+                    error_message="candidate lookup failed",
+                    final_status="retry_scheduled",
+                    attempted_accession="GCA_001881595.3",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: pl.DataFrame(
+            {
+                "gtdb_accession": ["RS_GCF_001881595.2"],
+                "lineage": ["d__Bacteria;p__Firmicutes;g__Bacillus"],
+                "ncbi_accession": ["GCF_001881595.2"],
+                "taxonomy_file": ["bac120_taxonomy_r80.tsv"],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        fake_run_summary_lookup_with_retries,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_preview_command",
+        lambda *args, **kwargs: "Package size: 1.0 GB\n",
+    )
+
+    def fake_execute_accession_plans(
+        plans,
+        args,
+        decision_method: str,
+        run_directories,
+        logger,
+        secrets,
+    ) -> DownloadExecutionResult:
+        """Return one successful original-accession direct execution."""
+
+        del args, run_directories, logger, secrets
+        assert decision_method == "direct"
+        assert len(plans) == 1
+        assert plans[0].original_accession == "GCF_001881595.2"
+        assert plans[0].download_request_accession == "GCF_001881595.2"
+        return DownloadExecutionResult(
+            executions={
+                "GCF_001881595.2": AccessionExecution(
+                    original_accession="GCF_001881595.2",
+                    final_accession="GCF_001881595.2",
+                    conversion_status="paired_gca_metadata_incomplete_fallback_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=payload_directory,
+                    failures=(),
+                    request_accession_used="GCF_001881595.2",
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "candidate-lookup-fallback"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "80",
+            "--gtdb-taxon",
+            "g__Bacillus",
+            "--prefer-genbank",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 0
+    assert lookup_calls == [
+        ("GCF_001881595.2",),
+        ("GCA_001881595.3",),
+    ]
+    accession_header, accession_rows = parse_tsv(output_dir / "accession_map.tsv")
+    accession_map = dict(zip(accession_header, accession_rows[0], strict=True))
+    assert accession_map["selected_accession"] == "GCF_001881595.2"
+    assert accession_map["download_request_accession"] == "GCF_001881595.2"
+    assert accession_map["final_accession"] == "GCF_001881595.2"
+    assert accession_map["conversion_status"] == (
+        "paired_gca_metadata_incomplete_fallback_original"
+    )
+
+    failure_header, failure_rows = parse_tsv(output_dir / "download_failures.tsv")
+    assert len(failure_rows) == 1
+    failure = dict(zip(failure_header, failure_rows[0], strict=True))
+    assert failure["attempted_accession"] == "GCA_001881595.3"
+    assert failure["stage"] == "metadata_lookup"
+    assert failure["final_status"] == "retry_scheduled"
 
 
 def test_failure_manifest_collapses_shared_accession_taxa(

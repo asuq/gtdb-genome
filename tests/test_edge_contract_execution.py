@@ -8,7 +8,7 @@ import pytest
 
 from gtdb_genomes.cli import CliArgs
 from gtdb_genomes.download import CommandFailureRecord, RetryableCommandResult
-from gtdb_genomes.layout import initialise_run_directories
+from gtdb_genomes.layout import LayoutError, initialise_run_directories
 from gtdb_genomes.workflow_execution import (
     AccessionExecution,
     AccessionPlan,
@@ -395,6 +395,320 @@ def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
     assert [failure.final_status for failure in result.executions["GCA_001881595.3"].failures] == [
         "retry_exhausted",
     ]
+
+
+def test_direct_mode_preserves_shared_retry_failures_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Successful direct batches should keep earlier shared retry failures."""
+
+    payload_directory = tmp_path / "payload"
+    payload_directory.mkdir()
+    call_count = 0
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Return one successful batch with preserved retry history."""
+
+        del command, final_failure_status, sleep_func, runner
+        nonlocal call_count
+        call_count += 1
+        assert call_count == 1
+        assert stage == "preferred_download"
+        assert attempted_accession == "GCF_000001.1"
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(
+                CommandFailureRecord(
+                    stage="preferred_download",
+                    attempt_index=1,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="temporary datasets failure",
+                    final_status="retry_scheduled",
+                ),
+            ),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create the extracted directory for the successful batch."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Resolve the requested payload after the retried batch succeeds."""
+
+        assert extraction_root.name == "direct_batch_1"
+        return (
+            ResolvedPayloadDirectory(
+                final_accession="GCF_000001.1",
+                directory=payload_directory,
+            ),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
+    args = build_cli_args(tmp_path / "out")
+    args.prefer_genbank = False
+    run_directories = initialise_run_directories(tmp_path / "direct-retry-success")
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_000001.1",
+                download_request_accession="GCF_000001.1",
+                conversion_status="unchanged_original",
+            ),
+        ),
+        args,
+        run_directories,
+        logging.getLogger("test-direct-retry-success"),
+    )
+
+    assert result.executions["GCF_000001.1"].download_status == "downloaded"
+    assert result.executions["GCF_000001.1"].failures == ()
+    assert len(result.shared_failures) == 1
+    assert result.shared_failures[0].affected_original_accessions == (
+        "GCF_000001.1",
+    )
+    assert [failure.final_status for failure in result.shared_failures[0].failures] == [
+        "retry_scheduled",
+    ]
+    assert [
+        failure.attempted_accession
+        for failure in result.shared_failures[0].failures
+    ] == ["GCF_000001.1"]
+
+
+def test_direct_mode_preserves_retry_history_when_extraction_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Extraction failures should not erase earlier shared retry history."""
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Return one successful batch with preserved retry history."""
+
+        del command, final_failure_status, sleep_func, runner
+        assert stage == "preferred_download"
+        assert attempted_accession == "GCF_000001.1"
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(
+                CommandFailureRecord(
+                    stage="preferred_download",
+                    attempt_index=1,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="temporary datasets failure",
+                    final_status="retry_scheduled",
+                ),
+            ),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Raise one layout failure after the retried batch succeeds."""
+
+        del archive_path, extraction_root
+        raise LayoutError("broken archive layout")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+
+    args = build_cli_args(tmp_path / "out")
+    args.prefer_genbank = False
+    run_directories = initialise_run_directories(
+        tmp_path / "direct-retry-layout-failure",
+    )
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_000001.1",
+                download_request_accession="GCF_000001.1",
+                conversion_status="unchanged_original",
+            ),
+        ),
+        args,
+        run_directories,
+        logging.getLogger("test-direct-retry-layout-failure"),
+    )
+
+    assert result.executions["GCF_000001.1"].download_status == "failed"
+    assert len(result.shared_failures) == 2
+    assert [
+        failure.final_status for failure in result.shared_failures[0].failures
+    ] == ["retry_scheduled"]
+    assert [
+        failure.attempted_accession
+        for failure in result.shared_failures[0].failures
+    ] == ["GCF_000001.1"]
+    assert [
+        failure.error_type for failure in result.shared_failures[1].failures
+    ] == ["LayoutError"]
+
+
+def test_direct_fallback_preserves_shared_retry_failures_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Fallback batches should keep earlier shared retry failures."""
+
+    payload_directory = tmp_path / "payload"
+    payload_directory.mkdir()
+    call_count = 0
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Return one unresolved preferred batch and one retried fallback batch."""
+
+        del command, final_failure_status, sleep_func, runner
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            assert stage == "preferred_download"
+            assert attempted_accession == "GCA_001881595"
+            return RetryableCommandResult(
+                succeeded=True,
+                stdout="",
+                stderr="",
+                failures=(),
+            )
+        assert call_count == 2
+        assert stage == "fallback_download"
+        assert attempted_accession == "GCF_001881595.2"
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(
+                CommandFailureRecord(
+                    stage="fallback_download",
+                    attempt_index=1,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="temporary fallback failure",
+                    final_status="retry_scheduled",
+                ),
+            ),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create one extraction root per batch pass."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Leave the preferred batch unresolved and resolve the fallback batch."""
+
+        if extraction_root.name == "direct_batch_1":
+            return ()
+        if extraction_root.name == "direct_fallback_batch_1":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_001881595.2",
+                    directory=payload_directory,
+                ),
+            )
+        raise AssertionError(f"Unexpected extraction root: {extraction_root}")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
+    run_directories = initialise_run_directories(
+        tmp_path / "direct-fallback-retry-success",
+    )
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_001881595.2",
+                download_request_accession="GCA_001881595",
+                conversion_status="paired_to_gca",
+            ),
+        ),
+        build_cli_args(tmp_path / "out"),
+        run_directories,
+        logging.getLogger("test-direct-fallback-retry-success"),
+    )
+
+    assert result.executions["GCF_001881595.2"].download_status == (
+        "downloaded_after_fallback"
+    )
+    assert len(result.shared_failures) == 1
+    assert result.shared_failures[0].affected_original_accessions == (
+        "GCF_001881595.2",
+    )
+    assert [failure.final_status for failure in result.shared_failures[0].failures] == [
+        "retry_scheduled",
+    ]
+    assert [
+        failure.attempted_accession
+        for failure in result.shared_failures[0].failures
+    ] == ["GCF_001881595.2"]
 
 
 def test_direct_mode_records_failed_fallback_after_layout_exhaustion(

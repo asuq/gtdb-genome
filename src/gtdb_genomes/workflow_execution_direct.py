@@ -140,6 +140,15 @@ def run_direct_batch_phase(
                 shared_failures=tuple(shared_failures),
             )
 
+        if batch_result.failures:
+            shared_failures.append(
+                build_shared_failure_context(
+                    affected_original_accessions,
+                    batch_result.failures,
+                    batch_attempted_accessions,
+                ),
+            )
+
         extraction_root = run_directories.extracted_root / batch_label
         try:
             extract_archive(archive_path, extraction_root)
