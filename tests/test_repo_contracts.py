@@ -17,6 +17,39 @@ from pathlib import Path
 import pytest
 
 
+def get_venv_scripts_directory(venv_root: Path) -> Path:
+    """Return the script directory for one virtual environment."""
+
+    if sys.platform == "win32":
+        return venv_root / "Scripts"
+    return venv_root / "bin"
+
+
+def get_venv_command_path(venv_root: Path, command_name: str) -> Path:
+    """Return the platform-specific path for one virtualenv command."""
+
+    scripts_directory = get_venv_scripts_directory(venv_root)
+    if sys.platform == "win32":
+        return scripts_directory / f"{command_name}.exe"
+    return scripts_directory / command_name
+
+
+def build_runtime_path_environment(venv_root: Path) -> dict[str, str]:
+    """Return a PATH that exposes the virtualenv but excludes ambient `uv`."""
+
+    path_entries = [str(get_venv_scripts_directory(venv_root))]
+    if sys.platform == "win32":
+        system_root = os.environ.get("SystemRoot")
+        if system_root:
+            path_entries.extend([system_root, str(Path(system_root) / "System32")])
+    else:
+        path_entries.extend(["/usr/bin", "/bin"])
+    return {
+        **os.environ,
+        "PATH": os.pathsep.join(path_entries),
+    }
+
+
 def copy_manifest_only_project_fixture(destination_root: Path) -> Path:
     """Copy the project and strip any bootstrapped bundled taxonomy payloads."""
 
@@ -329,12 +362,9 @@ def test_clean_runtime_wheel_install_validates_bundled_latest_release(
         capture_output=True,
         text=True,
     )
-    pip_bin = venv_root / "bin" / "pip"
-    python_bin = venv_root / "bin" / "python"
-    runtime_env = {
-        **os.environ,
-        "PATH": f"{venv_root / 'bin'}:/usr/bin:/bin",
-    }
+    pip_bin = get_venv_command_path(venv_root, "pip")
+    python_bin = get_venv_command_path(venv_root, "python")
+    runtime_env = build_runtime_path_environment(venv_root)
     install_result = subprocess.run(
         [
             str(pip_bin),
@@ -428,6 +458,11 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Command options",
             "Examples",
             "https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml/badge.svg",
+            (
+                "[![Platform: Linux | macOS | Windows]"
+                "(https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-4c8eda.svg)]"
+                "(https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml)"
+            ),
             (
                 "https://github.com/asuq/gtdb-genomes/actions/workflows/"
                 "live-validation.yml/badge.svg"
@@ -726,11 +761,13 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "bash bin/install-micromamba-ci.sh",
             "micromamba create -y -n gtdb-genome",
             "python=3.12 uv pip",
+            "windows-latest",
             "- \"3.13\"",
             "- \"3.14\"",
             "ncbi-datasets-cli=18.4.0",
             "ncbi-datasets-cli=18.21.0",
             "unzip=6.0",
+            "uv run pytest -q",
             "micromamba run -n gtdb-genome",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "bin/run-real-data-tests-local.sh A1 A2 A3 A4 A5 A6 A7 A8 A9",
@@ -751,6 +788,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "LOCAL_LAUNCHER_MODE: module",
             "mamba-org/setup-micromamba@v2",
             "actions/download-artifact@v5",
+            ".venv/bin/pytest -q",
         ),
     )
 

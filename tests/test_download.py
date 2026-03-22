@@ -24,6 +24,10 @@ from gtdb_genomes.download import (
     write_accession_input_file,
 )
 
+COMMAND_TEST_ACCESSION_FILE = Path("tmp") / "accessions.txt"
+COMMAND_TEST_ARCHIVE_FILE = Path("tmp") / "out.zip"
+COMMAND_TEST_BAG_DIRECTORY = Path("tmp") / "bag"
+
 
 def test_validate_include_value_requires_genome() -> None:
     """The include value should stay genome-centric."""
@@ -46,27 +50,27 @@ def test_command_builders_match_datasets_cli_shape() -> None:
     """Command builders should emit the expected datasets argv layout."""
 
     preview_command = build_preview_command(
-        Path("/tmp/accessions.txt"),
+        COMMAND_TEST_ACCESSION_FILE,
         "genome,gff3",
         ncbi_api_key="secret",
         debug=True,
     )
     direct_batch_command = build_direct_batch_download_command(
-        Path("/tmp/accessions.txt"),
-        Path("/tmp/out.zip"),
+        COMMAND_TEST_ACCESSION_FILE,
+        COMMAND_TEST_ARCHIVE_FILE,
         "genome",
         ncbi_api_key="secret",
         debug=True,
     )
     rehydrate_command = build_rehydrate_command(
-        Path("/tmp/bag"),
+        COMMAND_TEST_BAG_DIRECTORY,
         7,
         ncbi_api_key="secret",
         debug=True,
     )
     batch_dehydrate_command = build_batch_dehydrate_command(
-        Path("/tmp/accessions.txt"),
-        Path("/tmp/out.zip"),
+        COMMAND_TEST_ACCESSION_FILE,
+        COMMAND_TEST_ARCHIVE_FILE,
         "genome",
         ncbi_api_key="secret",
         debug=True,
@@ -78,7 +82,7 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         "genome",
         "accession",
         "--inputfile",
-        "/tmp/accessions.txt",
+        str(COMMAND_TEST_ACCESSION_FILE),
         "--include",
         "genome,gff3",
         "--preview",
@@ -94,9 +98,9 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         "genome",
         "accession",
         "--inputfile",
-        "/tmp/accessions.txt",
+        str(COMMAND_TEST_ACCESSION_FILE),
         "--filename",
-        "/tmp/out.zip",
+        str(COMMAND_TEST_ARCHIVE_FILE),
         "--include",
         "genome",
         "--api-key",
@@ -107,7 +111,7 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         "datasets",
         "rehydrate",
         "--directory",
-        "/tmp/bag",
+        str(COMMAND_TEST_BAG_DIRECTORY),
         "--max-workers",
         "7",
         "--api-key",
@@ -120,9 +124,9 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         "genome",
         "accession",
         "--inputfile",
-        "/tmp/accessions.txt",
+        str(COMMAND_TEST_ACCESSION_FILE),
         "--filename",
-        "/tmp/out.zip",
+        str(COMMAND_TEST_ARCHIVE_FILE),
         "--include",
         "genome",
         "--dehydrated",
@@ -370,7 +374,7 @@ def test_preview_command_uses_full_retry_budget(
 
     with pytest.raises(PreviewError, match="preview failed"):
         run_preview_command(
-            Path("/tmp/accessions.txt"),
+            COMMAND_TEST_ACCESSION_FILE,
             "genome",
             sleep_func=lambda delay: None,
             runner=fake_run,

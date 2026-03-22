@@ -8,6 +8,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Bash helper tests are Unix-specific and not part of the Windows lane.",
+)
+
 
 COMMON_HELPERS = Path("bin/real-data-test-common.sh").resolve()
 SERVER_WRAPPER = Path("bin/run-real-data-tests-server.sh").resolve()

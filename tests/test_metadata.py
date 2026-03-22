@@ -21,12 +21,14 @@ from gtdb_genomes.metadata import (
     run_summary_lookup_with_retries,
 )
 
+COMMAND_TEST_ACCESSION_FILE = Path("tmp") / "accessions.txt"
+
 
 def test_build_summary_command_includes_ncbi_api_key() -> None:
     """The summary command should pass the requested API key through."""
 
     command = build_summary_command(
-        Path("/tmp/accessions.txt"),
+        COMMAND_TEST_ACCESSION_FILE,
         ncbi_api_key="secret",
         datasets_bin="datasets",
     )
@@ -37,7 +39,7 @@ def test_build_summary_command_includes_ncbi_api_key() -> None:
         "genome",
         "accession",
         "--inputfile",
-        "/tmp/accessions.txt",
+        str(COMMAND_TEST_ACCESSION_FILE),
         "--as-json-lines",
         "--api-key",
         "secret",
@@ -76,7 +78,7 @@ def test_run_summary_lookup_with_retries_parses_requested_accessions(
 
     result = run_summary_lookup_with_retries(
         ["GCF_000001.1", "GCA_000002.1"],
-        Path("/tmp/accessions.txt"),
+        COMMAND_TEST_ACCESSION_FILE,
     )
 
     assert result.summary_map == {
@@ -126,7 +128,7 @@ def test_run_summary_lookup_with_retries_marks_silent_omissions_incomplete(
 
     result = run_summary_lookup_with_retries(
         ["GCA_000001.1", "GCA_000002.1"],
-        Path("/tmp/accessions.txt"),
+        COMMAND_TEST_ACCESSION_FILE,
     )
 
     assert result.summary_map == {
@@ -161,7 +163,7 @@ def test_run_summary_lookup_with_retries_raises_on_command_failure(
     with pytest.raises(MetadataLookupError, match="metadata lookup failed"):
         run_summary_lookup_with_retries(
             ["GCF_000001.1"],
-            Path("/tmp/accessions.txt"),
+            COMMAND_TEST_ACCESSION_FILE,
             sleep_func=lambda delay: None,
         )
 
@@ -590,7 +592,7 @@ def test_run_summary_lookup_with_retries_retries_invalid_json(
 
     result = run_summary_lookup_with_retries(
         ["GCF_000001.1"],
-        Path("/tmp/accessions.txt"),
+        COMMAND_TEST_ACCESSION_FILE,
         sleep_func=sleep_calls.append,
     )
 
@@ -641,7 +643,7 @@ def test_run_summary_lookup_with_retries_raises_after_full_retry_budget(
     with pytest.raises(MetadataLookupError, match="metadata lookup failed"):
         run_summary_lookup_with_retries(
             ["GCF_000001.1"],
-            Path("/tmp/accessions.txt"),
+            COMMAND_TEST_ACCESSION_FILE,
             sleep_func=sleep_calls.append,
         )
 
@@ -657,7 +659,7 @@ def test_run_summary_lookup_with_retries_fails_fast_on_spawn_error() -> None:
     ) as error:
         run_summary_lookup_with_retries(
             ["GCF_000001.1"],
-            Path("/tmp/accessions.txt"),
+            COMMAND_TEST_ACCESSION_FILE,
             sleep_func=lambda delay: None,
             runner=lambda *args, **kwargs: (_ for _ in ()).throw(
                 FileNotFoundError("datasets"),
