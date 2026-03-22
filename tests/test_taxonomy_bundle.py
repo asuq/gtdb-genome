@@ -19,6 +19,7 @@ from gtdb_genomes.taxonomy_bundle import (
     bootstrap_manifest_entries,
     bootstrap_taxonomy_bundle,
     compress_tsv_bytes,
+    load_taxonomy_bundle_manifest,
     materialise_taxonomy_file,
     refresh_taxonomy_bundle_manifest,
     validate_bootstrap_entry,
@@ -676,6 +677,122 @@ def test_bootstrap_taxonomy_bundle_preserves_existing_release_on_failure(
 
     assert sentinel_path.read_text(encoding="ascii") == "original\n"
     assert release_root.is_dir()
+
+
+def test_bootstrap_manifest_entries_refreshes_manifest_after_each_successful_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial bootstrap failure should keep the manifest aligned with disk."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    data_root = manifest_path.parent
+    release95_source = "https://example.invalid/release95/95.0/"
+    release96_source = "https://example.invalid/release96/96.0/"
+    entry95 = TaxonomyBundleEntry(
+        resolved_release="95.0",
+        aliases="95,95.0",
+        bacterial_taxonomy="bac120_taxonomy_r95.tsv.gz",
+        archaeal_taxonomy=None,
+        bacterial_taxonomy_sha256=DUMMY_SHA256,
+        archaeal_taxonomy_sha256=None,
+        bacterial_taxonomy_rows=int(DUMMY_ROWS),
+        archaeal_taxonomy_rows=None,
+        is_latest="true",
+        source_root_url=release95_source,
+        checksum_filename="MD5SUM",
+    )
+    entry96 = TaxonomyBundleEntry(
+        resolved_release="96.0",
+        aliases="96,96.0",
+        bacterial_taxonomy="bac120_taxonomy_r96.tsv.gz",
+        archaeal_taxonomy=None,
+        bacterial_taxonomy_sha256=DUMMY_SHA256,
+        archaeal_taxonomy_sha256=None,
+        bacterial_taxonomy_rows=int(DUMMY_ROWS),
+        archaeal_taxonomy_rows=None,
+        is_latest="false",
+        source_root_url=release96_source,
+        checksum_filename="MD5SUM",
+    )
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    "95,95.0",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    release95_source,
+                    "MD5SUM",
+                ),
+                build_bootstrap_manifest_row(
+                    "96.0",
+                    "96,96.0",
+                    "bac120_taxonomy_r96.tsv.gz",
+                    "",
+                    "false",
+                    release96_source,
+                    "MD5SUM",
+                ),
+            ],
+        )
+        + "\n",
+    )
+
+    payload95 = gzip.compress(
+        b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
+        mtime=0,
+    )
+    expected_sha256 = hashlib.sha256(payload95).hexdigest()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.load_checksum_mapping",
+        lambda source_root_url, checksum_filename: {},
+    )
+
+    def fake_materialise_taxonomy_file(
+        source_root_url: str,
+        target_name: str | None,
+        target_path: Path | None,
+        checksum_mapping: dict[str, tuple[str, ...]],
+    ) -> None:
+        """Write the first release payload and fail on the second release."""
+
+        del checksum_mapping
+        if target_name is None or target_path is None:
+            return
+        if source_root_url == release96_source:
+            raise TaxonomyBundleError("staging failed for 96.0")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(payload95)
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.materialise_taxonomy_file",
+        fake_materialise_taxonomy_file,
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="staging failed for 96.0"):
+        bootstrap_manifest_entries(
+            (entry95, entry96),
+            data_root,
+            manifest_path=manifest_path,
+        )
+
+    manifest_entries = load_taxonomy_bundle_manifest(manifest_path)
+    assert manifest_entries[0].resolved_release == "95.0"
+    assert manifest_entries[0].bacterial_taxonomy_sha256 == expected_sha256
+    assert manifest_entries[0].bacterial_taxonomy_rows == 1
+    assert manifest_entries[1].resolved_release == "96.0"
+    assert manifest_entries[1].bacterial_taxonomy_sha256 == DUMMY_SHA256
+    assert manifest_entries[1].bacterial_taxonomy_rows == 1
+    assert (data_root / "95.0" / "bac120_taxonomy_r95.tsv.gz").read_bytes() == (
+        payload95
+    )
+    assert not (data_root / "96.0").exists()
 
 
 def test_bootstrap_taxonomy_bundle_accepts_duplicate_identical_selected_checksum(

@@ -323,44 +323,52 @@ def write_taxonomy_bundle_manifest(
     """Write the extended GTDB bundling manifest to disk."""
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("w", encoding="ascii", newline="") as handle:
-        writer = csv.DictWriter(
-            handle,
-            delimiter="\t",
-            fieldnames=BUILD_MANIFEST_FIELDS,
-            lineterminator="\n",
-        )
-        writer.writeheader()
-        for entry in entries:
-            writer.writerow(
-                {
-                    "resolved_release": entry.resolved_release,
-                    "aliases": entry.aliases,
-                    "bacterial_taxonomy": serialise_manifest_value(
-                        entry.bacterial_taxonomy,
-                    ),
-                    "archaeal_taxonomy": serialise_manifest_value(
-                        entry.archaeal_taxonomy,
-                    ),
-                    "bacterial_taxonomy_sha256": serialise_manifest_value(
-                        entry.bacterial_taxonomy_sha256,
-                    ),
-                    "archaeal_taxonomy_sha256": serialise_manifest_value(
-                        entry.archaeal_taxonomy_sha256,
-                    ),
-                    "bacterial_taxonomy_rows": serialise_manifest_value(
-                        entry.bacterial_taxonomy_rows,
-                    ),
-                    "archaeal_taxonomy_rows": serialise_manifest_value(
-                        entry.archaeal_taxonomy_rows,
-                    ),
-                    "is_latest": entry.is_latest,
-                    "source_root_url": serialise_manifest_value(entry.source_root_url),
-                    "checksum_filename": serialise_manifest_value(
-                        entry.checksum_filename,
-                    ),
-                },
+    with TemporaryDirectory(
+        prefix=f".{manifest_path.stem}.write.",
+        dir=manifest_path.parent,
+    ) as temp_root:
+        temp_path = Path(temp_root) / manifest_path.name
+        with temp_path.open("w", encoding="ascii", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                delimiter="\t",
+                fieldnames=BUILD_MANIFEST_FIELDS,
+                lineterminator="\n",
             )
+            writer.writeheader()
+            for entry in entries:
+                writer.writerow(
+                    {
+                        "resolved_release": entry.resolved_release,
+                        "aliases": entry.aliases,
+                        "bacterial_taxonomy": serialise_manifest_value(
+                            entry.bacterial_taxonomy,
+                        ),
+                        "archaeal_taxonomy": serialise_manifest_value(
+                            entry.archaeal_taxonomy,
+                        ),
+                        "bacterial_taxonomy_sha256": serialise_manifest_value(
+                            entry.bacterial_taxonomy_sha256,
+                        ),
+                        "archaeal_taxonomy_sha256": serialise_manifest_value(
+                            entry.archaeal_taxonomy_sha256,
+                        ),
+                        "bacterial_taxonomy_rows": serialise_manifest_value(
+                            entry.bacterial_taxonomy_rows,
+                        ),
+                        "archaeal_taxonomy_rows": serialise_manifest_value(
+                            entry.archaeal_taxonomy_rows,
+                        ),
+                        "is_latest": entry.is_latest,
+                        "source_root_url": serialise_manifest_value(
+                            entry.source_root_url,
+                        ),
+                        "checksum_filename": serialise_manifest_value(
+                            entry.checksum_filename,
+                        ),
+                    },
+                )
+        temp_path.replace(manifest_path)
 
 
 def normalise_directory_url(directory_url: str) -> str:
@@ -646,6 +654,29 @@ def validate_bootstrap_entry(
         )
 
 
+def get_bootstrap_source_metadata(
+    entry: TaxonomyBundleEntry,
+    *,
+    allow_file_urls: bool = False,
+) -> tuple[str, str]:
+    """Return the validated source URL and checksum filename for one entry."""
+
+    validate_bootstrap_entry(entry, allow_file_urls=allow_file_urls)
+    source_root_url = entry.source_root_url
+    checksum_filename = entry.checksum_filename
+    if source_root_url is None:
+        raise TaxonomyBundleError(
+            f"Release {entry.resolved_release} is missing source_root_url in the "
+            "manifest. Run the refresh command first.",
+        )
+    if checksum_filename is None:
+        raise TaxonomyBundleError(
+            f"Release {entry.resolved_release} is missing checksum_filename in the "
+            "manifest. Run the refresh command first.",
+        )
+    return source_root_url, checksum_filename
+
+
 def describe_local_taxonomy_payload(path: Path | None) -> tuple[str | None, int | None]:
     """Return local taxonomy integrity details for one materialised payload."""
 
@@ -664,16 +695,30 @@ def refresh_runtime_integrity_entries(
     refreshed_entries: list[TaxonomyBundleEntry] = []
     for entry in entries:
         release_directory = data_root / entry.resolved_release
-        bacterial_sha256, bacterial_rows = describe_local_taxonomy_payload(
+        bacterial_path = (
             release_directory / entry.bacterial_taxonomy
             if entry.bacterial_taxonomy is not None
-            else None,
+            else None
         )
-        archaeal_sha256, archaeal_rows = describe_local_taxonomy_payload(
+        archaeal_path = (
             release_directory / entry.archaeal_taxonomy
             if entry.archaeal_taxonomy is not None
-            else None,
+            else None
         )
+        if bacterial_path is not None and bacterial_path.exists():
+            bacterial_sha256, bacterial_rows = describe_local_taxonomy_payload(
+                bacterial_path,
+            )
+        else:
+            bacterial_sha256 = entry.bacterial_taxonomy_sha256
+            bacterial_rows = entry.bacterial_taxonomy_rows
+        if archaeal_path is not None and archaeal_path.exists():
+            archaeal_sha256, archaeal_rows = describe_local_taxonomy_payload(
+                archaeal_path,
+            )
+        else:
+            archaeal_sha256 = entry.archaeal_taxonomy_sha256
+            archaeal_rows = entry.archaeal_taxonomy_rows
         refreshed_entries.append(
             TaxonomyBundleEntry(
                 resolved_release=entry.resolved_release,
@@ -690,6 +735,19 @@ def refresh_runtime_integrity_entries(
             ),
         )
     return tuple(refreshed_entries)
+
+
+def refresh_runtime_manifest(
+    manifest_path: Path,
+    entries: tuple[TaxonomyBundleEntry, ...],
+    data_root: Path,
+) -> None:
+    """Write one manifest refreshed from the currently materialised payloads."""
+
+    write_taxonomy_bundle_manifest(
+        manifest_path,
+        refresh_runtime_integrity_entries(entries, data_root),
+    )
 
 
 def swap_release_directories(
@@ -723,27 +781,21 @@ def bootstrap_manifest_entries(
     data_root: Path,
     logger: logging.Logger | None = None,
     *,
+    manifest_path: Path | None = None,
     allow_file_urls: bool = False,
 ) -> tuple[Path, ...]:
     """Materialise all configured taxonomy payloads under ``data_root``."""
 
     generated_paths: list[Path] = []
     for entry in entries:
-        validate_bootstrap_entry(entry, allow_file_urls=allow_file_urls)
-        if entry.source_root_url is None:
-            raise TaxonomyBundleError(
-                f"Release {entry.resolved_release} is missing source_root_url in "
-                "the manifest. Run the refresh command first.",
-            )
-        if entry.checksum_filename is None:
-            raise TaxonomyBundleError(
-                f"Release {entry.resolved_release} is missing checksum_filename "
-                "in the manifest. Run the refresh command first.",
-            )
+        source_root_url, checksum_filename = get_bootstrap_source_metadata(
+            entry,
+            allow_file_urls=allow_file_urls,
+        )
         release_directory = data_root / entry.resolved_release
         checksum_mapping = load_checksum_mapping(
-            entry.source_root_url,
-            entry.checksum_filename,
+            source_root_url,
+            checksum_filename,
         )
         with TemporaryDirectory(
             prefix=f".{entry.resolved_release}.bootstrap.",
@@ -763,18 +815,20 @@ def bootstrap_manifest_entries(
                 else None
             )
             materialise_taxonomy_file(
-                entry.source_root_url,
+                source_root_url,
                 entry.bacterial_taxonomy,
                 bacterial_target,
                 checksum_mapping,
             )
             materialise_taxonomy_file(
-                entry.source_root_url,
+                source_root_url,
                 entry.archaeal_taxonomy,
                 archaeal_target,
                 checksum_mapping,
             )
             swap_release_directories(staged_release_directory, release_directory)
+        if manifest_path is not None:
+            refresh_runtime_manifest(manifest_path, entries, data_root)
         if logger is not None:
             logger.info("Bootstrapped release %s", entry.resolved_release)
         for generated_path in (
@@ -804,10 +858,7 @@ def bootstrap_taxonomy_bundle(
         entries,
         data_root=data_root,
         logger=logger,
+        manifest_path=manifest_path,
         allow_file_urls=allow_file_urls,
-    )
-    write_taxonomy_bundle_manifest(
-        manifest_path,
-        refresh_runtime_integrity_entries(entries, data_root),
     )
     return generated_paths
