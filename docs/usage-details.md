@@ -191,6 +191,11 @@ otherwise collide.
     the final accession or accession set when the failed step has a known final
     outcome, stage, retry counters, redacted error message, and final failure
     status
+  - preview retry attempts are written here when planning later succeeds and
+    the real-run output tree is materialised
+  - if preview exhausts retries during planning, the workflow exits `5` before
+    creating the output tree, so those planning-abort preview failures are
+    log-only
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - one row per accession assigned to that taxon
   - records lineage, accession mapping, output path, and whether the accession
