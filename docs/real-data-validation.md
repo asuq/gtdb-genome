@@ -100,13 +100,16 @@ This downloads the GTDB taxonomy payloads from the pinned HTTPS UQ mirror
 metadata in `data/gtdb_taxonomy/releases.tsv`, verifies each source file against the
 release `MD5SUM` or `MD5SUM.txt` listing, and materialises the local
 `data/gtdb_taxonomy/<release>/*.tsv.gz` runtime layout used by the source
-checkout. That bootstrap authenticity boundary is limited by the upstream MD5
-listing; packaged runtime integrity uses the bundled local SHA-256 and
-row-count manifest.
+checkout. Run it before any source-checkout dry-run or real run. That bootstrap
+authenticity boundary is limited by the upstream MD5 listing; packaged runtime
+integrity uses the bundled local SHA-256 and row-count manifest.
 
 Optional environment:
 
 - `NCBI_API_KEY` for metadata-heavy cases such as `B2` and `B6`
+- `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to cases without
+  `--ncbi-api-key`; API-key cases are left unchanged because upstream
+  `datasets` debug output can print the raw API-key header
 
 The local runner passes `NCBI_API_KEY` to the CLI as `--ncbi-api-key` for the
 cases that provide it.
@@ -124,8 +127,9 @@ Local environment notes:
 - the documented `A*` release-coverage dry-runs and all `B*` cases require
   outbound DNS and network access to
   `api.ncbi.nlm.nih.gov`
-- the default runner does not add `--debug` to `A6`, because upstream
-  `datasets` debug output can print the raw API-key header
+- the default runner leaves `--debug` off unless `REAL_DATA_DEBUG_SAFE=1` is
+  set, and that helper still skips API-key cases because upstream `datasets`
+  debug output can print the raw API-key header
 
 ## Remote Prerequisites
 
@@ -292,8 +296,9 @@ Optional environment:
 - `RUN_OPTIONAL_LARGE=1` to include the optional `C7` stress case
 - `REAL_DATA_PYTHON_FAULTHANDLER=1` to prefix remote case commands with
   `PYTHONFAULTHANDLER=1`
-- `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to no-key cases such as
-  `C1`, `C4`, and `C6`
+- `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to cases without
+  `--ncbi-api-key`; API-key cases are left unchanged to avoid exposing the key
+  in upstream debug output
 
 `C5` runs without `NCBI_API_KEY` and uses it opportunistically when present.
 
@@ -338,6 +343,10 @@ export REAL_DATA_PYTHON_FAULTHANDLER=1
 export REAL_DATA_DEBUG_SAFE=1
 bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh C1
 ```
+
+When `REAL_DATA_DEBUG_SAFE=1` is set, the helper adds `--debug` only to
+cases that do not pass `--ncbi-api-key`. API-key cases are intentionally left
+without debug so the upstream `datasets` banner cannot echo the secret header.
 
 Then compare:
 

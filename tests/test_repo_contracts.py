@@ -511,6 +511,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "draft Bioconda recipe template",
             "packaging/bioconda/meta.yaml.template",
             "quarantined until a tagged release archive and final SHA256 are available",
+            "polars >=1.31.0,<2.0.0",
             '--gtdb-taxon "p__Pseudomonadota" "c__Alphaproteobacteria"',
         ),
     )
@@ -519,6 +520,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         (
             "pending a tagged source release",
             "draft template",
+            "`polars >=1.31.0,<2.0.0`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
             "packaged-runtime",
@@ -628,6 +630,9 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert f"`{unzip_policy.display_name} {unzip_policy.supported_range}`" in (
         Path("docs/real-data-validation.md").read_text(encoding="utf-8")
     )
+    assert "REAL_DATA_DEBUG_SAFE=1" in Path(
+        "docs/real-data-validation.md",
+    ).read_text(encoding="utf-8")
 
     bioconda_text = Path("packaging/bioconda/meta.yaml.template").read_text(
         encoding="utf-8",
@@ -643,6 +648,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         bioconda_text,
         (
             "--no-build-isolation",
+            "polars >=1.31.0,<2.0.0",
             "- ncbi-datasets-cli",
             "resolve_and_validate_release('latest')",
         ),
@@ -654,6 +660,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "draft recipe template",
             "quarantined",
             "final `sha256`",
+            "polars >=1.31.0,<2.0.0",
         ),
     )
     assert_contains_all(
@@ -703,6 +710,7 @@ def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists()
     assert "https://github.com/asuq/gtdb-genomes/blob/main/README.md" in (
         bioconda_text
     )
+    assert "polars >=1.31.0,<2.0.0" in bioconda_text
     assert f"- {unzip_policy.display_name} {unzip_policy.supported_range}" in (
         bioconda_text
     )

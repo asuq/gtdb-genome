@@ -24,6 +24,7 @@ not yet a public installation path.
 
 The packaged runtime is validated against:
 
+- `polars >=1.31.0,<2.0.0`
 - `ncbi-datasets-cli >=18.4.0,<18.22.0`
 - `unzip >=6.0,<7.0`
 
@@ -171,9 +172,10 @@ A Git checkout tracks only `data/gtdb_taxonomy/releases.tsv`. The bootstrap
 step downloads the configured taxonomy files from the HTTPS UQ mirror recorded
 in the manifest, verifies them against the published `MD5SUM` listing, and
 materialises the local `data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by
-a source checkout and source build. That bootstrap authenticity boundary is
-therefore limited by the upstream MD5 listing; packaged runtime integrity uses
-the bundled local SHA-256 and row-count manifest instead.
+a source checkout and source build. Run that bootstrap step before any source
+checkout CLI invocation. The bootstrap authenticity boundary is therefore
+limited by the upstream MD5 listing; packaged runtime integrity uses the
+bundled local SHA-256 and row-count manifest instead.
 
 `uv` is a development tool only. Packaged runtime use should not depend on it.
 
