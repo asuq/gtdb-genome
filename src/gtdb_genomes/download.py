@@ -39,11 +39,20 @@ class PreviewError(Exception):
     """Raised when the datasets preview command fails or cannot be parsed."""
 
     message: str
+    failures: tuple["CommandFailureRecord", ...] = ()
 
     def __str__(self) -> str:
         """Return the human-readable exception message."""
 
         return self.message
+
+
+@dataclass(slots=True)
+class PreviewCommandResult:
+    """Structured preview output plus preserved retry provenance."""
+
+    preview_text: str
+    failures: tuple["CommandFailureRecord", ...]
 
 
 @dataclass(slots=True)
@@ -215,8 +224,8 @@ def run_preview_command(
     debug: bool = False,
     sleep_func: Callable[[float], None] = time.sleep,
     runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
-) -> str:
-    """Run `datasets --preview` and return its raw stdout."""
+) -> PreviewCommandResult:
+    """Run `datasets --preview` and return its output plus retry history."""
 
     command = build_preview_command(
         accession_file,
@@ -232,13 +241,16 @@ def run_preview_command(
         runner=runner,
     )
     if result.succeeded:
-        return result.stdout
+        return PreviewCommandResult(
+            preview_text=result.stdout,
+            failures=result.failures,
+        )
     error_message = result.stderr.strip() or result.stdout.strip()
     if not error_message and result.failures:
         error_message = result.failures[-1].error_message
     if not error_message:
         error_message = "datasets preview failed"
-    raise PreviewError(error_message)
+    raise PreviewError(error_message, failures=result.failures)
 
 
 def build_rehydrate_command(
@@ -305,7 +317,7 @@ def parse_preview_size_bytes(preview_text: str) -> int | None:
         preview_text,
     )
     if labelled_matches:
-        return max(
+        return sum(
             int(float(size_value) * SIZE_UNITS[size_unit.upper()])
             for size_value, size_unit in labelled_matches
         )
@@ -437,4 +449,4 @@ def run_retryable_command(
             stderr=stderr,
             failures=tuple(failures),
         )
-    raise AssertionError("retry loop terminated unexpectedly")
+    raise RuntimeError("Internal error: retry loop terminated unexpectedly")

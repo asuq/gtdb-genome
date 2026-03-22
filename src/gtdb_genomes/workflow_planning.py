@@ -14,6 +14,7 @@ import polars as pl
 from gtdb_genomes.download import (
     CommandFailureRecord,
     DEFAULT_REQUESTED_DOWNLOAD_METHOD,
+    PreviewCommandResult,
     build_preview_command,
     get_ordered_unique_accessions,
     run_preview_command,
@@ -400,12 +401,25 @@ def resolve_supported_accession_preferences(
 # Automatic method planning.
 
 
+def normalise_preview_command_result(
+    preview_result: PreviewCommandResult | str,
+) -> PreviewCommandResult:
+    """Return a structured preview result for real runs and test doubles."""
+
+    if isinstance(preview_result, PreviewCommandResult):
+        return preview_result
+    return PreviewCommandResult(
+        preview_text=preview_result,
+        failures=(),
+    )
+
+
 def plan_supported_downloads(
     supported_mapped_frame: pl.DataFrame,
     args: CliArgs,
     logger: logging.Logger,
     secrets: tuple[str, ...],
-) -> tuple[tuple[AccessionPlan, ...], str]:
+) -> tuple[tuple[AccessionPlan, ...], str, tuple[SharedFailureContext, ...]]:
     """Build supported-accession plans and resolve the effective method."""
 
     accession_plans = build_accession_plans(
@@ -414,10 +428,13 @@ def plan_supported_downloads(
         version_latest=args.version_latest,
     )
     if not accession_plans:
-        return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD
+        return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD, ()
 
     preview_accessions = get_ordered_unique_accessions(
         plan.download_request_accession for plan in accession_plans
+    )
+    preview_original_accessions = build_original_accession_scope(
+        tuple(plan.original_accession for plan in accession_plans),
     )
     with create_staging_directory("gtdb_genomes_preview_") as preview_directory:
         preview_accession_file = write_accession_input_file(
@@ -431,19 +448,30 @@ def plan_supported_downloads(
             debug=args.debug,
         )
         logger.debug("Running %s", redact_command(preview_command, secrets))
-        preview_text = run_preview_command(
-            preview_accession_file,
-            args.include,
-            ncbi_api_key=args.ncbi_api_key,
-            debug=args.debug,
+        preview_result = normalise_preview_command_result(
+            run_preview_command(
+                preview_accession_file,
+                args.include,
+                ncbi_api_key=args.ncbi_api_key,
+                debug=args.debug,
+            ),
         )
 
     decision = select_download_method(
         DEFAULT_REQUESTED_DOWNLOAD_METHOD,
         len(preview_accessions),
-        preview_text=preview_text,
+        preview_text=preview_result.preview_text,
     )
-    return accession_plans, decision.method_used
+    preview_shared_failures: tuple[SharedFailureContext, ...] = ()
+    if preview_result.failures:
+        preview_shared_failures = (
+            build_shared_failure_context(
+                preview_original_accessions,
+                preview_result.failures,
+                ";".join(preview_accessions),
+            ),
+        )
+    return accession_plans, decision.method_used, preview_shared_failures
 
 
 def prepare_planning_inputs(
@@ -482,11 +510,14 @@ def prepare_planning_inputs(
         ],
         how="vertical",
     )
-    accession_plans, decision_method = plan_supported_downloads(
+    accession_plans, decision_method, preview_shared_failures = plan_supported_downloads(
         supported_mapped_frame,
         args,
         logger,
         secrets,
+    )
+    planning_shared_failures = (
+        metadata_shared_failures + preview_shared_failures
     )
     logger.info(
         "Automatic planning selected %s for %d supported accession(s)",
@@ -495,7 +526,7 @@ def prepare_planning_inputs(
     )
     return (
         mapped_frame,
-        metadata_shared_failures,
+        planning_shared_failures,
         suppressed_notes,
         accession_plans,
         decision_method,

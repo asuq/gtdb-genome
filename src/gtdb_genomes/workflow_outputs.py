@@ -354,7 +354,7 @@ def build_shared_failure_rows(
 def build_failure_rows(
     enriched_rows: list[EnrichedOutputRow],
     executions: dict[str, AccessionExecution],
-    metadata_shared_failures: tuple[SharedFailureContext, ...],
+    planning_shared_failures: tuple[SharedFailureContext, ...],
     shared_failures: tuple[SharedFailureContext, ...],
     secrets: tuple[str, ...],
     suppressed_notes: dict[str, SuppressedAccessionNote] | None = None,
@@ -372,7 +372,7 @@ def build_failure_rows(
     for row in enriched_rows:
         rows_by_accession[row["ncbi_accession"]].append(row)
 
-    for shared_failure in metadata_shared_failures + shared_failures:
+    for shared_failure in planning_shared_failures + shared_failures:
         scoped_rows = [
             row
             for accession in shared_failure.affected_original_accessions
@@ -505,7 +505,9 @@ def build_enriched_output_rows(
                 )
                 payload_directory = executions[row["ncbi_accession"]].payload_directory
                 if payload_directory is None:
-                    raise AssertionError("successful accessions must have payloads")
+                    raise RuntimeError(
+                        "Internal error: successful accessions must have payloads",
+                    )
                 copy_accession_payload(payload_directory, destination_directory)
                 row["output_relpath"] = str(
                     destination_directory.relative_to(run_directories.output_root),
@@ -582,7 +584,7 @@ def materialise_real_run_outputs(
     started_at: str,
     resolution: ReleaseResolution,
     mapped_frame: pl.DataFrame,
-    metadata_shared_failures: tuple[SharedFailureContext, ...],
+    planning_shared_failures: tuple[SharedFailureContext, ...],
     execution_result: DownloadExecutionResult,
     unsupported_executions: dict[str, AccessionExecution],
     secrets: tuple[str, ...],
@@ -611,7 +613,7 @@ def materialise_real_run_outputs(
             **execution_result.executions,
             **unsupported_executions,
         },
-        metadata_shared_failures,
+        planning_shared_failures,
         execution_result.shared_failures,
         secrets,
         suppressed_notes=suppressed_notes,

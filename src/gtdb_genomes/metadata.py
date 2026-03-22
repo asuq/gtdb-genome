@@ -331,7 +331,9 @@ def run_summary_lookup_with_retries(
             ),
         )
         raise MetadataLookupError(error_message, failures=tuple(failures))
-    raise AssertionError("metadata retry loop terminated unexpectedly")
+    raise RuntimeError(
+        "Internal error: metadata retry loop terminated unexpectedly",
+    )
 
 
 def extract_structured_accessions(payload: object) -> set[str]:

@@ -174,6 +174,14 @@ def test_parse_preview_size_bytes_prefers_package_or_download_size() -> None:
     assert parse_preview_size_bytes(preview) == int(850 * 1024**2)
 
 
+def test_parse_preview_size_bytes_sums_multiple_labelled_sizes() -> None:
+    """Preview parsing should sum multiple labelled size rows conservatively."""
+
+    preview = "Package size: 8.0 GB\nDownload size: 8.0 GB\n"
+
+    assert parse_preview_size_bytes(preview) == int(16.0 * 1024**3)
+
+
 def test_parse_preview_size_bytes_accepts_json_preview_output() -> None:
     """Preview parsing should accept JSON output from datasets preview."""
 
@@ -376,6 +384,7 @@ def test_preview_command_uses_full_retry_budget(
 ) -> None:
     """Preview should retry network failures three times before raising."""
 
+    del monkeypatch
     attempts = iter([1, 1, 1, 1])
 
     def fake_run(
@@ -394,10 +403,56 @@ def test_preview_command_uses_full_retry_budget(
             stderr="preview failed",
         )
 
-    with pytest.raises(PreviewError, match="preview failed"):
+    with pytest.raises(PreviewError, match="preview failed") as error_info:
         run_preview_command(
             COMMAND_TEST_ACCESSION_FILE,
             "genome",
             sleep_func=lambda delay: None,
             runner=fake_run,
         )
+    assert [failure.final_status for failure in error_info.value.failures] == [
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_exhausted",
+    ]
+
+
+def test_preview_command_returns_retry_history_after_success() -> None:
+    """Preview should preserve earlier retry failures when a later attempt works."""
+
+    attempts = iter([1, 0])
+    sleep_calls: list[float] = []
+    observed_attempts: list[int] = []
+
+    def runner(
+        command: list[str],
+        capture_output: bool,
+        text: bool,
+        check: bool,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Return one transient preview failure before a successful response."""
+
+        return_code = next(attempts)
+        observed_attempts.append(return_code)
+        return subprocess.CompletedProcess(
+            command,
+            return_code,
+            stdout="Package size: 1.0 GB\n" if return_code == 0 else "",
+            stderr="" if return_code == 0 else "preview failed",
+        )
+
+    result = run_preview_command(
+        COMMAND_TEST_ACCESSION_FILE,
+        "genome",
+        sleep_func=sleep_calls.append,
+        runner=runner,
+    )
+
+    assert result.preview_text == "Package size: 1.0 GB\n"
+    assert sleep_calls == [5]
+    assert observed_attempts == [1, 0]
+    assert len(result.failures) == 1
+    assert result.failures[0].stage == "preview"
+    assert result.failures[0].final_status == "retry_scheduled"

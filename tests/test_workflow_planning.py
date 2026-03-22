@@ -17,6 +17,7 @@ from gtdb_genomes.metadata import (
 from gtdb_genomes.workflow_execution import SharedFailureContext
 from gtdb_genomes.workflow_planning import (
     build_suppressed_accession_notes,
+    prepare_planning_inputs,
     resolve_supported_accession_preferences,
 )
 from tests.workflow_contract_helpers import build_cli_args
@@ -545,3 +546,103 @@ def test_build_suppressed_accession_notes_prefers_selected_accession_status() ->
 
     assert notes["GCF_000001.1"].selected_accession == "GCA_000001.3"
     assert notes["GCF_000001.1"].suppression_reason == "removed by submitter"
+
+
+def test_prepare_planning_inputs_combines_metadata_and_preview_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Planning should preserve both metadata and preview shared failures."""
+
+    supported_selected_frame = pl.DataFrame(
+        {
+            "requested_taxon": ["g__Escherichia"],
+            "taxon_slug": ["g__Escherichia"],
+            "gtdb_accession": ["RS_GCF_000001.1"],
+            "ncbi_accession": ["GCF_000001.1"],
+            "lineage": ["d__Bacteria;p__Proteobacteria;g__Escherichia"],
+            "taxonomy_file": ["bac120_taxonomy_r95.tsv"],
+        },
+    )
+    mapped_frame = supported_selected_frame.with_columns(
+        pl.lit("GCF_000001.1").alias("final_accession"),
+        pl.lit("GCF").alias("accession_type_original"),
+        pl.lit("GCF").alias("accession_type_final"),
+        pl.lit("unchanged_original").alias("conversion_status"),
+    )
+    metadata_shared_failures = (
+        SharedFailureContext(
+            affected_original_accessions=("GCF_000001.1",),
+            failures=(
+                CommandFailureRecord(
+                    stage="metadata_lookup",
+                    attempt_index=1,
+                    max_attempts=4,
+                    error_type="metadata_lookup",
+                    error_message="temporary metadata failure",
+                    final_status="retry_scheduled",
+                    attempted_accession="GCF_000001.1",
+                ),
+            ),
+        ),
+    )
+    preview_shared_failures = (
+        SharedFailureContext(
+            affected_original_accessions=("GCF_000001.1",),
+            failures=(
+                CommandFailureRecord(
+                    stage="preview",
+                    attempt_index=1,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="temporary preview failure",
+                    final_status="retry_scheduled",
+                    attempted_accession="GCF_000001.1",
+                ),
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.resolve_supported_accession_preferences",
+        lambda *args, **kwargs: (
+            mapped_frame,
+            metadata_shared_failures,
+            {},
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.plan_supported_downloads",
+        lambda *args, **kwargs: (
+            (),
+            "direct",
+            preview_shared_failures,
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.build_unsupported_accession_frame",
+        lambda frame: mapped_frame.head(0),
+    )
+
+    (
+        prepared_frame,
+        planning_shared_failures,
+        suppressed_notes,
+        accession_plans,
+        decision_method,
+    ) = prepare_planning_inputs(
+        supported_selected_frame,
+        pl.DataFrame(),
+        build_cli_args(tmp_path / "output"),
+        logging.getLogger("test-planning-shared-failure-merge"),
+        (),
+    )
+
+    assert prepared_frame.equals(mapped_frame)
+    assert planning_shared_failures == (
+        metadata_shared_failures[0],
+        preview_shared_failures[0],
+    )
+    assert suppressed_notes == {}
+    assert accession_plans == ()
+    assert decision_method == "direct"
