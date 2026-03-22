@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 import csv
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 import shutil
+import stat
 import subprocess
+import zipfile
 
 from gtdb_genomes.subprocess_utils import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -127,6 +130,7 @@ TAXON_ACCESSION_COLUMNS = (
     "download_status",
     "duplicate_across_taxa",
 )
+WINDOWS_DRIVE_ROOT_PATTERN = re.compile(r"^[A-Za-z]:($|[\\/])")
 
 
 def initialise_run_directories(output_root: Path) -> RunDirectories:
@@ -166,6 +170,66 @@ def build_unzip_command(archive_path: Path, destination: Path) -> list[str]:
     ]
 
 
+def normalise_archive_member_name(member_name: str) -> str:
+    """Normalise one archive member name for path-safety checks."""
+
+    return member_name.replace("\\", "/")
+
+
+def validate_archive_member_name(member_name: str) -> None:
+    """Reject archive members whose names escape the extraction root."""
+
+    if not member_name.strip():
+        raise LayoutError("Archive contains an empty member name")
+    normalised_name = normalise_archive_member_name(member_name)
+    if normalised_name.startswith("/"):
+        raise LayoutError(
+            f"Archive contains an absolute member path: {member_name}",
+        )
+    if WINDOWS_DRIVE_ROOT_PATTERN.match(member_name):
+        raise LayoutError(
+            f"Archive contains a drive-rooted member path: {member_name}",
+        )
+    if any(part == ".." for part in PurePosixPath(normalised_name).parts):
+        raise LayoutError(
+            f"Archive contains a parent-traversing member path: {member_name}",
+        )
+
+
+def validate_archive_member_type(member_info: zipfile.ZipInfo) -> None:
+    """Reject symlinks and other non-regular archive member types."""
+
+    if member_info.is_dir():
+        return
+    mode = (member_info.external_attr >> 16) & 0o777777
+    file_type = stat.S_IFMT(mode)
+    if mode == 0 or file_type in (0, stat.S_IFREG):
+        return
+    if file_type == stat.S_IFLNK:
+        raise LayoutError(
+            f"Archive contains an unsupported symbolic link member: "
+            f"{member_info.filename}",
+        )
+    raise LayoutError(
+        f"Archive contains an unsupported non-regular member: "
+        f"{member_info.filename}",
+    )
+
+
+def validate_archive_members(archive_path: Path) -> None:
+    """Validate all member paths and types before extraction."""
+
+    try:
+        with zipfile.ZipFile(archive_path) as handle:
+            for member_info in handle.infolist():
+                validate_archive_member_name(member_info.filename)
+                validate_archive_member_type(member_info)
+    except (FileNotFoundError, zipfile.BadZipFile) as error:
+        raise LayoutError(
+            f"Could not inspect archive members in {archive_path}: {error}",
+        ) from error
+
+
 def extract_archive(
     archive_path: Path,
     destination: Path,
@@ -173,6 +237,7 @@ def extract_archive(
 ) -> Path:
     """Extract one datasets zip archive into the destination directory."""
 
+    validate_archive_members(archive_path)
     destination.mkdir(parents=True, exist_ok=True)
     command = build_unzip_command(archive_path, destination)
     try:

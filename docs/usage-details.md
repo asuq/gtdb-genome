@@ -309,15 +309,16 @@ Fixed TSV columns:
     `download_method_used`, `download_batch`, `output_relpath`,
     `download_status`
   - `ncbi_accession` records the original requested accession, while
-    `download_request_accession` records the exact token passed to `datasets`.
-    `final_accession` is the realised versioned accession from the extracted
-    payload on successful downloads.
+    `download_request_accession` records the terminal exact token passed to
+    `datasets` for that row. `final_accession` is the realised versioned
+    accession from the extracted payload on successful downloads.
 - `download_failures.tsv`
   - `requested_taxon`, `taxon_slug`, `gtdb_accession`,
     `attempted_accession`, `final_accession`, `stage`, `attempt_index`,
     `max_attempts`, `error_type`, `error_message_redacted`, `final_status`
   - `attempted_accession` is failure-path provenance and records the exact
-    token or semicolon-joined accession set passed to `datasets`.
+    token or semicolon-joined accession set passed to `datasets`, including
+    earlier preferred-accession attempts before fallback.
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - `requested_taxon`, `taxon_slug`, `lineage`, `gtdb_accession`,
     `ncbi_accession`, `selected_accession`, `download_request_accession`,
@@ -349,10 +350,11 @@ the local runtime payload with:
 uv run python -m gtdb_genomes.bootstrap_taxonomy
 ```
 
-The bootstrap step downloads the configured taxonomy files from the UQ mirror
-release directory recorded in `releases.tsv`, verifies each source file against
-the release `MD5SUM` or `MD5SUM.txt` listing, and materialises the local
-`.tsv.gz` runtime layout.
+The bootstrap step downloads the configured taxonomy files from the HTTPS UQ
+mirror release directory recorded in `releases.tsv`, verifies each source file
+against the release `MD5SUM` or `MD5SUM.txt` listing, and materialises the
+local `.tsv.gz` runtime layout. That source-checkout bootstrap authenticity
+boundary is limited by the upstream-published MD5 listing.
 
 Maintainers can refresh the build-only mirror metadata for the existing release
 rows with:
@@ -364,7 +366,9 @@ uv run python -m gtdb_genomes.refresh_taxonomy_manifest
 Built wheels, sdists, and Conda packages already include the generated taxonomy
 payload, so installed package runtimes remain offline and do not need a
 post-install bootstrap step. Missing taxonomy for a requested release is
-treated as a local bootstrap or packaging error.
+treated as a local bootstrap or packaging error. Packaged runtime integrity is
+validated locally from the bundled SHA-256 and expected row counts recorded in
+`releases.tsv`.
 
 Published distribution archives include MIT-licensed project code plus bundled
 GTDB taxonomy data under CC BY-SA 4.0. The bundled taxonomy payload is shipped

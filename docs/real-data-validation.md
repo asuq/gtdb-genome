@@ -96,11 +96,13 @@ Required bootstrap step:
 uv run python -m gtdb_genomes.bootstrap_taxonomy
 ```
 
-This downloads the GTDB taxonomy payloads from the pinned UQ mirror metadata in
-`data/gtdb_taxonomy/releases.tsv`, verifies each source file against the
+This downloads the GTDB taxonomy payloads from the pinned HTTPS UQ mirror
+metadata in `data/gtdb_taxonomy/releases.tsv`, verifies each source file against the
 release `MD5SUM` or `MD5SUM.txt` listing, and materialises the local
 `data/gtdb_taxonomy/<release>/*.tsv.gz` runtime layout used by the source
-checkout.
+checkout. That bootstrap authenticity boundary is limited by the upstream MD5
+listing; packaged runtime integrity uses the bundled local SHA-256 and
+row-count manifest.
 
 Optional environment:
 

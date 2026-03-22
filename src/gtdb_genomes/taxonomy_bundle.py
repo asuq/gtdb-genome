@@ -617,7 +617,11 @@ def materialise_taxonomy_file(
     )
 
 
-def validate_bootstrap_entry(entry: TaxonomyBundleEntry) -> None:
+def validate_bootstrap_entry(
+    entry: TaxonomyBundleEntry,
+    *,
+    allow_file_urls: bool = False,
+) -> None:
     """Validate that one manifest row contains the source metadata bootstrap needs."""
 
     if entry.source_root_url is None:
@@ -625,6 +629,12 @@ def validate_bootstrap_entry(entry: TaxonomyBundleEntry) -> None:
             f"Release {entry.resolved_release} is missing source_root_url in the "
             "manifest. Run the refresh command first.",
         )
+    if not entry.source_root_url.startswith("https://"):
+        if not allow_file_urls or not entry.source_root_url.startswith("file://"):
+            raise TaxonomyBundleError(
+                f"Release {entry.resolved_release} must use an HTTPS "
+                f"source_root_url, got {entry.source_root_url!r}",
+            )
     if entry.checksum_filename is None:
         raise TaxonomyBundleError(
             f"Release {entry.resolved_release} is missing checksum_filename in the "
@@ -708,12 +718,14 @@ def bootstrap_manifest_entries(
     entries: tuple[TaxonomyBundleEntry, ...],
     data_root: Path,
     logger: logging.Logger | None = None,
+    *,
+    allow_file_urls: bool = False,
 ) -> tuple[Path, ...]:
     """Materialise all configured taxonomy payloads under ``data_root``."""
 
     generated_paths: list[Path] = []
     for entry in entries:
-        validate_bootstrap_entry(entry)
+        validate_bootstrap_entry(entry, allow_file_urls=allow_file_urls)
         assert entry.source_root_url is not None
         assert entry.checksum_filename is not None
         release_directory = data_root / entry.resolved_release
@@ -770,11 +782,18 @@ def bootstrap_taxonomy_bundle(
     manifest_path: Path,
     data_root: Path,
     logger: logging.Logger | None = None,
+    *,
+    allow_file_urls: bool = False,
 ) -> tuple[Path, ...]:
     """Download and materialise all manifest-configured taxonomy payloads."""
 
     entries = load_taxonomy_bundle_manifest(manifest_path)
-    generated_paths = bootstrap_manifest_entries(entries, data_root=data_root, logger=logger)
+    generated_paths = bootstrap_manifest_entries(
+        entries,
+        data_root=data_root,
+        logger=logger,
+        allow_file_urls=allow_file_urls,
+    )
     write_taxonomy_bundle_manifest(
         manifest_path,
         refresh_runtime_integrity_entries(entries, data_root),

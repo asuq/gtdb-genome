@@ -14,10 +14,12 @@ from gtdb_genomes.release_resolver import (
 )
 from gtdb_genomes.taxonomy_bundle import (
     BOOTSTRAP_COMMAND,
+    TaxonomyBundleEntry,
     TaxonomyBundleError,
     bootstrap_taxonomy_bundle,
     compress_tsv_bytes,
     refresh_taxonomy_bundle_manifest,
+    validate_bootstrap_entry,
 )
 
 
@@ -315,7 +317,11 @@ def test_bootstrap_taxonomy_bundle_gzips_plain_tsv_payloads_deterministically(
     write_checksum_file(release_root, "MD5SUM", payloads)
     write_bytes(release_root / "bac_taxonomy_r80.tsv", bacterial_plain)
 
-    generated_paths = bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+    generated_paths = bootstrap_taxonomy_bundle(
+        manifest_path,
+        data_root=data_root,
+        allow_file_urls=True,
+    )
 
     output_path = data_root / "80.0" / "bac_taxonomy_r80.tsv.gz"
     assert generated_paths == (output_path,)
@@ -359,7 +365,11 @@ def test_bootstrap_taxonomy_bundle_preserves_upstream_gzip_payloads(
     write_checksum_file(source_root, "MD5SUM.txt", payloads)
     write_bytes(source_root / "ar53_taxonomy_r226.tsv.gz", archaeal_gzip)
 
-    bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+    bootstrap_taxonomy_bundle(
+        manifest_path,
+        data_root=data_root,
+        allow_file_urls=True,
+    )
 
     output_path = data_root / "226.0" / "ar53_taxonomy_r226.tsv.gz"
     assert output_path.read_bytes() == archaeal_gzip
@@ -404,7 +414,11 @@ def test_bootstrap_taxonomy_bundle_ignores_unrelated_duplicate_checksum_entries(
     )
     write_bytes(source_root / "bac120_taxonomy_r214.tsv.gz", bacterial_gzip)
 
-    bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+    bootstrap_taxonomy_bundle(
+        manifest_path,
+        data_root=data_root,
+        allow_file_urls=True,
+    )
 
     output_path = data_root / "214.0" / "bac120_taxonomy_r214.tsv.gz"
     assert output_path.read_bytes() == bacterial_gzip
@@ -436,7 +450,32 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_checksum_file(
     )
 
     with pytest.raises(TaxonomyBundleError, match="Could not read URL"):
-        bootstrap_taxonomy_bundle(manifest_path, data_root=manifest_path.parent)
+        bootstrap_taxonomy_bundle(
+            manifest_path,
+            data_root=manifest_path.parent,
+            allow_file_urls=True,
+        )
+
+
+def test_validate_bootstrap_entry_requires_https_source_root_url() -> None:
+    """Bootstrap entries should reject non-HTTPS source roots by default."""
+
+    entry = TaxonomyBundleEntry(
+        resolved_release="95.0",
+        aliases="95,95.0",
+        bacterial_taxonomy="bac120_taxonomy_r95.tsv.gz",
+        archaeal_taxonomy=None,
+        bacterial_taxonomy_sha256=DUMMY_SHA256,
+        archaeal_taxonomy_sha256=None,
+        bacterial_taxonomy_rows=1,
+        archaeal_taxonomy_rows=None,
+        is_latest="true",
+        source_root_url="http://example.org/release95/95.0/",
+        checksum_filename="MD5SUM",
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="must use an HTTPS source_root_url"):
+        validate_bootstrap_entry(entry)
 
 
 def test_bootstrap_taxonomy_bundle_rejects_unresolvable_source_from_checksum_map(
@@ -472,7 +511,11 @@ def test_bootstrap_taxonomy_bundle_rejects_unresolvable_source_from_checksum_map
     )
 
     with pytest.raises(TaxonomyBundleError, match="mirror source matching"):
-        bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+        bootstrap_taxonomy_bundle(
+            manifest_path,
+            data_root=data_root,
+            allow_file_urls=True,
+        )
 
 
 def test_bootstrap_taxonomy_bundle_rejects_checksum_mismatch(
@@ -513,7 +556,11 @@ def test_bootstrap_taxonomy_bundle_rejects_checksum_mismatch(
     write_bytes(source_root / "bac120_taxonomy_r95.tsv.gz", payload)
 
     with pytest.raises(TaxonomyBundleError, match="Checksum mismatch"):
-        bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+        bootstrap_taxonomy_bundle(
+            manifest_path,
+            data_root=data_root,
+            allow_file_urls=True,
+        )
 
 
 def test_bootstrap_taxonomy_bundle_preserves_existing_release_on_failure(
@@ -566,7 +613,11 @@ def test_bootstrap_taxonomy_bundle_preserves_existing_release_on_failure(
     )
 
     with pytest.raises(TaxonomyBundleError, match="staging failed"):
-        bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+        bootstrap_taxonomy_bundle(
+            manifest_path,
+            data_root=data_root,
+            allow_file_urls=True,
+        )
 
     assert sentinel_path.read_text(encoding="ascii") == "original\n"
     assert release_root.is_dir()
@@ -606,7 +657,11 @@ def test_bootstrap_taxonomy_bundle_accepts_duplicate_identical_selected_checksum
     write_checksum_lines(source_root, "MD5SUM", (line, line))
     write_bytes(source_root / "bac120_taxonomy_r95.tsv.gz", payload)
 
-    bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+    bootstrap_taxonomy_bundle(
+        manifest_path,
+        data_root=data_root,
+        allow_file_urls=True,
+    )
 
     output_path = data_root / "95.0" / "bac120_taxonomy_r95.tsv.gz"
     assert output_path.read_bytes() == payload
@@ -653,7 +708,11 @@ def test_bootstrap_taxonomy_bundle_rejects_conflicting_selected_checksum_entries
     write_bytes(source_root / "bac120_taxonomy_r95.tsv.gz", payload)
 
     with pytest.raises(TaxonomyBundleError, match="conflicting entries for selected source file"):
-        bootstrap_taxonomy_bundle(manifest_path, data_root=data_root)
+        bootstrap_taxonomy_bundle(
+            manifest_path,
+            data_root=data_root,
+            allow_file_urls=True,
+        )
 
 
 def test_bootstrap_taxonomy_bundle_requires_refreshed_source_metadata(
@@ -715,7 +774,11 @@ def test_bootstrap_taxonomy_bundle_rejects_missing_inferred_source_name(
     )
 
     with pytest.raises(TaxonomyBundleError, match="mirror source matching"):
-        bootstrap_taxonomy_bundle(manifest_path, data_root=manifest_path.parent)
+        bootstrap_taxonomy_bundle(
+            manifest_path,
+            data_root=manifest_path.parent,
+            allow_file_urls=True,
+        )
 
 
 def test_missing_taxonomy_error_recommends_bootstrap_command(

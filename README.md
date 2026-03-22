@@ -169,10 +169,12 @@ uv run gtdb-genomes --help
 ```
 
 A Git checkout tracks only `data/gtdb_taxonomy/releases.tsv`. The bootstrap
-step downloads the configured GTDB taxonomy files from the UQ mirror, verifies
-them against the release `MD5SUM` listing, and materialises the local
-`data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by a source checkout and
-source build.
+step downloads the configured taxonomy files from the HTTPS UQ mirror recorded
+in the manifest, verifies them against the published `MD5SUM` listing, and
+materialises the local `data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by
+a source checkout and source build. That bootstrap authenticity boundary is
+therefore limited by the upstream MD5 listing; packaged runtime integrity uses
+the bundled local SHA-256 and row-count manifest instead.
 
 `uv` is a development tool only. Packaged runtime use should not depend on it.
 
