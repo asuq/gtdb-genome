@@ -46,7 +46,11 @@ class CustomBuildHook(BuildHookInterface):
             git_revision=get_git_revision(),
         )
         force_include = build_data.setdefault("force_include", {})
-        assert isinstance(force_include, dict)
+        if not isinstance(force_include, dict):
+            raise RuntimeError(
+                "Build hook expected build_data['force_include'] to be a dict, "
+                f"got {type(force_include).__name__}",
+            )
         force_include[str(build_info_path)] = "gtdb_genomes/_build_info.json"
 
     def validate_bundled_taxonomy(self) -> None:

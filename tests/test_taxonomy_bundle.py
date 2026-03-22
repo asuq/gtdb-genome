@@ -16,8 +16,10 @@ from gtdb_genomes.taxonomy_bundle import (
     BOOTSTRAP_COMMAND,
     TaxonomyBundleEntry,
     TaxonomyBundleError,
+    bootstrap_manifest_entries,
     bootstrap_taxonomy_bundle,
     compress_tsv_bytes,
+    materialise_taxonomy_file,
     refresh_taxonomy_bundle_manifest,
     validate_bootstrap_entry,
 )
@@ -476,6 +478,59 @@ def test_validate_bootstrap_entry_requires_https_source_root_url() -> None:
 
     with pytest.raises(TaxonomyBundleError, match="must use an HTTPS source_root_url"):
         validate_bootstrap_entry(entry)
+
+
+def test_materialise_taxonomy_file_requires_checksum_value(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Materialisation should fail explicitly when the checksum is missing."""
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.resolve_source_name",
+        lambda target_name, available_filenames: "bac.tsv.gz",
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.get_checksum_for_source",
+        lambda source_name, checksum_mapping, source_root_url: None,
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="Checksum entry"):
+        materialise_taxonomy_file(
+            "https://example.org/release95/95.0/",
+            "bac.tsv.gz",
+            tmp_path / "bac.tsv.gz",
+            {"bac.tsv.gz": ("deadbeef",)},
+        )
+
+
+def test_bootstrap_manifest_entries_requires_source_metadata_even_after_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Bootstrap should raise explicit errors instead of relying on asserts."""
+
+    entry = TaxonomyBundleEntry(
+        resolved_release="95.0",
+        aliases=("95", "95.0"),
+        bacterial_taxonomy="bac.tsv.gz",
+        archaeal_taxonomy=None,
+        bacterial_taxonomy_sha256=None,
+        archaeal_taxonomy_sha256=None,
+        bacterial_taxonomy_rows=None,
+        archaeal_taxonomy_rows=None,
+        is_latest=True,
+        source_root_url=None,
+        checksum_filename=None,
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.validate_bootstrap_entry",
+        lambda entry, allow_file_urls=False: None,
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="missing source_root_url"):
+        bootstrap_manifest_entries((entry,), tmp_path)
 
 
 def test_bootstrap_taxonomy_bundle_rejects_unresolvable_source_from_checksum_map(

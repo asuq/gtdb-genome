@@ -602,7 +602,11 @@ def materialise_taxonomy_file(
         checksum_mapping,
         source_root_url,
     )
-    assert expected_checksum is not None
+    if expected_checksum is None:
+        raise TaxonomyBundleError(
+            f"Checksum entry for {source_name!r} is missing under "
+            f"{source_root_url}",
+        )
     data = read_url_bytes(source_url)
     verify_md5_checksum(data, expected_checksum, source_url)
     target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -726,8 +730,16 @@ def bootstrap_manifest_entries(
     generated_paths: list[Path] = []
     for entry in entries:
         validate_bootstrap_entry(entry, allow_file_urls=allow_file_urls)
-        assert entry.source_root_url is not None
-        assert entry.checksum_filename is not None
+        if entry.source_root_url is None:
+            raise TaxonomyBundleError(
+                f"Release {entry.resolved_release} is missing source_root_url in "
+                "the manifest. Run the refresh command first.",
+            )
+        if entry.checksum_filename is None:
+            raise TaxonomyBundleError(
+                f"Release {entry.resolved_release} is missing checksum_filename "
+                "in the manifest. Run the refresh command first.",
+            )
         release_directory = data_root / entry.resolved_release
         checksum_mapping = load_checksum_mapping(
             entry.source_root_url,

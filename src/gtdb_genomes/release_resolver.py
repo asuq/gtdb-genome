@@ -510,8 +510,11 @@ def validate_release_payload(resolution: ReleaseResolution) -> ReleaseResolution
     for path, expected_sha256, expected_row_count in file_entries:
         if path is None:
             continue
-        assert expected_sha256 is not None
-        assert expected_row_count is not None
+        if expected_sha256 is None or expected_row_count is None:
+            raise BundledDataError(
+                "Bundled release payload is missing integrity metadata for "
+                f"{path}",
+            )
         try:
             validate_taxonomy_file(
                 path,

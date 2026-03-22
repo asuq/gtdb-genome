@@ -14,10 +14,12 @@ from gtdb_genomes.bundled_data_validation import (
 from gtdb_genomes.cli import main
 from gtdb_genomes.release_resolver import (
     BundledDataError,
+    ReleaseResolution,
     get_release_manifest_path,
     load_release_manifest,
     resolve_and_validate_release,
     resolve_release,
+    validate_release_payload,
 )
 from gtdb_genomes.taxonomy import load_release_taxonomy
 
@@ -226,6 +228,31 @@ def test_resolve_and_validate_release_uses_local_taxonomy_files(
     assert resolution.resolved_release == "95.0"
     assert resolution.bacterial_taxonomy == release_dir / "bac.tsv.gz"
     assert resolution.archaeal_taxonomy == release_dir / "ar.tsv.gz"
+
+
+def test_validate_release_payload_requires_integrity_metadata(
+    tmp_path: Path,
+) -> None:
+    """Payload validation should fail explicitly when integrity metadata is missing."""
+
+    taxonomy_path = tmp_path / "95.0" / "bac.tsv.gz"
+    write_gzip_text(taxonomy_path, "RS_GCF_000001.1\tlineage\n")
+
+    resolution = ReleaseResolution(
+        requested_release="95",
+        resolved_release="95.0",
+        bacterial_taxonomy=taxonomy_path,
+        archaeal_taxonomy=None,
+        release_manifest_path=tmp_path / "releases.tsv",
+        release_manifest_sha256="0" * 64,
+        bacterial_taxonomy_sha256=None,
+        archaeal_taxonomy_sha256=None,
+        bacterial_taxonomy_rows=1,
+        archaeal_taxonomy_rows=None,
+    )
+
+    with pytest.raises(BundledDataError, match="integrity metadata is missing"):
+        validate_release_payload(resolution)
 
 
 def test_load_release_taxonomy_reads_gzipped_tables_and_keeps_logical_names(
