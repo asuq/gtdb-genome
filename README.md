@@ -1,7 +1,7 @@
 # gtdb-genomes
 
 [![Python >=3.12](https://img.shields.io/badge/python-%3E%3D3.12-3776AB.svg)](https://www.python.org/downloads/)
-[![Platform: Linux | macOS | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-4c8eda.svg)](https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml)
+[![Pytest: Linux | macOS | Windows](https://img.shields.io/badge/pytest-Linux%20%7C%20macOS%20%7C%20Windows-4c8eda.svg)](https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml)
 [![CI](https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml/badge.svg)](https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml)
 [![Live validation](https://github.com/asuq/gtdb-genomes/actions/workflows/live-validation.yml/badge.svg)](https://github.com/asuq/gtdb-genomes/actions/workflows/live-validation.yml)
 [![GitHub release](https://img.shields.io/github/v/release/asuq/gtdb-genomes)](https://github.com/asuq/gtdb-genomes/releases)
@@ -18,13 +18,9 @@ The detailed runtime contract, output layout, retry rules, and bundled-data note
 
 ## Installation
 
-Install from Bioconda:
-
-```bash
-mamba create -n gtdb-genomes -c conda-forge -c bioconda gtdb-genomes
-mamba activate gtdb-genomes
-gtdb-genomes --help
-```
+The first public Bioconda release is pending a tagged source release and
+verified source archive. The checked-in recipe remains a draft template and is
+not yet a public installation path.
 
 The packaged runtime is validated against:
 
@@ -34,9 +30,9 @@ The packaged runtime is validated against:
 The CLI checks these versions during preflight and exits with code `5` when
 the installed runtime falls outside this supported window.
 
-Bioconda installs the normal `gtdb-genomes` console entrypoint. Built wheels,
-sdists, and Conda packages already include the bundled GTDB taxonomy payload,
-so packaged installs do not need a post-install taxonomy bootstrap step.
+The pytest matrix runs on Linux, macOS, and Windows. Clean packaged-runtime
+and real-data validation currently run on Linux. For now, use the
+source-checkout workflow in Development And Packaging below.
 
 
 ## Quick Start
@@ -153,7 +149,7 @@ data notes, see [docs/usage-details.md](docs/usage-details.md).
 Supported workflows:
 
 - source-checkout development through `uv`
-- packaged runtime use through the Bioconda installation shown above
+- packaged wheel and sdist validation in CI on Linux
 - maintainer manifest refresh through
   `uv run python -m gtdb_genomes.refresh_taxonomy_manifest`
 - a draft Bioconda recipe template is kept at

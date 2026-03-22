@@ -473,8 +473,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Examples",
             "https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml/badge.svg",
             (
-                "[![Platform: Linux | macOS | Windows]"
-                "(https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-4c8eda.svg)]"
+                "[![Pytest: Linux | macOS | Windows]"
+                "(https://img.shields.io/badge/pytest-Linux%20%7C%20macOS%20%7C%20Windows-4c8eda.svg)]"
                 "(https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml)"
             ),
             (
@@ -500,7 +500,11 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
             "The CLI checks these versions during preflight",
-            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
+            "first public Bioconda release is pending a tagged source release",
+            "draft template",
+            "pytest matrix runs on Linux, macOS, and Windows",
+            "Clean packaged-runtime",
+            "real-data validation currently run on Linux",
             "uv sync --group dev",
             "draft Bioconda recipe template",
             "packaging/bioconda/meta.yaml.template",
@@ -511,17 +515,21 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert_contains_all(
         installation_text,
         (
-            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
-            "mamba activate gtdb-genomes",
-            "gtdb-genomes --help",
+            "pending a tagged source release",
+            "draft template",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
-            "do not need a post-install taxonomy bootstrap step",
+            "packaged-runtime",
+            "real-data validation currently run on Linux",
+            "source-checkout workflow in Development And Packaging below",
         ),
     )
     assert_not_contains_any(
         installation_text,
         (
+            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
+            "mamba activate gtdb-genomes",
+            "gtdb-genomes --help",
             "uv sync --group dev",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "uv run gtdb-genomes --help",
@@ -533,6 +541,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "uv sync --group dev",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "uv run gtdb-genomes --help",
+            "packaged wheel and sdist validation in CI on Linux",
             "data/gtdb_taxonomy/releases.tsv",
             "MD5SUM",
             "refresh_taxonomy_manifest",
@@ -576,6 +585,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "refresh_taxonomy_manifest",
             "--version-latest",
             "exact selected versioned accession",
+            "candidate metadata lookup fails or stays incomplete",
             "MD5SUM",
             "--threads",
         ),

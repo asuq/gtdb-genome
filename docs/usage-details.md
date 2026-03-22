@@ -62,6 +62,10 @@ gtdb-genomes \
     `datasets download genome accession --inputfile ... --filename ...` passes
   - direct mode retries only the still-unresolved request accessions in later
     batch passes
+  - if paired-`GCA_*` candidate metadata lookup fails or stays incomplete
+    during `--prefer-genbank` planning, the workflow falls back to the
+    original accession and records the corresponding metadata fallback status
+    plus metadata failure rows
   - if a preferred `GCA_*` request remains unresolved after its preferred
     direct passes, the workflow may fall back to the original accession and
     records `downloaded_after_fallback` plus
