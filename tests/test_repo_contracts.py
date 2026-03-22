@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from gtdb_genomes.preflight import SUPPORTED_TOOL_VERSIONS
+
 
 def get_venv_scripts_directory(venv_root: Path) -> Path:
     """Return the script directory for one virtual environment."""
@@ -301,6 +303,18 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
     )
     assert build_info["package_version"] == "0.1.0"
     assert "git_revision" in build_info
+    inspect_result = subprocess.run(
+        [
+            sys.executable,
+            str(fixture_root / "bin" / "inspect_built_artifacts.py"),
+            str(dist_root),
+        ],
+        cwd=fixture_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert inspect_result.returncode == 0, inspect_result.stderr
 
 
 def test_uv_build_rejects_manifest_only_source_fixture(tmp_path: Path) -> None:
@@ -573,6 +587,20 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "--no-prefer-genbank",
         ),
     )
+    datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
+    unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
+    assert f"`{datasets_policy.display_name} {datasets_policy.supported_range}`" in (
+        readme_text
+    )
+    assert f"`{unzip_policy.display_name} {unzip_policy.supported_range}`" in (
+        readme_text
+    )
+    assert f"`{datasets_policy.display_name} {datasets_policy.supported_range}`" in (
+        Path("docs/real-data-validation.md").read_text(encoding="utf-8")
+    )
+    assert f"`{unzip_policy.display_name} {unzip_policy.supported_range}`" in (
+        Path("docs/real-data-validation.md").read_text(encoding="utf-8")
+    )
 
     bioconda_text = Path("packaging/bioconda/meta.yaml.template").read_text(
         encoding="utf-8",
@@ -622,6 +650,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
 def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists() -> None:
     """The Bioconda draft recipe should stay quarantined until release metadata exists."""
 
+    datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
+    unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
     bioconda_template_path = Path("packaging/bioconda/meta.yaml.template")
     bioconda_text = bioconda_template_path.read_text(
         encoding="utf-8",
@@ -646,8 +676,12 @@ def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists()
     assert "https://github.com/asuq/gtdb-genomes/blob/main/README.md" in (
         bioconda_text
     )
-    assert "- unzip >=6.0,<7.0" in bioconda_text
-    assert "- ncbi-datasets-cli >=18.4.0,<18.22.0" in bioconda_text
+    assert f"- {unzip_policy.display_name} {unzip_policy.supported_range}" in (
+        bioconda_text
+    )
+    assert f"- {datasets_policy.display_name} {datasets_policy.supported_range}" in (
+        bioconda_text
+    )
     assert "recipe-maintainers:" in bioconda_text
     assert "- asuq" in bioconda_text
     assert (
@@ -774,6 +808,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "bin/run-real-data-tests-local.sh B1 B2 B3 B4 B5 B6",
             "bin/run-real-data-tests-remote.sh C1 C2 C3 C4 C5 C6",
             "uv build",
+            "python bin/inspect_built_artifacts.py dist",
             "actions/download-artifact@v7",
             "micromamba run -n gtdb-genome-runtime",
             "python -m pip install --force-reinstall dist/*.whl",
@@ -831,6 +866,7 @@ def test_release_workflow_enforces_build_then_clean_runtime() -> None:
             "push:",
             "tags:",
             "uv build",
+            "python bin/inspect_built_artifacts.py dist",
             "actions/upload-artifact@v6",
             "actions/download-artifact@v7",
             "bash bin/install-micromamba-ci.sh",

@@ -38,6 +38,9 @@ jobs:
       - name: Build wheel and sdist
         run: uv build
 
+      - name: Inspect built distribution contents
+        run: python bin/inspect_built_artifacts.py dist
+
       - name: Upload built distribution
         uses: actions/upload-artifact@v6
         with:
