@@ -54,11 +54,12 @@ In short:
 
 ### Optional:
 - `--gtdb-release`: gtdb release number, defaults to `latest`
-- `--prefer-genbank`: prefers paired GenBank accessions and keeps the exact selected version by default
-- `--version-latest`: paired with `--prefer-genbank`, opts into the latest available revision within the selected GenBank family, e.g. `GCA_000005845.2` -> `GCA_000005845.3` if the latter is available
+- `--prefer-genbank`: prefers paired GenBank accessions discovered from current NCBI metadata and keeps the exact selected version by default
+- `--version-latest`: paired with `--prefer-genbank`, opts into the latest available revision within the selected GenBank family from current NCBI metadata, e.g. `GCA_000005845.2` -> `GCA_000005845.3` if the latter is available
 - `--threads`: number of threads to run, defaults to 8
 - `--include`: locally supported tokens are `genome`, `gff3`, and `protein`, e.g. `genome,gff3,protein`, see [NCBI datasets documentation](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/genomes/download-genome/#choosing-which-data-files-to-include-in-the-data-package)
-- `--ncbi-api-key`: NCBI API key, passed only to the `datasets` command
+- `--ncbi-api-key`: NCBI API key, passed only to child `datasets` processes and not written to the tool's own logs or manifests
+- `--debug`: enables debug logging and cannot be combined with `--ncbi-api-key`
 - `--dry-run`: supported with automatic planning, resolves inputs without creating the final output tree
 
 ## Examples
@@ -71,8 +72,8 @@ gtdb-genomes \
   --outdir results
 ```
 
-Prefer paired GenBank accessions, keep the exact selected version, and request
-extra annotation:
+Prefer paired GenBank accessions from current NCBI metadata, keep the exact
+selected version, and request extra annotation:
 
 ```bash
 gtdb-genomes \
@@ -83,7 +84,8 @@ gtdb-genomes \
   --outdir results
 ```
 
-Opt into the latest available revision within the selected GenBank family:
+Opt into the latest available revision within the selected GenBank family from
+current NCBI metadata:
 
 ```bash
 gtdb-genomes \
@@ -104,15 +106,24 @@ gtdb-genomes \
   --outdir /tmp/gtdb_dry_run
 ```
 
-## Operational Notes
+## Operational Notes And Limitations
 
 - Taxon matching is exact-token and case-sensitive.
 - `--outdir` must be empty or absent before each run.
 - If one genome matches multiple requested taxa, the downloaded package is copied into each matching taxon directory.
-- Automatic planning switches to `dehydrate` only above 1,000 unique `datasets`
+- Automatic planning switches to `dehydrate` at 1,000 or more unique `datasets`
   request tokens after accession rewriting.
+- The planner intentionally stays count-only for this project. It does not use
+  the generic `> 15 GB` `datasets` guidance because the workflow targets
+  prokaryote genome downloads, where the request-token threshold is expected
+  to be reached before package size becomes the limiting factor.
+- `--prefer-genbank` and `--version-latest` consult current NCBI metadata, so
+  they are time-dependent rather than frozen to one GTDB release snapshot.
 - Direct downloads remain serial in the current workflow.
+- `--debug` cannot be combined with `--ncbi-api-key` because upstream
+  `datasets` debug output may expose the secret header.
 - `--include` accepts only `genome`, `gff3`, and `protein`; see [docs/usage-details.md](docs/usage-details.md) for the full runtime contract.
+- Clean packaged-runtime and real-data validation currently run on Linux only.
 
 ## Output Layout
 
@@ -137,8 +148,9 @@ data notes, see [docs/usage-details.md](docs/usage-details.md).
 
 > [!IMPORTANT]
 > `--ncbi-api-key` expects an NCBI API key. The tool passes it only to the
-> upstream `datasets` command and does not use it for GTDB release resolution,
-> local taxonomy loading, or any other service.
+> upstream `datasets` command through the child process environment and does
+> not use it for GTDB release resolution, local taxonomy loading, or any other
+> service. `--debug` cannot be combined with `--ncbi-api-key`.
 
 > [!NOTE]
 > Some legacy GTDB releases include genome accessions starting with `UBA`.

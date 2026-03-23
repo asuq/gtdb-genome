@@ -42,21 +42,28 @@ gtdb-genomes \
 - `--prefer-genbank`: Disabled by default. When enabled, a requested `GCF_*`
   accession triggers NCBI metadata lookup and prefers a `GCA_*` accession only
   when it shares the same numeric assembly identifier. If several matching
-  `GCA_*` versions exist, the highest version is selected. The download request
-  then keeps that exact selected versioned accession by default.
+  `GCA_*` versions exist, the highest version is selected from the current NCBI
+  metadata view. The download request then keeps that exact selected versioned
+  accession by default. This is a live NCBI optimisation, not a frozen
+  GTDB-release-preserving transform.
 
 - `--version-latest`: Disabled by default. Requires `--prefer-genbank`. Drops
   the version suffix from the selected accession and asks `datasets` for the
-  latest available revision in that accession family, which may differ from the
-  originally selected RefSeq or GenBank version.
+  latest available revision in that accession family from current NCBI
+  metadata, which may differ from the originally selected RefSeq or GenBank
+  version and may change over time.
 
 - download strategy is automatic only.
 
   Rules:
 
   - supported requests always go through the automatic planner
-  - the planner switches to dehydrate only when the request contains more than
-    1,000 unique `datasets` request tokens after accession rewriting
+  - the planner switches to dehydrate when the request contains 1,000 or more
+    unique `datasets` request tokens after accession rewriting
+  - this planner intentionally stays count-only for this project and does not
+    implement the generic `datasets` `> 15 GB` heuristic because the workflow
+    targets prokaryote genome downloads and treats the request-token count as
+    the governing operational limit
   - smaller supported requests use batch direct
     `datasets download genome accession --inputfile ... --filename ...` passes
   - direct mode retries only the still-unresolved request accessions in later
@@ -76,9 +83,10 @@ gtdb-genomes \
 - `--threads`: Choose how many CPUs to use for the supported workflow steps.
   Default: 8. Direct downloads remain serial in the current workflow.
 
-- `--ncbi-api-key`: This option expects an NCBI API key. The tool passes it only to the
-  upstream `datasets` command and does not use it for GTDB release resolution,
-  local taxonomy loading, or any other service.
+- `--ncbi-api-key`: This option expects an NCBI API key. The tool passes it
+  only to child `datasets` processes through the child process environment and
+  does not use it for GTDB release resolution, local taxonomy loading, or any
+  other service.
 
 - `--include`: Defaults to `genome`.
 
@@ -99,9 +107,11 @@ gtdb-genomes \
   - enables debug-level logging
   - emits redacted command traces
   - writes a redacted `OUTPUT/debug.log`
+  - cannot be combined with `--ncbi-api-key` because upstream `datasets`
+    debug output may expose the API key header
 
-  `--debug --dry-run` is allowed, but dry-run keeps debug output on the console
-  only and does not create `OUTPUT/debug.log`.
+  `--debug --dry-run` is allowed when `--ncbi-api-key` is not set, but dry-run
+  keeps debug output on the console only and does not create `OUTPUT/debug.log`.
 
 - `--dry-run`: Resolves inputs without creating the final output tree.
 
@@ -118,19 +128,22 @@ gtdb-genomes \
 
 ## API Key Handling
 
-`--ncbi-api-key` is forwarded to `datasets --api-key` without writing it to
-project files.
+`--ncbi-api-key` is passed to child `datasets` processes through the child
+environment and is not written to project files.
 
 The tool:
 
 - never prints the API key in logs
-- never writes the API key into manifests or debug output
+- never writes the API key into manifests or its own debug log
 - redacts the API key from recorded command traces and error messages
+- forbids `--debug` together with `--ncbi-api-key` because upstream
+  `datasets` debug output can expose the raw API key header
 
 Known limitation:
 
 - if a user types the API key directly on the shell command line, shell history
-  or process inspection may still expose it outside the control of this tool
+  or inspection of the parent `gtdb-genomes` process may still expose it
+  outside the control of this tool
 
 ## Output Layout
 
@@ -157,6 +170,7 @@ Layout rules:
 - there is no shared `OUTPUT/genomes/` directory
 - duplicate genomes across requested taxa are copied into each matching taxon
   directory and logged
+- populated output directories are rejected instead of being resumed in place
 - each accession directory keeps the full downloaded payload requested through
   `datasets`
 

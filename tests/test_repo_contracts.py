@@ -489,15 +489,17 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "gtdb release number, defaults to `latest`",
             "refresh_taxonomy_manifest",
             "--version-latest",
-            "keep the exact selected version",
+            "keeps the exact selected version",
             "--prefer-genbank",
             "--threads",
             "resolves inputs without creating the final output tree",
-            "Operational Notes",
+            "Operational Notes And Limitations",
             "exact-token and case-sensitive",
-            "Automatic planning switches to `dehydrate` only above 1,000 unique `datasets`",
-            "request tokens after accession rewriting",
+            "Automatic planning switches to `dehydrate` at 1,000 or more unique `datasets`",
+            "The planner intentionally stays count-only for this project.",
             "Direct downloads remain serial in the current workflow.",
+            "consult current NCBI metadata",
+            "cannot be combined with `--ncbi-api-key`",
             "`genome`, `gff3`, and `protein`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
@@ -583,37 +585,25 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "release_manifest_sha256",
             "bacterial_taxonomy_sha256",
             "archaeal_taxonomy_sha256",
-            "attempted_accession",
-            "download_request_accession",
-            "Defaults to `latest`",
-            "refresh_taxonomy_manifest",
-            "--version-latest",
-            "exact selected versioned accession",
-            "candidate metadata lookup fails or stays incomplete",
-            "more than",
-            "1,000 unique `datasets` request tokens after accession rewriting",
+                    "attempted_accession",
+                    "download_request_accession",
+                    "Defaults to `latest`",
+                    "refresh_taxonomy_manifest",
+                    "--version-latest",
+                    "current NCBI",
+                    "GTDB-release-preserving transform",
+                "candidate metadata lookup fails or stays incomplete",
+                "1,000 or more",
+                "generic `datasets` `> 15 GB` heuristic",
             "planning or runtime failure with no successful genomes",
             "local final-output materialisation failure",
             "MD5SUM",
             "--threads",
+            "child process environment",
+            "forbids `--debug` together with `--ncbi-api-key`",
         ),
     )
-    assert_not_contains_any(
-        usage_details_text,
-        (
-            "--download-method",
-            "--no-prefer-genbank",
-            "preview reports more",
-            "than 15 GB",
-        ),
-    )
-    assert_not_contains_any(
-        readme_text,
-        (
-            "preview reports more",
-            "than 15 GB",
-        ),
-    )
+    assert_not_contains_any(usage_details_text, ("--download-method", "--no-prefer-genbank"))
     datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
     unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
     assert f"`{datasets_policy.display_name} {datasets_policy.supported_range}`" in (
@@ -650,6 +640,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "polars >=1.31.0,<2.0.0",
             "- ncbi-datasets-cli",
             "resolve_and_validate_release('latest')",
+            "g__NoSuchTaxon",
+            "'--dry-run'",
         ),
     )
     assert_contains_all(
@@ -660,6 +652,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "quarantined",
             "final `sha256`",
             "polars >=1.31.0,<2.0.0",
+            "offline zero-match dry-run path",
         ),
     )
     assert_contains_all(
@@ -711,6 +704,8 @@ def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists()
     )
     assert "hatchling >=1.27.0,<2.0.0" in bioconda_text
     assert "polars >=1.31.0,<2.0.0" in bioconda_text
+    assert "g__NoSuchTaxon" in bioconda_text
+    assert "--dry-run" in bioconda_text
     assert f"- {unzip_policy.display_name} {unzip_policy.supported_range}" in (
         bioconda_text
     )

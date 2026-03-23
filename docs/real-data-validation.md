@@ -108,8 +108,9 @@ Optional environment:
 
 - `NCBI_API_KEY` for metadata-heavy cases such as `B2` and `B6`
 - `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to cases without
-  `--ncbi-api-key`; API-key cases are left unchanged because upstream
-  `datasets` debug output can print the raw API-key header
+  `--ncbi-api-key`; API-key cases are left without debug because the CLI now
+  forbids that combination and upstream `datasets` debug output can print the
+  raw API-key header
 
 The local runner passes `NCBI_API_KEY` to the CLI as `--ncbi-api-key` for the
 cases that provide it.
@@ -128,8 +129,9 @@ Local environment notes:
   outbound DNS and network access to
   `api.ncbi.nlm.nih.gov`
 - the default runner leaves `--debug` off unless `REAL_DATA_DEBUG_SAFE=1` is
-  set, and that helper still skips API-key cases because upstream `datasets`
-  debug output can print the raw API-key header
+  set, and that helper still skips API-key cases because the CLI forbids
+  `--debug` with `--ncbi-api-key` and upstream `datasets` debug output can
+  print the raw API-key header
 
 ## Remote Prerequisites
 
@@ -170,8 +172,9 @@ Optional environment:
 - `NCBI_API_KEY` for `C2` and `C3`
 
 The remote runner passes `NCBI_API_KEY` to the installed command as
-`--ncbi-api-key` when it is provided. `C5` now runs without the key and uses
-it opportunistically when present.
+`--ncbi-api-key` when it is provided. The installed CLI passes that value to
+child `datasets` processes through the child environment. `C5` now runs
+without the key and uses it opportunistically when present.
 
 ## GitHub CI Coverage
 
@@ -297,8 +300,8 @@ Optional environment:
 - `REAL_DATA_PYTHON_FAULTHANDLER=1` to prefix remote case commands with
   `PYTHONFAULTHANDLER=1`
 - `REAL_DATA_DEBUG_SAFE=1` to append `--debug` only to cases without
-  `--ncbi-api-key`; API-key cases are left unchanged to avoid exposing the key
-  in upstream debug output
+  `--ncbi-api-key`; API-key cases are left without debug because the CLI
+  forbids that combination and upstream debug output can expose the key
 
 `C5` runs without `NCBI_API_KEY` and uses it opportunistically when present.
 
@@ -346,7 +349,8 @@ bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh C1
 
 When `REAL_DATA_DEBUG_SAFE=1` is set, the helper adds `--debug` only to
 cases that do not pass `--ncbi-api-key`. API-key cases are intentionally left
-without debug so the upstream `datasets` banner cannot echo the secret header.
+without debug because the CLI forbids that combination and the upstream
+`datasets` banner can echo the secret header.
 
 Then compare:
 

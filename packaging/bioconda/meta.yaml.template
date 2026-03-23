@@ -33,6 +33,7 @@ test:
   commands:
     - gtdb-genomes --help
     - python -c "from gtdb_genomes.release_resolver import resolve_and_validate_release; resolution = resolve_and_validate_release('latest'); assert resolution.bacterial_taxonomy is not None, resolution"
+    - python -c "import subprocess, tempfile; outdir = tempfile.mkdtemp(prefix='gtdb_genomes_bioconda_'); result = subprocess.run(['gtdb-genomes', '--gtdb-release', '95', '--gtdb-taxon', 'g__NoSuchTaxon', '--outdir', outdir, '--dry-run'], capture_output=True, text=True, check=False); assert result.returncode == 4, result.stdout + result.stderr"
   imports:
     - gtdb_genomes
 
