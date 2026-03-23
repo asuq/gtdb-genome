@@ -257,6 +257,66 @@ def test_choose_preferred_accession_keeps_exact_matching_gca_version_by_default(
     )
 
 
+def test_choose_preferred_accession_prefers_complete_explicit_pair_in_fixed_mode() -> None:
+    """Explicit paired metadata should drive fixed-version RefSeq promotion."""
+
+    discovered_accessions = {
+        "GCF_000001.2",
+        "GCA_000001.2",
+        "GCA_000001.3",
+    }
+    status_map = {
+        "GCF_000001.2": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
+            paired_accession="GCA_000001.2",
+            paired_assembly_status="current",
+        ),
+    }
+
+    assert choose_preferred_accession(
+        "GCF_000001.2",
+        discovered_accessions,
+        status_map=status_map,
+    ) == (
+        "GCA_000001.2",
+        "paired_to_gca",
+    )
+
+
+def test_choose_preferred_accession_fixed_mode_rejects_cross_version_explicit_pair() -> None:
+    """Fixed-version mode should not promote a newer explicit paired revision."""
+
+    discovered_accessions = {
+        "GCF_000001.2",
+        "GCA_000001.2",
+        "GCA_000001.3",
+    }
+    status_map = {
+        "GCF_000001.2": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
+            paired_accession="GCA_000001.3",
+            paired_assembly_status="current",
+        ),
+        "GCA_000001.2": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
+            paired_accession=None,
+            paired_assembly_status=None,
+        ),
+    }
+
+    assert choose_preferred_accession(
+        "GCF_000001.2",
+        discovered_accessions,
+        status_map=status_map,
+    ) == (
+        "GCF_000001.2",
+        "paired_gca_metadata_incomplete_fallback_original",
+    )
+
+
 def test_choose_preferred_accession_version_latest_prefers_unsuppressed_gca_over_newer_suppressed() -> None:
     """Latest-mode should still prefer an unsuppressed candidate over a newer suppressed one."""
 
@@ -275,6 +335,40 @@ def test_choose_preferred_accession_version_latest_prefers_unsuppressed_gca_over
         "GCA_000001.3": AssemblyStatusInfo(
             assembly_status="suppressed",
             suppression_reason="replaced by newer record",
+            paired_accession=None,
+            paired_assembly_status=None,
+        ),
+    }
+
+    assert choose_preferred_accession(
+        "GCF_000001.1",
+        discovered_accessions,
+        status_map=status_map,
+        version_latest=True,
+    ) == (
+        "GCA_000001.2",
+        "paired_to_gca",
+    )
+
+
+def test_choose_preferred_accession_version_latest_ignores_lower_ranked_incomplete_candidate() -> None:
+    """Older incomplete candidates should not block a complete latest winner."""
+
+    discovered_accessions = {
+        "GCF_000001.1",
+        "GCA_000001.1",
+        "GCA_000001.2",
+    }
+    status_map = {
+        "GCF_000001.1": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
+            paired_accession="GCA_000001.1",
+            paired_assembly_status="current",
+        ),
+        "GCA_000001.2": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
             paired_accession=None,
             paired_assembly_status=None,
         ),
@@ -579,6 +673,25 @@ def test_parse_summary_json_lines_ignores_unrelated_accession_text() -> None:
         "GCA_000001.3",
         "paired_to_gca",
     )
+
+
+def test_parse_summary_json_lines_ignores_unknown_accession_field_names() -> None:
+    """Unknown `_accession` fields should not widen the accepted payload schema."""
+
+    payload = (
+        '{"accession":"GCF_000001.2",'
+        '"other_accession":"GCA_999999.9",'
+        '"pairedAccession":"GCA_000001.2"}\n'
+    )
+
+    parsed = parse_summary_json_lines(payload, ["GCF_000001.2"])
+
+    assert parsed == {
+        "GCF_000001.2": {
+            "GCF_000001.2",
+            "GCA_000001.2",
+        },
+    }
 
 
 def test_parse_summary_status_map_extracts_suppressed_fields() -> None:

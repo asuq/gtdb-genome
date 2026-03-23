@@ -19,7 +19,6 @@ from gtdb_genomes.download import (
 )
 from gtdb_genomes.metadata import (
     AssemblyStatusInfo,
-    find_incomplete_genbank_metadata_accessions,
     find_matching_genbank_accessions,
     MetadataLookupError,
     SUPPRESSED_ASSEMBLY_NOTE,
@@ -305,7 +304,6 @@ def resolve_supported_accession_preferences(
 
     summary_map: dict[str, set[str]] = {}
     status_map: dict[str, AssemblyStatusInfo] = {}
-    incomplete_genbank_accessions: set[str] = set()
     metadata_shared_failures: list[SharedFailureContext] = []
     supported_accessions = get_ordered_unique_accessions(
         supported_selected_frame.get_column("ncbi_accession").to_list(),
@@ -334,11 +332,6 @@ def resolve_supported_accession_preferences(
                     ";".join(supported_accessions),
                 ),
             )
-        incomplete_genbank_accessions.update(
-            accession
-            for accession in summary_lookup.incomplete_accessions
-            if accession.startswith("GCF_")
-        )
         logger.info(
             "Metadata lookup finished with %d preferred mapping(s)",
             len(summary_map),
@@ -394,18 +387,10 @@ def resolve_supported_accession_preferences(
                     **status_map,
                     **candidate_lookup.status_map,
                 }
-            incomplete_genbank_accessions.update(
-                find_incomplete_genbank_metadata_accessions(
-                    summary_map,
-                    status_map,
-                    version_latest=args.version_latest,
-                )
-            )
     mapped_frame = apply_accession_preferences(
         supported_selected_frame,
         summary_map,
         status_map=status_map,
-        incomplete_genbank_accessions=incomplete_genbank_accessions,
         prefer_genbank=args.prefer_genbank,
         version_latest=args.version_latest,
     )

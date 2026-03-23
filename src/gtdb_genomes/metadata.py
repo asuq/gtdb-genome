@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Callable, Iterable, Set
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 from pathlib import Path
@@ -30,7 +30,25 @@ ACCESSION_PATTERN = re.compile(r"(?P<prefix>GC[AF])_(?P<numeric>\d+)\.(?P<versio
 ACCESSION_STEM_PATTERN = re.compile(r"(?P<prefix>GC[AF])_(?P<numeric>\d+)")
 CAMEL_CASE_BOUNDARY_PATTERN = re.compile(r"([a-z0-9])([A-Z])")
 NON_ALPHANUMERIC_PATTERN = re.compile(r"[^a-z0-9]+")
-EXPLICIT_ACCESSION_FIELD_NAMES = frozenset({"accession", "paired"})
+KNOWN_ACCESSION_FIELD_PATHS = frozenset(
+    {
+        ("accession",),
+        ("paired",),
+        ("paired_accession",),
+        ("paired_accessions",),
+        ("assembly", "accession"),
+        ("assembly", "paired_accession"),
+        ("assembly", "paired_accessions"),
+        ("assembly_info", "paired_assembly", "accession"),
+    },
+)
+NARROW_FALLBACK_ACCESSION_FIELD_NAMES = frozenset(
+    {
+        "paired",
+        "paired_accession",
+        "paired_accessions",
+    },
+)
 
 
 @dataclass(slots=True)
@@ -92,6 +110,14 @@ class ParsedSummaryOutput:
     summary_map: dict[str, set[str]]
     status_map: dict[str, AssemblyStatusInfo]
     incomplete_accessions: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExplicitPairedGenbankCandidate:
+    """Structured explicit paired-GenBank metadata for one RefSeq request."""
+
+    accession: str
+    assembly_status: str
 
 
 SUPPRESSED_ASSEMBLY_NOTE = (
@@ -205,16 +231,10 @@ def normalise_field_name(field_name: str) -> str:
 
 
 def field_contains_assembly_accessions(field_name: str) -> bool:
-    """Return whether one field name should contain assembly accessions."""
+    """Return whether one field name is part of the narrow fallback allowlist."""
 
     normalised_field_name = normalise_field_name(field_name)
-    if not normalised_field_name:
-        return False
-    if normalised_field_name in EXPLICIT_ACCESSION_FIELD_NAMES:
-        return True
-    return normalised_field_name.endswith("_accession") or normalised_field_name.endswith(
-        "_accessions",
-    )
+    return normalised_field_name in NARROW_FALLBACK_ACCESSION_FIELD_NAMES
 
 
 def extract_explicit_assembly_accessions(payload: object) -> set[str]:
@@ -234,6 +254,50 @@ def extract_explicit_assembly_accessions(payload: object) -> set[str]:
     parsed_accession = parse_assembly_accession(payload.strip())
     if parsed_accession is not None:
         found.add(parsed_accession.accession)
+    return found
+
+
+def extract_known_structured_accessions(
+    payload: object,
+    *,
+    path: tuple[str, ...] = (),
+) -> set[str]:
+    """Extract assembly accessions from known `datasets` summary field paths."""
+
+    found: set[str] = set()
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            normalised_key = normalise_field_name(str(key))
+            if not normalised_key:
+                continue
+            child_path = path + (normalised_key,)
+            if child_path in KNOWN_ACCESSION_FIELD_PATHS:
+                found.update(extract_explicit_assembly_accessions(value))
+            if isinstance(value, dict | list):
+                found.update(
+                    extract_known_structured_accessions(value, path=child_path),
+                )
+        return found
+    if isinstance(payload, list):
+        for value in payload:
+            found.update(extract_known_structured_accessions(value, path=path))
+    return found
+
+
+def extract_narrow_fallback_accessions(payload: object) -> set[str]:
+    """Extract assembly accessions from narrow fallback field names only."""
+
+    found: set[str] = set()
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if field_contains_assembly_accessions(str(key)):
+                found.update(extract_explicit_assembly_accessions(value))
+            if isinstance(value, dict | list):
+                found.update(extract_narrow_fallback_accessions(value))
+        return found
+    if isinstance(payload, list):
+        for value in payload:
+            found.update(extract_narrow_fallback_accessions(value))
     return found
 
 
@@ -356,21 +420,11 @@ def run_summary_lookup_with_retries(
 
 
 def extract_structured_accessions(payload: object) -> set[str]:
-    """Recursively extract assembly accessions from explicit structured fields."""
+    """Extract assembly accessions from known fields plus a narrow fallback."""
 
-    found: set[str] = set()
-    if isinstance(payload, dict):
-        for key, value in payload.items():
-            if field_contains_assembly_accessions(str(key)):
-                found.update(extract_explicit_assembly_accessions(value))
-            if isinstance(value, dict | list):
-                found.update(extract_structured_accessions(value))
-        return found
-    if isinstance(payload, list):
-        for value in payload:
-            found.update(extract_structured_accessions(value))
-        return found
-    return found
+    return extract_known_structured_accessions(
+        payload,
+    ) | extract_narrow_fallback_accessions(payload)
 
 
 def get_nested_string_value(
@@ -559,36 +613,121 @@ def find_matching_genbank_accessions(
     return tuple(accession.accession for accession in matching_accessions)
 
 
-def find_incomplete_genbank_metadata_accessions(
-    summary_map: dict[str, set[str]],
-    status_map: dict[str, AssemblyStatusInfo],
+def get_explicit_paired_genbank_candidate(
+    requested_accession: str,
+    status_map: dict[str, AssemblyStatusInfo] | None = None,
     *,
     version_latest: bool,
-) -> set[str]:
-    """Return requested accessions with unresolved paired-GenBank metadata."""
+) -> ExplicitPairedGenbankCandidate | None:
+    """Return one usable explicit paired-GenBank candidate when available."""
 
-    incomplete_accessions: set[str] = set()
-    for requested_accession, discovered_accessions in summary_map.items():
-        if requested_accession.startswith("GCA_"):
-            continue
-        matching_genbank = find_matching_genbank_accessions(
+    if status_map is None:
+        return None
+    requested_status_info = status_map.get(requested_accession)
+    if requested_status_info is None:
+        return None
+    paired_accession = requested_status_info.paired_accession
+    paired_assembly_status = requested_status_info.paired_assembly_status
+    if paired_accession is None and paired_assembly_status is None:
+        return None
+    if paired_accession is None or paired_assembly_status is None:
+        return None
+    requested_parts = parse_assembly_accession(requested_accession)
+    paired_parts = parse_assembly_accession(paired_accession)
+    if requested_parts is None or paired_parts is None:
+        return None
+    if paired_parts.prefix != "GCA":
+        return None
+    if paired_parts.numeric_identifier != requested_parts.numeric_identifier:
+        return None
+    if not version_latest and paired_parts.version != requested_parts.version:
+        return None
+    return ExplicitPairedGenbankCandidate(
+        accession=paired_accession,
+        assembly_status=paired_assembly_status,
+    )
+
+
+def has_blocking_explicit_pairing_issue(
+    requested_accession: str,
+    status_map: dict[str, AssemblyStatusInfo] | None = None,
+    *,
+    version_latest: bool,
+) -> bool:
+    """Return whether explicit pairing metadata are present but unusable."""
+
+    if status_map is None:
+        return False
+    requested_status_info = status_map.get(requested_accession)
+    if requested_status_info is None:
+        return False
+    paired_accession = requested_status_info.paired_accession
+    paired_assembly_status = requested_status_info.paired_assembly_status
+    if paired_accession is None and paired_assembly_status is None:
+        return False
+    return (
+        get_explicit_paired_genbank_candidate(
             requested_accession,
-            discovered_accessions,
+            status_map,
             version_latest=version_latest,
         )
-        if matching_genbank and any(
-            not has_complete_assembly_status_info(status_map.get(accession))
-            for accession in matching_genbank
-        ):
-            incomplete_accessions.add(requested_accession)
-    return incomplete_accessions
+        is None
+    )
+
+
+def get_candidate_status_info(
+    accession: str,
+    status_map: dict[str, AssemblyStatusInfo] | None = None,
+    *,
+    explicit_candidate: ExplicitPairedGenbankCandidate | None = None,
+) -> AssemblyStatusInfo | None:
+    """Return status metadata for one candidate accession."""
+
+    candidate_status_info = None if status_map is None else status_map.get(accession)
+    if candidate_status_info is not None:
+        return candidate_status_info
+    if explicit_candidate is None or accession != explicit_candidate.accession:
+        return None
+    return AssemblyStatusInfo(
+        assembly_status=explicit_candidate.assembly_status,
+        suppression_reason=None,
+        paired_accession=None,
+        paired_assembly_status=None,
+    )
+
+
+def select_preferred_heuristic_genbank_candidate(
+    requested_accession: str,
+    discovered_accessions: set[str],
+    status_map: dict[str, AssemblyStatusInfo] | None = None,
+    *,
+    version_latest: bool,
+    explicit_candidate: ExplicitPairedGenbankCandidate | None = None,
+) -> tuple[str | None, AssemblyStatusInfo | None, bool]:
+    """Return the best heuristic candidate and whether metadata remain blocking."""
+
+    matching_genbank = find_matching_genbank_accessions(
+        requested_accession,
+        discovered_accessions,
+        status_map=status_map,
+        version_latest=version_latest,
+    )
+    for accession in matching_genbank:
+        candidate_status_info = get_candidate_status_info(
+            accession,
+            status_map,
+            explicit_candidate=explicit_candidate,
+        )
+        if not has_complete_assembly_status_info(candidate_status_info):
+            return None, None, True
+        return accession, candidate_status_info, False
+    return None, None, False
 
 
 def choose_preferred_accession(
     requested_accession: str,
     discovered_accessions: set[str] | None,
     status_map: dict[str, AssemblyStatusInfo] | None = None,
-    incomplete_genbank_accessions: Set[str] | None = None,
     prefer_genbank: bool = True,
     version_latest: bool = False,
 ) -> tuple[str, str]:
@@ -600,27 +739,66 @@ def choose_preferred_accession(
         return requested_accession, "unchanged_original"
     if discovered_accessions is None:
         return requested_accession, "metadata_lookup_failed_fallback_original"
-    if (
-        incomplete_genbank_accessions is not None
-        and requested_accession in incomplete_genbank_accessions
+    if has_blocking_explicit_pairing_issue(
+        requested_accession,
+        status_map,
+        version_latest=version_latest,
     ):
         return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
-    paired_genbank = find_matching_genbank_accessions(
+    explicit_candidate = get_explicit_paired_genbank_candidate(
         requested_accession,
-        discovered_accessions,
-        status_map=status_map,
+        status_map,
         version_latest=version_latest,
     )
-    if paired_genbank:
-        preferred_accession = paired_genbank[0]
-        preferred_status_info = (status_map or {}).get(preferred_accession)
-        if not has_complete_assembly_status_info(preferred_status_info):
-            return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
-        if is_suppressed_status(
-            preferred_status_info.assembly_status,
-        ):
+    if explicit_candidate is not None and not version_latest:
+        if is_suppressed_status(explicit_candidate.assembly_status):
             return requested_accession, "paired_gca_suppressed_fallback_original"
-        return paired_genbank[0], "paired_to_gca"
+        return explicit_candidate.accession, "paired_to_gca"
+
+    if explicit_candidate is not None and version_latest:
+        paired_genbank = find_matching_genbank_accessions(
+            requested_accession,
+            discovered_accessions,
+            status_map=status_map,
+            version_latest=True,
+        )
+        if paired_genbank and explicit_candidate.accession not in paired_genbank:
+            return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
+        preferred_accession, preferred_status_info, metadata_incomplete = (
+            select_preferred_heuristic_genbank_candidate(
+                requested_accession,
+                discovered_accessions,
+                status_map=status_map,
+                version_latest=True,
+                explicit_candidate=explicit_candidate,
+            )
+        )
+        if metadata_incomplete:
+            return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
+        if preferred_accession is None:
+            if is_suppressed_status(explicit_candidate.assembly_status):
+                return requested_accession, "paired_gca_suppressed_fallback_original"
+            return explicit_candidate.accession, "paired_to_gca"
+        if preferred_status_info is None:
+            return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
+        if is_suppressed_status(preferred_status_info.assembly_status):
+            return requested_accession, "paired_gca_suppressed_fallback_original"
+        return preferred_accession, "paired_to_gca"
+
+    preferred_accession, preferred_status_info, metadata_incomplete = (
+        select_preferred_heuristic_genbank_candidate(
+            requested_accession,
+            discovered_accessions,
+            status_map=status_map,
+            version_latest=version_latest,
+        )
+    )
+    if metadata_incomplete:
+        return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
+    if preferred_accession is not None and preferred_status_info is not None:
+        if is_suppressed_status(preferred_status_info.assembly_status):
+            return requested_accession, "paired_gca_suppressed_fallback_original"
+        return preferred_accession, "paired_to_gca"
     return requested_accession, "unchanged_original"
 
 
@@ -638,7 +816,6 @@ def build_accession_preference_table(
     accessions: Iterable[str],
     summary_map: dict[str, set[str]],
     status_map: dict[str, AssemblyStatusInfo] | None = None,
-    incomplete_genbank_accessions: Set[str] | None = None,
     prefer_genbank: bool = True,
     version_latest: bool = False,
 ) -> pl.DataFrame:
@@ -650,7 +827,6 @@ def build_accession_preference_table(
             requested_accession,
             summary_map.get(requested_accession),
             status_map=status_map,
-            incomplete_genbank_accessions=incomplete_genbank_accessions,
             prefer_genbank=prefer_genbank,
             version_latest=version_latest,
         )
@@ -681,7 +857,6 @@ def apply_accession_preferences(
     selection_frame: pl.DataFrame,
     summary_map: dict[str, set[str]],
     status_map: dict[str, AssemblyStatusInfo] | None = None,
-    incomplete_genbank_accessions: Set[str] | None = None,
     prefer_genbank: bool = True,
     version_latest: bool = False,
 ) -> pl.DataFrame:
@@ -698,7 +873,6 @@ def apply_accession_preferences(
         selection_frame.get_column("ncbi_accession").to_list(),
         summary_map,
         status_map=status_map,
-        incomplete_genbank_accessions=incomplete_genbank_accessions,
         prefer_genbank=prefer_genbank,
         version_latest=version_latest,
     )
