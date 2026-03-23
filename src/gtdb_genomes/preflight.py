@@ -107,6 +107,8 @@ def read_tool_version_output(
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
+    if result.returncode != 0:
+        return None
     output = result.stdout.strip() or result.stderr.strip()
     if not output:
         return None

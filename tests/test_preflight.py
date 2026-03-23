@@ -122,6 +122,46 @@ def test_check_required_tools_raises_for_unsupported_versions(
         check_required_tools(("datasets", "unzip"))
 
 
+def test_check_required_tools_rejects_non_zero_version_commands_with_parseable_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-zero version commands should not satisfy the preflight gate."""
+
+    monkeypatch.setattr(shutil, "which", lambda tool_name: f"/usr/bin/{tool_name}")
+
+    def fake_run(
+        command: list[str],
+        capture_output: bool,
+        text: bool,
+        check: bool,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Return parseable version text even though the command failed."""
+
+        del capture_output, text, check, timeout
+        if command[0] == "datasets":
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="datasets version: 18.4.0\n",
+                stderr="wrapper failed\n",
+            )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="UnZip 6.00 of 20 April 2009\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(
+        PreflightError,
+        match="Could not determine the installed version",
+    ):
+        check_required_tools(("datasets", "unzip"))
+
+
 def test_check_required_tools_rejects_datasets_versions_below_supported_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

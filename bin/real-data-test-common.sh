@@ -181,6 +181,14 @@ real_data_record_tool_versions() {
             printf 'datasets_bin=unavailable\n'
             printf 'datasets_version=unavailable\n'
         fi
+
+        if command -v unzip >/dev/null 2>&1; then
+            printf 'unzip_bin=%s\n' "$(command -v unzip)"
+            printf 'unzip_version=%s\n' "$(unzip -v 2>&1)"
+        else
+            printf 'unzip_bin=unavailable\n'
+            printf 'unzip_version=unavailable\n'
+        fi
     } > "${version_file}"
 }
 

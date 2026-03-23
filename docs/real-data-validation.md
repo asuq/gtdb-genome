@@ -367,7 +367,7 @@ Then compare:
 
 Review these paths under the selected `REMOTE_TEST_ROOT`:
 
-- `_evidence/tool-versions.txt`
+- `_evidence/tool-versions.txt` with Python, `datasets`, and `unzip` versions
 - `_evidence/case-results.tsv`
 - per-case `summary.txt`
 - per-case `stdout.log`
@@ -454,7 +454,7 @@ For a root such as `/tmp/gtdb-realtests/local-YYYYMMDD`:
 |-- B1/
 `-- _evidence/
     |-- case-results.tsv
-    |-- tool-versions.txt
+    |-- tool-versions.txt      # Python, datasets, unzip
     `-- A1/
         |-- command.sh
         |-- stdout.log

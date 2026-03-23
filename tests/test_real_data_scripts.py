@@ -179,6 +179,8 @@ def test_real_data_run_command_check_redacts_logs_and_records_versions(
     assert "[REDACTED]" in combined_text
     assert "python_version=" in version_text
     assert "datasets_version=" in version_text
+    assert "unzip_bin=" in version_text
+    assert "unzip_version=" in version_text
 
 
 def test_real_data_run_command_check_removes_raw_temp_directory(
