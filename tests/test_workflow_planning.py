@@ -16,6 +16,7 @@ from gtdb_genomes.metadata import (
 )
 from gtdb_genomes.workflow_execution import SharedFailureContext
 from gtdb_genomes.workflow_planning import (
+    build_explicit_pairing_conflict_warning,
     build_suppressed_accession_notes,
     prepare_planning_inputs,
     resolve_supported_accession_preferences,
@@ -469,6 +470,131 @@ def test_resolve_supported_accession_preferences_keeps_complete_explicit_pair_wh
             "conversion_status": "paired_to_gca",
         },
     ]
+
+
+def test_resolve_supported_accession_preferences_latest_mode_looks_up_explicit_pair_missing_from_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Latest-mode should include omitted explicit paired accessions in candidate lookup."""
+
+    lookup_calls: list[tuple[str, ...]] = []
+
+    def fake_run_summary_lookup_with_retries(
+        accessions,
+        accession_file,
+        ncbi_api_key=None,
+        datasets_bin="datasets",
+        sleep_func=None,
+        runner=None,
+    ) -> SummaryLookupResult:
+        """Return one omitted explicit pair, then complete candidate metadata."""
+
+        del accession_file, ncbi_api_key, datasets_bin, sleep_func, runner
+        ordered_accessions = tuple(accessions)
+        lookup_calls.append(ordered_accessions)
+        if len(lookup_calls) == 1:
+            return SummaryLookupResult(
+                summary_map={
+                    "GCF_000001.1": {
+                        "GCF_000001.1",
+                        "GCA_000001.3",
+                    },
+                },
+                status_map={
+                    "GCF_000001.1": AssemblyStatusInfo(
+                        assembly_status="current",
+                        suppression_reason=None,
+                        paired_accession="GCA_000001.2",
+                        paired_assembly_status="current",
+                    ),
+                },
+                failures=(),
+            )
+        return SummaryLookupResult(
+            summary_map={
+                "GCA_000001.2": {"GCA_000001.2"},
+                "GCA_000001.3": {"GCA_000001.3"},
+            },
+            status_map={
+                "GCA_000001.2": AssemblyStatusInfo(
+                    assembly_status="current",
+                    suppression_reason=None,
+                    paired_accession=None,
+                    paired_assembly_status=None,
+                ),
+                "GCA_000001.3": AssemblyStatusInfo(
+                    assembly_status="current",
+                    suppression_reason=None,
+                    paired_accession=None,
+                    paired_assembly_status=None,
+                ),
+            },
+            failures=(),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        fake_run_summary_lookup_with_retries,
+    )
+
+    supported_selected_frame = pl.DataFrame(
+        {
+            "requested_taxon": ["g__Escherichia"],
+            "taxon_slug": ["g__Escherichia"],
+            "gtdb_accession": ["RS_GCF_000001.1"],
+            "ncbi_accession": ["GCF_000001.1"],
+            "lineage": ["d__Bacteria;p__Proteobacteria;g__Escherichia"],
+            "taxonomy_file": ["bac120_taxonomy_r95.tsv"],
+        },
+    )
+
+    args = build_cli_args(tmp_path / "output")
+    args.version_latest = True
+
+    mapped_frame, metadata_shared_failures, suppressed_notes = (
+        resolve_supported_accession_preferences(
+            supported_selected_frame,
+            args,
+            logging.getLogger("test-planning-explicit-pair-latest"),
+        )
+    )
+
+    assert lookup_calls[0] == ("GCF_000001.1",)
+    assert set(lookup_calls[1]) == {"GCA_000001.2", "GCA_000001.3"}
+    assert metadata_shared_failures == ()
+    assert suppressed_notes == {}
+    assert mapped_frame.select("final_accession", "conversion_status").rows(
+        named=True,
+    ) == [
+        {
+            "final_accession": "GCA_000001.3",
+            "conversion_status": "paired_to_gca",
+        },
+    ]
+
+
+def test_build_explicit_pairing_conflict_warning_mentions_conflicting_accessions() -> None:
+    """Conflict warnings should mention the affected original accessions."""
+
+    warning_text = build_explicit_pairing_conflict_warning(
+        pl.DataFrame(
+            {
+                "ncbi_accession": ["GCF_000001.1", "GCF_000001.1", "GCF_000002.1"],
+                "conversion_status": [
+                    "paired_gca_conflict_fallback_original",
+                    "paired_gca_conflict_fallback_original",
+                    "unchanged_original",
+                ],
+            },
+        ),
+    )
+
+    assert warning_text is not None
+    assert "1 requested accession was kept on the original RefSeq target" in (
+        warning_text
+    )
+    assert "GCF_000001.1" in warning_text
 
 
 def test_resolve_supported_accession_preferences_scopes_candidate_lookup_failures(

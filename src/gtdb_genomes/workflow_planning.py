@@ -19,7 +19,9 @@ from gtdb_genomes.download import (
 )
 from gtdb_genomes.metadata import (
     AssemblyStatusInfo,
+    build_augmented_discovered_accessions,
     find_matching_genbank_accessions,
+    get_explicit_paired_genbank_candidate,
     MetadataLookupError,
     SUPPRESSED_ASSEMBLY_NOTE,
     apply_accession_preferences,
@@ -114,7 +116,10 @@ def build_original_accession_scope(
 
 def build_candidate_accession_scope(
     summary_map: dict[str, set[str]],
+    status_map: dict[str, AssemblyStatusInfo],
     candidate_accessions: tuple[str, ...],
+    *,
+    version_latest: bool,
 ) -> tuple[str, ...]:
     """Return originals affected by the paired-GenBank candidate lookup."""
 
@@ -124,7 +129,14 @@ def build_candidate_accession_scope(
         for original_accession, discovered_accessions in summary_map.items()
         if any(
             candidate_accession in candidate_accession_set
-            for candidate_accession in discovered_accessions
+            for candidate_accession in build_augmented_discovered_accessions(
+                discovered_accessions,
+                get_explicit_paired_genbank_candidate(
+                    original_accession,
+                    status_map,
+                    version_latest=version_latest,
+                ),
+            )
         )
     )
 
@@ -142,10 +154,46 @@ def build_candidate_metadata_accessions(
         for requested_accession, discovered_accessions in summary_map.items()
         for accession in find_matching_genbank_accessions(
             requested_accession,
-            discovered_accessions,
+            build_augmented_discovered_accessions(
+                discovered_accessions,
+                get_explicit_paired_genbank_candidate(
+                    requested_accession,
+                    status_map,
+                    version_latest=version_latest,
+                ),
+            ),
             version_latest=version_latest,
         )
         if accession not in status_map
+    )
+
+
+def build_explicit_pairing_conflict_warning(
+    mapped_frame: pl.DataFrame,
+) -> str | None:
+    """Build the run-level warning for conflicting explicit paired metadata."""
+
+    if mapped_frame.is_empty():
+        return None
+    conflicting_accessions = get_ordered_unique_accessions(
+        row["ncbi_accession"]
+        for row in mapped_frame.unique(
+            subset=["ncbi_accession"],
+            keep="first",
+            maintain_order=True,
+        ).rows(named=True)
+        if row["conversion_status"] == "paired_gca_conflict_fallback_original"
+    )
+    if not conflicting_accessions:
+        return None
+    count = len(conflicting_accessions)
+    noun = "accession" if count == 1 else "accessions"
+    verb = "was" if count == 1 else "were"
+    examples = ", ".join(conflicting_accessions)
+    return (
+        f"{count} requested {noun} {verb} kept on the original RefSeq target "
+        "because explicit paired GenBank metadata conflicted with the expected "
+        f"assembly family. Affected accessions: {examples}"
     )
 
 
@@ -344,7 +392,9 @@ def resolve_supported_accession_preferences(
         if candidate_accessions:
             candidate_original_accessions = build_candidate_accession_scope(
                 summary_map,
+                status_map,
                 candidate_accessions,
+                version_latest=args.version_latest,
             )
             logger.info(
                 "Running candidate metadata lookup for %d paired GenBank "

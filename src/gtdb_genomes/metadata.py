@@ -649,31 +649,48 @@ def get_explicit_paired_genbank_candidate(
     )
 
 
-def has_blocking_explicit_pairing_issue(
+def classify_explicit_pairing_issue(
     requested_accession: str,
     status_map: dict[str, AssemblyStatusInfo] | None = None,
     *,
     version_latest: bool,
-) -> bool:
-    """Return whether explicit pairing metadata are present but unusable."""
+) -> str | None:
+    """Return the fallback status for unusable explicit pairing metadata."""
 
     if status_map is None:
-        return False
+        return None
     requested_status_info = status_map.get(requested_accession)
     if requested_status_info is None:
-        return False
+        return None
     paired_accession = requested_status_info.paired_accession
     paired_assembly_status = requested_status_info.paired_assembly_status
     if paired_accession is None and paired_assembly_status is None:
-        return False
-    return (
-        get_explicit_paired_genbank_candidate(
-            requested_accession,
-            status_map,
-            version_latest=version_latest,
-        )
-        is None
-    )
+        return None
+    if paired_accession is None or paired_assembly_status is None:
+        return "paired_gca_metadata_incomplete_fallback_original"
+    requested_parts = parse_assembly_accession(requested_accession)
+    paired_parts = parse_assembly_accession(paired_accession)
+    if requested_parts is None or paired_parts is None:
+        return "paired_gca_conflict_fallback_original"
+    if paired_parts.prefix != "GCA":
+        return "paired_gca_conflict_fallback_original"
+    if paired_parts.numeric_identifier != requested_parts.numeric_identifier:
+        return "paired_gca_conflict_fallback_original"
+    if not version_latest and paired_parts.version != requested_parts.version:
+        return "paired_gca_metadata_incomplete_fallback_original"
+    return None
+
+
+def build_augmented_discovered_accessions(
+    discovered_accessions: set[str],
+    explicit_candidate: ExplicitPairedGenbankCandidate | None = None,
+) -> set[str]:
+    """Return discovered accessions plus one explicit paired candidate when known."""
+
+    augmented_accessions = set(discovered_accessions)
+    if explicit_candidate is not None:
+        augmented_accessions.add(explicit_candidate.accession)
+    return augmented_accessions
 
 
 def get_candidate_status_info(
@@ -740,16 +757,21 @@ def choose_preferred_accession(
         return requested_accession, "unchanged_original"
     if discovered_accessions is None:
         return requested_accession, "metadata_lookup_failed_fallback_original"
-    if has_blocking_explicit_pairing_issue(
+    explicit_pairing_issue = classify_explicit_pairing_issue(
         requested_accession,
         status_map,
         version_latest=version_latest,
-    ):
-        return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
+    )
+    if explicit_pairing_issue is not None:
+        return requested_accession, explicit_pairing_issue
     explicit_candidate = get_explicit_paired_genbank_candidate(
         requested_accession,
         status_map,
         version_latest=version_latest,
+    )
+    augmented_discovered_accessions = build_augmented_discovered_accessions(
+        discovered_accessions,
+        explicit_candidate,
     )
     if explicit_candidate is not None and not version_latest:
         if is_suppressed_status(explicit_candidate.assembly_status):
@@ -757,18 +779,10 @@ def choose_preferred_accession(
         return explicit_candidate.accession, "paired_to_gca"
 
     if explicit_candidate is not None and version_latest:
-        paired_genbank = find_matching_genbank_accessions(
-            requested_accession,
-            discovered_accessions,
-            status_map=status_map,
-            version_latest=True,
-        )
-        if paired_genbank and explicit_candidate.accession not in paired_genbank:
-            return requested_accession, "paired_gca_metadata_incomplete_fallback_original"
         preferred_accession, preferred_status_info, metadata_incomplete = (
             select_preferred_heuristic_genbank_candidate(
                 requested_accession,
-                discovered_accessions,
+                augmented_discovered_accessions,
                 status_map=status_map,
                 version_latest=True,
                 explicit_candidate=explicit_candidate,
@@ -789,7 +803,7 @@ def choose_preferred_accession(
     preferred_accession, preferred_status_info, metadata_incomplete = (
         select_preferred_heuristic_genbank_candidate(
             requested_accession,
-            discovered_accessions,
+            augmented_discovered_accessions,
             status_map=status_map,
             version_latest=version_latest,
         )

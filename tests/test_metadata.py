@@ -385,6 +385,33 @@ def test_choose_preferred_accession_version_latest_ignores_lower_ranked_incomple
     )
 
 
+def test_choose_preferred_accession_returns_conflict_status_for_mismatched_explicit_pair() -> None:
+    """Conflicting explicit paired metadata should fail closed to the original accession."""
+
+    discovered_accessions = {
+        "GCF_000001.2",
+        "GCA_000001.2",
+    }
+    status_map = {
+        "GCF_000001.2": AssemblyStatusInfo(
+            assembly_status="current",
+            suppression_reason=None,
+            paired_accession="GCA_999999.1",
+            paired_assembly_status="current",
+        ),
+    }
+
+    assert choose_preferred_accession(
+        "GCF_000001.2",
+        discovered_accessions,
+        status_map=status_map,
+        version_latest=True,
+    ) == (
+        "GCF_000001.2",
+        "paired_gca_conflict_fallback_original",
+    )
+
+
 def test_choose_preferred_accession_keeps_original_when_exact_gca_version_is_absent() -> None:
     """Default GenBank preference should not upgrade to a different revision."""
 

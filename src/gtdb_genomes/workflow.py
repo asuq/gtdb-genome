@@ -181,6 +181,11 @@ def run_workflow(args: CliArgs) -> int:
     )
     if planning_warning is not None:
         logger.warning("%s", planning_warning)
+    explicit_pairing_warning = workflow_planning.build_explicit_pairing_conflict_warning(
+        mapped_frame,
+    )
+    if explicit_pairing_warning is not None:
+        logger.warning("%s", explicit_pairing_warning)
 
     # Dry-runs stop after planning and report the planned workload
     if args.dry_run:
