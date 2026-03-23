@@ -20,10 +20,12 @@ import gtdb_genomes.workflow_selection as workflow_selection
 if TYPE_CHECKING:
     import logging
     from gtdb_genomes.cli import CliArgs
+    from gtdb_genomes.layout import RunDirectories
 
 
 PLANNING_FAILURE_EXIT_CODE = 7
 OUTPUT_MATERIALISATION_FAILURE_EXIT_CODE = 8
+UNEXPECTED_INTERNAL_FAILURE_EXIT_CODE = 9
 
 
 def log_run_start(
@@ -67,6 +69,36 @@ def log_planning_staging_failure(
         redact_text(str(error), secrets),
     )
     return PLANNING_FAILURE_EXIT_CODE
+
+
+def log_unexpected_internal_failure(
+    logger: logging.Logger,
+    error: Exception,
+    secrets: tuple[str, ...],
+) -> int:
+    """Log one unexpected internal failure and return exit code 9."""
+
+    logger.error(
+        "Unexpected internal failure (%s): %s",
+        type(error).__name__,
+        redact_text(str(error), secrets),
+    )
+    return UNEXPECTED_INTERNAL_FAILURE_EXIT_CODE
+
+
+def cleanup_run_directories(
+    logger: logging.Logger,
+    run_directories: RunDirectories,
+) -> None:
+    """Clean up the working tree and log any cleanup failure."""
+
+    cleanup_error = cleanup_working_directories(run_directories)
+    if cleanup_error is not None:
+        logger.warning(
+            "Could not remove working directory %s: %s",
+            run_directories.working_root,
+            cleanup_error,
+        )
 
 
 def run_workflow(args: CliArgs) -> int:
@@ -161,6 +193,7 @@ def run_workflow(args: CliArgs) -> int:
         return 0
 
     # Real runs execute downloads and materialise outputs
+    run_directories: RunDirectories
     try:
         run_directories = initialise_run_directories(args.outdir)
         logger = workflow_outputs.configure_output_logger(args, logger, run_directories)
@@ -168,60 +201,61 @@ def run_workflow(args: CliArgs) -> int:
         exit_code = log_output_materialisation_failure(logger, error, secrets)
         close_logger(logger)
         return exit_code
-    if accession_plans:
-        execution_result = workflow_execution.execute_accession_plans(
-            accession_plans,
-            args,
-            decision_method,
-            run_directories,
-            logger,
-            secrets,
-        )
-    else:
-        execution_result = workflow_execution.DownloadExecutionResult(
-            executions={},
-            method_used=DEFAULT_REQUESTED_DOWNLOAD_METHOD,
-            download_concurrency_used=0,
-            rehydrate_workers_used=0,
-            shared_failures=(),
-        )
-    unsupported_executions = workflow_selection.build_unsupported_executions(
-        unsupported_selected_frame,
-    )
     try:
-        exit_code = workflow_outputs.materialise_real_run_outputs(
-            args,
-            logger,
-            run_directories,
-            started_at,
-            resolution,
-            mapped_frame,
-            planning_shared_failures,
-            execution_result,
-            unsupported_executions,
-            secrets,
-            suppressed_notes=suppressed_notes,
-        )
-    except (OSError, shutil.Error) as error:
-        exit_code = log_output_materialisation_failure(logger, error, secrets)
-    else:
-        failed_suppressed_warning = workflow_planning.build_failed_suppressed_warning(
-            suppressed_notes,
-            tuple(
-                original_accession
-                for original_accession, execution in execution_result.executions.items()
-                if execution.download_status == "failed"
-            ),
-        )
-        if failed_suppressed_warning is not None:
-            logger.warning("%s", failed_suppressed_warning)
-    if not args.keep_temp:
-        cleanup_error = cleanup_working_directories(run_directories)
-        if cleanup_error is not None:
-            logger.warning(
-                "Could not remove working directory %s: %s",
-                run_directories.working_root,
-                cleanup_error,
+        if accession_plans:
+            execution_result = workflow_execution.execute_accession_plans(
+                accession_plans,
+                args,
+                decision_method,
+                run_directories,
+                logger,
+                secrets,
             )
+        else:
+            execution_result = workflow_execution.DownloadExecutionResult(
+                executions={},
+                method_used=DEFAULT_REQUESTED_DOWNLOAD_METHOD,
+                download_concurrency_used=0,
+                rehydrate_workers_used=0,
+                shared_failures=(),
+            )
+        unsupported_executions = workflow_selection.build_unsupported_executions(
+            unsupported_selected_frame,
+        )
+        try:
+            exit_code = workflow_outputs.materialise_real_run_outputs(
+                args,
+                logger,
+                run_directories,
+                started_at,
+                resolution,
+                mapped_frame,
+                planning_shared_failures,
+                execution_result,
+                unsupported_executions,
+                secrets,
+                suppressed_notes=suppressed_notes,
+            )
+        except (OSError, shutil.Error) as error:
+            exit_code = log_output_materialisation_failure(logger, error, secrets)
+        else:
+            failed_suppressed_warning = workflow_planning.build_failed_suppressed_warning(
+                suppressed_notes,
+                tuple(
+                    original_accession
+                    for original_accession, execution in execution_result.executions.items()
+                    if execution.download_status == "failed"
+                ),
+            )
+            if failed_suppressed_warning is not None:
+                logger.warning("%s", failed_suppressed_warning)
+    except Exception as error:
+        exit_code = log_unexpected_internal_failure(logger, error, secrets)
+        if not args.keep_temp:
+            cleanup_run_directories(logger, run_directories)
+        close_logger(logger)
+        return exit_code
+    if not args.keep_temp:
+        cleanup_run_directories(logger, run_directories)
     close_logger(logger)
     return exit_code

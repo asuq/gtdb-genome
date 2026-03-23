@@ -226,3 +226,30 @@ def test_main_passes_ambient_ncbi_api_key_into_workflow(
 
     assert exit_code == 0
     assert captured_args[0].ncbi_api_key == "ambient-secret"
+
+
+def test_main_returns_exit_nine_for_unexpected_workflow_error(
+    monkeypatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The CLI should keep a last-resort unexpected-error boundary."""
+
+    monkeypatch.delenv(NCBI_API_KEY_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.run_workflow",
+        lambda args: (_ for _ in ()).throw(RuntimeError("workflow bug")),
+    )
+
+    exit_code = main(
+        [
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(tmp_path / "output"),
+        ],
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 9
+    assert "unexpected internal failure: workflow bug" in captured.err

@@ -906,6 +906,32 @@ def test_run_summary_lookup_with_retries_fails_fast_on_spawn_error() -> None:
     assert error.value.failures[0].error_type == "metadata_lookup_spawn_error"
 
 
+def test_run_summary_lookup_with_retries_keeps_partial_timeout_output() -> None:
+    """Metadata timeout failures should include partial stdout and stderr."""
+
+    with pytest.raises(
+        MetadataLookupError,
+        match="metadata lookup command timed out",
+    ) as error:
+        run_summary_lookup_with_retries(
+            ["GCF_000001.1"],
+            COMMAND_TEST_ACCESSION_FILE,
+            sleep_func=lambda delay: None,
+            runner=lambda command, capture_output, text, check, env, timeout: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired(
+                    command,
+                    timeout,
+                    output="partial stdout",
+                    stderr="partial stderr",
+                ),
+            ),
+        )
+
+    assert len(error.value.failures) == 4
+    assert "stdout: partial stdout" in error.value.failures[-1].error_message
+    assert "stderr: partial stderr" in error.value.failures[-1].error_message
+
+
 def test_apply_accession_preferences_honours_disabled_gca_preference() -> None:
     """Disabling GCA preference should keep the original accession."""
 

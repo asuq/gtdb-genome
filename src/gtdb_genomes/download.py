@@ -13,6 +13,7 @@ from gtdb_genomes.subprocess_utils import (
     build_spawn_error_message,
     build_subprocess_error_message,
     build_timeout_error_message,
+    normalise_subprocess_stream_output,
 )
 
 
@@ -217,11 +218,14 @@ def run_retryable_command(
                 env=environment,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as error:
+            stdout = normalise_subprocess_stream_output(error.output)
+            stderr = normalise_subprocess_stream_output(error.stderr)
             error_type = "timeout"
             error_message = build_timeout_error_message(
                 stage,
                 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+                timeout_error=error,
             )
         except OSError as error:
             error_type = "spawn_error"

@@ -355,11 +355,12 @@ def run_summary_lookup_with_retries(
                 env=environment,
                 timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as error:
             error_type = "metadata_lookup_timeout"
             error_message = build_timeout_error_message(
                 "metadata_lookup",
                 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+                timeout_error=error,
             )
         except OSError as error:
             error_type = "metadata_lookup_spawn_error"

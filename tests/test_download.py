@@ -266,6 +266,44 @@ def test_run_retryable_command_retries_timeouts_before_success() -> None:
     assert result.failures[0].error_type == "timeout"
 
 
+def test_run_retryable_command_keeps_partial_timeout_output() -> None:
+    """Timeout failures should preserve truncated partial stdout and stderr."""
+
+    sleep_calls: list[float] = []
+
+    def runner(
+        command: list[str],
+        capture_output: bool,
+        text: bool,
+        check: bool,
+        env: dict[str, str] | None,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Raise a timeout that carries partial command output."""
+
+        del capture_output, text, check, env
+        raise subprocess.TimeoutExpired(
+            command,
+            timeout,
+            output="partial stdout",
+            stderr="partial stderr",
+        )
+
+    result = run_retryable_command(
+        ["datasets", "download"],
+        stage="preferred_download",
+        sleep_func=sleep_calls.append,
+        runner=runner,
+    )
+
+    assert result.succeeded is False
+    assert result.stdout == "partial stdout"
+    assert result.stderr == "partial stderr"
+    assert sleep_calls == [5, 15, 45]
+    assert "stdout: partial stdout" in result.failures[-1].error_message
+    assert "stderr: partial stderr" in result.failures[-1].error_message
+
+
 def test_run_retryable_command_returns_spawn_failure_without_retry() -> None:
     """Spawn failures should fail fast instead of consuming the retry budget."""
 

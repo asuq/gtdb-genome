@@ -429,6 +429,52 @@ def test_real_run_initial_output_directory_failure_returns_exit_eight(
     assert not output_dir.exists()
 
 
+def test_unexpected_execution_failure_returns_exit_nine_and_cleans_workdir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Unexpected execution bugs should return exit 9 with cleanup."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    cleanup_calls: list[Path] = []
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("execution bug")),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow.cleanup_working_directories",
+        lambda run_directories: cleanup_calls.append(run_directories.working_root) or None,
+    )
+
+    output_dir = tmp_path / "unexpected-execution-failure"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 9
+    assert cleanup_calls == [output_dir / ".gtdb_genomes_work"]
+    assert "Unexpected internal failure (RuntimeError): execution bug" in (
+        log_stream.getvalue()
+    )
+
+
 def test_planning_staging_failure_returns_exit_seven(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
