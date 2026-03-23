@@ -13,6 +13,17 @@ from gtdb_genomes.bundled_data_validation import (
     normalise_optional_sha256,
     validate_taxonomy_file,
 )
+from gtdb_genomes.manifest_validation import (
+    ManifestHeaderValidationError,
+    ManifestIntegrityPairingError,
+    ManifestInvalidFieldError,
+    ManifestRequiredFieldError,
+    get_required_manifest_field_value,
+    normalise_manifest_headers,
+    parse_optional_manifest_field,
+    validate_manifest_integrity_pairing,
+    validate_required_manifest_headers,
+)
 from gtdb_genomes.taxonomy_bundle import BOOTSTRAP_COMMAND
 
 
@@ -134,11 +145,16 @@ def parse_manifest_integrity_field(
     """Parse one optional integrity field with a bundled-data error wrapper."""
 
     try:
-        return parser(raw_value)
-    except ValueError as error:
+        return parse_optional_manifest_field(
+            raw_value,
+            field_name=field_name,
+            parser=parser,
+        )
+    except ManifestInvalidFieldError as error:
         raise BundledDataError(
             "Bundled release manifest row "
-            f"{line_number} has an invalid {field_name} value: {path} ({error})",
+            f"{line_number} has an invalid {field_name} value: "
+            f"{path} ({error.detail})",
         ) from error
 
 
@@ -150,7 +166,7 @@ def validate_manifest_entry_integrity(
 ) -> None:
     """Validate one manifest row's taxonomy-path and integrity-field pairing."""
 
-    file_fields = (
+    field_sets = (
         (
             "bacterial_taxonomy",
             entry.bacterial_taxonomy,
@@ -175,25 +191,28 @@ def validate_manifest_entry_integrity(
         sha256_value,
         row_count_field_name,
         row_count_value,
-    ) in file_fields:
-        if taxonomy_path is None:
-            if sha256_value is not None or row_count_value is not None:
+    ) in field_sets:
+        try:
+            validate_manifest_integrity_pairing(
+                taxonomy_field_name=taxonomy_field_name,
+                taxonomy_path=taxonomy_path,
+                sha256_field_name=sha256_field_name,
+                sha256_value=sha256_value,
+                row_count_field_name=row_count_field_name,
+                row_count_value=row_count_value,
+            )
+        except ManifestIntegrityPairingError as error:
+            if error.kind == "orphan_integrity":
                 raise BundledDataError(
                     "Bundled release manifest row "
                     f"{line_number} defines {sha256_field_name} or "
-                    f"{row_count_field_name} without {taxonomy_field_name}: {path}",
-                )
-            continue
-        if sha256_value is None:
+                    f"{row_count_field_name} without {error.taxonomy_field_name}: "
+                    f"{path}",
+                ) from error
             raise BundledDataError(
                 f"Bundled release manifest row {line_number} is missing "
-                f"{sha256_field_name}: {path}",
-            )
-        if row_count_value is None:
-            raise BundledDataError(
-                f"Bundled release manifest row {line_number} is missing "
-                f"{row_count_field_name}: {path}",
-            )
+                f"{error.related_field_name}: {path}",
+            ) from error
 
 
 def validate_manifest_headers(
@@ -202,29 +221,28 @@ def validate_manifest_headers(
 ) -> None:
     """Validate that a bundled release manifest exposes the required columns."""
 
-    if fieldnames is None:
-        raise BundledDataError(
-            f"Bundled release manifest is missing a header row: {path}",
+    try:
+        normalised_fieldnames = normalise_manifest_headers(fieldnames)
+        validate_required_manifest_headers(
+            normalised_fieldnames,
+            REQUIRED_MANIFEST_FIELDS,
         )
-    normalised_fieldnames = tuple(
-        "" if fieldname is None else fieldname.strip()
-        for fieldname in fieldnames
-    )
-    if any(not fieldname for fieldname in normalised_fieldnames):
-        raise BundledDataError(
-            f"Bundled release manifest has a malformed header row: {path}",
-        )
-    missing_fields = [
-        field_name
-        for field_name in REQUIRED_MANIFEST_FIELDS
-        if field_name not in normalised_fieldnames
-    ]
-    if missing_fields:
-        missing_text = ", ".join(missing_fields)
-        raise BundledDataError(
-            "Bundled release manifest is missing required columns: "
-            f"{missing_text}",
-        )
+    except ManifestHeaderValidationError as error:
+        if error.kind == "missing_header":
+            raise BundledDataError(
+                f"Bundled release manifest is missing a header row: {path}",
+            ) from error
+        if error.kind == "malformed_header":
+            raise BundledDataError(
+                f"Bundled release manifest has a malformed header row: {path}",
+            ) from error
+        if error.kind == "missing_required_fields":
+            missing_text = ", ".join(error.missing_fields)
+            raise BundledDataError(
+                "Bundled release manifest is missing required columns: "
+                f"{missing_text}",
+            ) from error
+        raise RuntimeError("Unexpected manifest header validation state") from error
 
 
 def get_required_manifest_value(
@@ -235,19 +253,18 @@ def get_required_manifest_value(
 ) -> str:
     """Return one required manifest value or raise a bundled-data error."""
 
-    raw_value = row.get(field_name)
-    if raw_value is None:
-        raise BundledDataError(
-            f"Bundled release manifest row {line_number} is missing field "
-            f"{field_name}: {path}",
-        )
-    value = raw_value.strip()
-    if not value:
+    try:
+        return get_required_manifest_field_value(row, field_name)
+    except ManifestRequiredFieldError as error:
+        if error.kind == "missing_field":
+            raise BundledDataError(
+                f"Bundled release manifest row {line_number} is missing field "
+                f"{field_name}: {path}",
+            ) from error
         raise BundledDataError(
             f"Bundled release manifest row {line_number} has a blank field "
             f"{field_name}: {path}",
-        )
-    return value
+        ) from error
 
 
 def parse_manifest_entry(

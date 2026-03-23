@@ -19,6 +19,17 @@ from gtdb_genomes.bundled_data_validation import (
     normalise_optional_row_count,
     normalise_optional_sha256,
 )
+from gtdb_genomes.manifest_validation import (
+    ManifestHeaderValidationError,
+    ManifestIntegrityPairingError,
+    ManifestInvalidFieldError,
+    ManifestRequiredFieldError,
+    get_required_manifest_field_value,
+    normalise_manifest_headers,
+    parse_optional_manifest_field,
+    validate_manifest_integrity_pairing,
+    validate_required_manifest_headers,
+)
 
 
 UQ_RELEASES_ROOT = "https://data.ace.uq.edu.au/public/gtdb/data/releases/"
@@ -98,19 +109,18 @@ def get_required_manifest_field(
 ) -> str:
     """Return one required manifest field or raise a manifest error."""
 
-    raw_value = row.get(field_name)
-    if raw_value is None:
-        raise TaxonomyBundleError(
-            f"Manifest row {line_number} is missing field {field_name}: "
-            f"{manifest_path}",
-        )
-    value = raw_value.strip()
-    if not value:
+    try:
+        return get_required_manifest_field_value(row, field_name)
+    except ManifestRequiredFieldError as error:
+        if error.kind == "missing_field":
+            raise TaxonomyBundleError(
+                f"Manifest row {line_number} is missing field {field_name}: "
+                f"{manifest_path}",
+            ) from error
         raise TaxonomyBundleError(
             f"Manifest row {line_number} has a blank field {field_name}: "
             f"{manifest_path}",
-        )
-    return value
+        ) from error
 
 
 def parse_manifest_integrity_field(
@@ -124,11 +134,15 @@ def parse_manifest_integrity_field(
     """Parse one optional runtime-integrity field from the manifest."""
 
     try:
-        return parser(raw_value)
-    except ValueError as error:
+        return parse_optional_manifest_field(
+            raw_value,
+            field_name=field_name,
+            parser=parser,
+        )
+    except ManifestInvalidFieldError as error:
         raise TaxonomyBundleError(
             f"Manifest row {line_number} has an invalid field {field_name}: "
-            f"{manifest_path} ({error})",
+            f"{manifest_path} ({error.detail})",
         ) from error
 
 
@@ -166,24 +180,26 @@ def validate_entry_integrity_fields(
         row_count_field_name,
         row_count_value,
     ) in field_sets:
-        if taxonomy_path is None:
-            if sha256_value is not None or row_count_value is not None:
+        try:
+            validate_manifest_integrity_pairing(
+                taxonomy_field_name=taxonomy_field_name,
+                taxonomy_path=taxonomy_path,
+                sha256_field_name=sha256_field_name,
+                sha256_value=sha256_value,
+                row_count_field_name=row_count_field_name,
+                row_count_value=row_count_value,
+            )
+        except ManifestIntegrityPairingError as error:
+            if error.kind == "orphan_integrity":
                 raise TaxonomyBundleError(
                     f"Manifest row {line_number} defines {sha256_field_name} or "
-                    f"{row_count_field_name} without {taxonomy_field_name}: "
+                    f"{row_count_field_name} without {error.taxonomy_field_name}: "
                     f"{manifest_path}",
-                )
-            continue
-        if sha256_value is None:
+                ) from error
             raise TaxonomyBundleError(
                 f"Manifest row {line_number} is missing field "
-                f"{sha256_field_name}: {manifest_path}",
-            )
-        if row_count_value is None:
-            raise TaxonomyBundleError(
-                f"Manifest row {line_number} is missing field "
-                f"{row_count_field_name}: {manifest_path}",
-            )
+                f"{error.related_field_name}: {manifest_path}",
+            ) from error
 
 
 def validate_manifest_header(
@@ -192,27 +208,27 @@ def validate_manifest_header(
 ) -> None:
     """Validate a manifest header for refresh and bootstrap operations."""
 
-    if fieldnames is None:
-        raise TaxonomyBundleError(
-            f"Manifest is missing a header row: {manifest_path}",
+    try:
+        normalised_fieldnames = normalise_manifest_headers(fieldnames)
+        validate_required_manifest_headers(
+            normalised_fieldnames,
+            REQUIRED_RUNTIME_FIELDS,
         )
-    normalised_fieldnames = [
-        "" if fieldname is None else fieldname.strip() for fieldname in fieldnames
-    ]
-    if any(not fieldname for fieldname in normalised_fieldnames):
-        raise TaxonomyBundleError(
-            f"Manifest has a malformed header row: {manifest_path}",
-        )
-    missing_fields = [
-        field_name
-        for field_name in REQUIRED_RUNTIME_FIELDS
-        if field_name not in normalised_fieldnames
-    ]
-    if missing_fields:
-        missing_text = ", ".join(missing_fields)
-        raise TaxonomyBundleError(
-            f"Manifest is missing required columns: {missing_text}",
-        )
+    except ManifestHeaderValidationError as error:
+        if error.kind == "missing_header":
+            raise TaxonomyBundleError(
+                f"Manifest is missing a header row: {manifest_path}",
+            ) from error
+        if error.kind == "malformed_header":
+            raise TaxonomyBundleError(
+                f"Manifest has a malformed header row: {manifest_path}",
+            ) from error
+        if error.kind == "missing_required_fields":
+            missing_text = ", ".join(error.missing_fields)
+            raise TaxonomyBundleError(
+                f"Manifest is missing required columns: {missing_text}",
+            ) from error
+        raise RuntimeError("Unexpected manifest header validation state") from error
 
 
 def parse_manifest_row(

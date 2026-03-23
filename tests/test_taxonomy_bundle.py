@@ -190,6 +190,56 @@ def test_refresh_manifest_adds_uq_source_metadata_for_plain_tsv_release(
     assert "archaeal_source_name" not in manifest_text
 
 
+def test_load_taxonomy_bundle_manifest_rejects_missing_required_headers(
+    tmp_path: Path,
+) -> None:
+    """Bundling manifest loading should reject missing required columns."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                "resolved_release\tbacterial_taxonomy\tarchaeal_taxonomy\tis_latest",
+                "95.0\tbac.tsv.gz\t\ttrue",
+            ],
+        )
+        + "\n",
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="missing required columns"):
+        load_taxonomy_bundle_manifest(manifest_path)
+
+
+def test_load_taxonomy_bundle_manifest_rejects_blank_required_fields(
+    tmp_path: Path,
+) -> None:
+    """Bundling manifest loading should reject blank required values."""
+
+    manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
+    write_manifest_text(
+        manifest_path,
+        "\n".join(
+            [
+                BOOTSTRAP_MANIFEST_HEADER,
+                build_bootstrap_manifest_row(
+                    "95.0",
+                    " ",
+                    "bac120_taxonomy_r95.tsv.gz",
+                    "",
+                    "true",
+                    "https://example.org/release95/95.0/",
+                    "MD5SUM",
+                ),
+            ],
+        )
+        + "\n",
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="blank field aliases"):
+        load_taxonomy_bundle_manifest(manifest_path)
+
+
 def test_refresh_manifest_prefers_precompressed_source_when_available(
     tmp_path: Path,
 ) -> None:
