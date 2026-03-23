@@ -51,7 +51,6 @@ def test_resolve_supported_accession_preferences_skips_metadata_by_default(
             supported_selected_frame,
             build_cli_args(tmp_path / "output", prefer_genbank=False),
             logging.getLogger("test-planning-skip-metadata"),
-            (),
         )
     )
 
@@ -147,7 +146,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_metad
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
             logging.getLogger("test-planning-partial-candidate-metadata"),
-            (),
         )
     )
 
@@ -238,7 +236,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
             logging.getLogger("test-planning-silent-candidate-omission"),
-            (),
         )
     )
 
@@ -331,7 +328,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
             logging.getLogger("test-planning-candidate-metadata-error"),
-            (),
         )
     )
 
@@ -448,7 +444,6 @@ def test_resolve_supported_accession_preferences_scopes_candidate_lookup_failure
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
             logging.getLogger("test-planning-candidate-metadata-scope"),
-            (),
         )
     )
 
@@ -524,11 +519,11 @@ def test_build_suppressed_accession_notes_prefers_selected_accession_status() ->
     assert notes["GCF_000001.1"].suppression_reason == "removed by submitter"
 
 
-def test_prepare_planning_inputs_combines_metadata_and_planning_failures(
+def test_prepare_planning_inputs_preserves_metadata_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Planning should preserve metadata and additional shared failures."""
+    """Planning should preserve metadata shared failures."""
 
     supported_selected_frame = pl.DataFrame(
         {
@@ -562,23 +557,6 @@ def test_prepare_planning_inputs_combines_metadata_and_planning_failures(
             ),
         ),
     )
-    additional_shared_failures = (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.1",),
-            failures=(
-                CommandFailureRecord(
-                    stage="planning",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="local_filesystem",
-                    error_message="temporary planning failure",
-                    final_status="retry_scheduled",
-                    attempted_accession="GCF_000001.1",
-                ),
-            ),
-        ),
-    )
-
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.resolve_supported_accession_preferences",
         lambda *args, **kwargs: (
@@ -592,7 +570,6 @@ def test_prepare_planning_inputs_combines_metadata_and_planning_failures(
         lambda *args, **kwargs: (
             (),
             "direct",
-            additional_shared_failures,
         ),
     )
     monkeypatch.setattr(
@@ -611,14 +588,10 @@ def test_prepare_planning_inputs_combines_metadata_and_planning_failures(
         pl.DataFrame(),
         build_cli_args(tmp_path / "output"),
         logging.getLogger("test-planning-shared-failure-merge"),
-        (),
     )
 
     assert prepared_frame.equals(mapped_frame)
-    assert planning_shared_failures == (
-        metadata_shared_failures[0],
-        additional_shared_failures[0],
-    )
+    assert planning_shared_failures == metadata_shared_failures
     assert suppressed_notes == {}
     assert accession_plans == ()
     assert decision_method == "direct"

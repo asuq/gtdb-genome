@@ -182,6 +182,8 @@ otherwise collide.
     status, final method used, output path, and download status
   - `download_batch` records the batch pass that produced the row, for example
     `direct_batch_1`, `direct_fallback_batch_1`, or `dehydrated_batch`
+  - unsupported legacy `UBA*` rows leave `download_method_used` and
+    `download_batch` blank because no download step ran
 - `download_failures.tsv`
   - one row per recorded failed attempt
   - records collapsed taxon context, the attempted accession or accession set,
@@ -308,7 +310,9 @@ Fixed TSV columns:
   - `ncbi_accession` records the original requested accession, while
     `download_request_accession` records the terminal exact token passed to
     `datasets` for that row. `final_accession` is the realised versioned
-    accession from the extracted payload on successful downloads.
+    accession from the extracted payload on successful downloads. Unsupported
+    legacy `UBA*` rows leave `download_method_used` and `download_batch`
+    blank because the workflow skips execution for them.
 - `download_failures.tsv`
   - `requested_taxon`, `taxon_slug`, `gtdb_accession`,
     `attempted_accession`, `final_accession`, `stage`, `attempt_index`,

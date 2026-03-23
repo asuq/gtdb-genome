@@ -14,7 +14,6 @@ import polars as pl
 from gtdb_genomes.download import (
     DEFAULT_REQUESTED_DOWNLOAD_METHOD,
     get_ordered_unique_accessions,
-    run_preview_command,
     select_download_method,
     write_accession_input_file,
 )
@@ -271,7 +270,6 @@ def resolve_supported_accession_preferences(
     supported_selected_frame: pl.DataFrame,
     args: CliArgs,
     logger: logging.Logger,
-    secrets: tuple[str, ...],
 ) -> tuple[
     pl.DataFrame,
     tuple[SharedFailureContext, ...],
@@ -423,15 +421,16 @@ def resolve_supported_accession_preferences(
 def plan_supported_downloads(
     supported_mapped_frame: pl.DataFrame,
     args: CliArgs,
-) -> tuple[tuple[AccessionPlan, ...], str, tuple[SharedFailureContext, ...]]:
+) -> tuple[tuple[AccessionPlan, ...], str]:
     """Build supported-accession plans and resolve the effective method."""
+
     accession_plans = build_accession_plans(
         supported_mapped_frame,
         prefer_genbank=args.prefer_genbank,
         version_latest=args.version_latest,
     )
     if not accession_plans:
-        return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD, ()
+        return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD
 
     decision = select_download_method(
         len(
@@ -440,7 +439,7 @@ def plan_supported_downloads(
             ),
         ),
     )
-    return accession_plans, decision.method_used, ()
+    return accession_plans, decision.method_used
 
 
 def prepare_planning_inputs(
@@ -448,7 +447,6 @@ def prepare_planning_inputs(
     unsupported_selected_frame: pl.DataFrame,
     args: CliArgs,
     logger: logging.Logger,
-    secrets: tuple[str, ...],
 ) -> tuple[
     pl.DataFrame,
     tuple[SharedFailureContext, ...],
@@ -466,7 +464,6 @@ def prepare_planning_inputs(
         supported_selected_frame,
         args,
         logger,
-        secrets,
     )
     unsupported_mapped_frame = build_unsupported_accession_frame(
         unsupported_selected_frame,
@@ -479,11 +476,10 @@ def prepare_planning_inputs(
         ],
         how="vertical",
     )
-    accession_plans, decision_method, planning_shared_failures = plan_supported_downloads(
+    accession_plans, decision_method = plan_supported_downloads(
         supported_mapped_frame,
         args,
     )
-    planning_shared_failures = metadata_shared_failures + planning_shared_failures
     logger.info(
         "Automatic planning selected %s for %d supported accession(s)",
         decision_method,
@@ -491,7 +487,7 @@ def prepare_planning_inputs(
     )
     return (
         mapped_frame,
-        planning_shared_failures,
+        metadata_shared_failures,
         suppressed_notes,
         accession_plans,
         decision_method,

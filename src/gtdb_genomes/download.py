@@ -1,4 +1,4 @@
-"""NCBI genome download command construction and planning."""
+"""NCBI genome download command construction and automatic planning."""
 
 from __future__ import annotations
 
@@ -24,34 +24,11 @@ SUPPORTED_INCLUDE_TOKENS = frozenset({"genome", "gff3", "protein"})
 
 
 @dataclass(slots=True)
-class PreviewError(Exception):
-    """Raised when the datasets preview command fails or cannot be parsed."""
-
-    message: str
-    failures: tuple["CommandFailureRecord", ...] = ()
-
-    def __str__(self) -> str:
-        """Return the human-readable exception message."""
-
-        return self.message
-
-
-@dataclass(slots=True)
-class PreviewCommandResult:
-    """Structured preview output plus preserved retry provenance."""
-
-    preview_text: str
-    failures: tuple["CommandFailureRecord", ...]
-
-
-@dataclass(slots=True)
 class DownloadMethodDecision:
     """Resolved download mode decision for a requested accession set."""
 
-    requested_method: str
     method_used: str
     accession_count: int
-    preview_size_bytes: int | None
 
 
 @dataclass(slots=True)
@@ -102,33 +79,6 @@ def validate_include_value(include: str) -> str:
     if "genome" not in tokens:
         raise ValueError("argument --include: value must contain 'genome'")
     return ",".join(tokens)
-
-
-def build_preview_command(
-    accession_file: Path,
-    include: str,
-    ncbi_api_key: str | None = None,
-    datasets_bin: str = "datasets",
-    debug: bool = False,
-) -> list[str]:
-    """Build a datasets preview command for genome accessions from a file."""
-
-    command = [
-        datasets_bin,
-        "download",
-        "genome",
-        "accession",
-        "--inputfile",
-        str(accession_file),
-        "--include",
-        validate_include_value(include),
-        "--preview",
-    ]
-    if ncbi_api_key:
-        command.extend(["--api-key", ncbi_api_key])
-    if debug:
-        command.append("--debug")
-    return command
 
 
 def build_direct_batch_download_command(
@@ -205,43 +155,6 @@ def write_accession_input_file(
     return path
 
 
-def run_preview_command(
-    accession_file: Path,
-    include: str,
-    ncbi_api_key: str | None = None,
-    datasets_bin: str = "datasets",
-    debug: bool = False,
-    sleep_func: Callable[[float], None] = time.sleep,
-    runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
-) -> PreviewCommandResult:
-    """Run `datasets --preview` and return its output plus retry history."""
-
-    command = build_preview_command(
-        accession_file,
-        include,
-        ncbi_api_key=ncbi_api_key,
-        datasets_bin=datasets_bin,
-        debug=debug,
-    )
-    result = run_retryable_command(
-        command,
-        stage="preview",
-        sleep_func=sleep_func,
-        runner=runner,
-    )
-    if result.succeeded:
-        return PreviewCommandResult(
-            preview_text=result.stdout,
-            failures=result.failures,
-        )
-    error_message = result.stderr.strip() or result.stdout.strip()
-    if not error_message and result.failures:
-        error_message = result.failures[-1].error_message
-    if not error_message:
-        error_message = "datasets preview failed"
-    raise PreviewError(error_message, failures=result.failures)
-
-
 def build_rehydrate_command(
     directory: Path,
     max_workers: int,
@@ -275,10 +188,8 @@ def select_download_method(
     if accession_count > DEHYDRATE_ACCESSION_THRESHOLD:
         method_used = "dehydrate"
     return DownloadMethodDecision(
-        requested_method=DEFAULT_REQUESTED_DOWNLOAD_METHOD,
         method_used=method_used,
         accession_count=accession_count,
-        preview_size_bytes=None,
     )
 
 

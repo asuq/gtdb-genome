@@ -8,7 +8,6 @@ import subprocess
 import pytest
 
 from gtdb_genomes.cli import main
-from gtdb_genomes.download import PreviewCommandResult
 from gtdb_genomes.layout import (
     ACCESSION_MAP_COLUMNS,
     RUN_SUMMARY_COLUMNS,
@@ -97,13 +96,6 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(),
     )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: PreviewCommandResult(
-            preview_text="Package size: 1.0 GB\n",
-            failures=(),
-        ),
-    )
 
     output_dir = tmp_path / "mixed-uba-dry-run"
     exit_code = main(
@@ -131,7 +123,7 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """UBA-only dry-runs should warn and avoid metadata or preview calls."""
+    """UBA-only dry-runs should warn and avoid metadata calls."""
 
     warning_stream = install_capture_logger(monkeypatch)
     required_tools_calls: list[tuple[str, ...]] = []
@@ -148,12 +140,6 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("preview should not run"),
-        ),
     )
 
     output_dir = tmp_path / "uba-only-dry-run"
@@ -418,13 +404,6 @@ def test_real_run_initial_output_directory_failure_returns_exit_eight(
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: PreviewCommandResult(
-            preview_text="Package size: 1.0 GB\n",
-            failures=(),
-        ),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow.initialise_run_directories",

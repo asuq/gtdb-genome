@@ -9,14 +9,11 @@ import pytest
 
 from gtdb_genomes.download import (
     DEHYDRATE_ACCESSION_THRESHOLD,
-    PreviewError,
     build_batch_dehydrate_command,
     build_direct_batch_download_command,
-    build_preview_command,
     build_rehydrate_command,
     get_rehydrate_workers,
     run_retryable_command,
-    run_preview_command,
     select_download_method,
     validate_include_value,
     write_accession_input_file,
@@ -47,12 +44,6 @@ def test_validate_include_value_rejects_unknown_tokens() -> None:
 def test_command_builders_match_datasets_cli_shape() -> None:
     """Command builders should emit the expected datasets argv layout."""
 
-    preview_command = build_preview_command(
-        COMMAND_TEST_ACCESSION_FILE,
-        "genome,gff3",
-        ncbi_api_key="secret",
-        debug=True,
-    )
     direct_batch_command = build_direct_batch_download_command(
         COMMAND_TEST_ACCESSION_FILE,
         COMMAND_TEST_ARCHIVE_FILE,
@@ -74,22 +65,6 @@ def test_command_builders_match_datasets_cli_shape() -> None:
         debug=True,
     )
 
-    assert preview_command == [
-        "datasets",
-        "download",
-        "genome",
-        "accession",
-        "--inputfile",
-        str(COMMAND_TEST_ACCESSION_FILE),
-        "--include",
-        "genome,gff3",
-        "--preview",
-        "--api-key",
-        "secret",
-        "--debug",
-    ]
-    assert "GCA_1" not in preview_command
-    assert "GCF_2" not in preview_command
     assert direct_batch_command == [
         "datasets",
         "download",
@@ -138,6 +113,7 @@ def test_select_download_method_uses_count_only_threshold() -> None:
     """Auto mode should switch to dehydrate only above the count threshold."""
 
     assert select_download_method(5).method_used == "direct"
+    assert select_download_method(5).accession_count == 5
     assert (
         select_download_method(DEHYDRATE_ACCESSION_THRESHOLD).method_used
         == "direct"
@@ -288,82 +264,3 @@ def test_run_retryable_command_returns_spawn_failure_without_retry() -> None:
     assert result.failures[0].error_message.startswith(
         "preferred download command could not start",
     )
-
-
-def test_preview_command_uses_full_retry_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Preview should retry network failures three times before raising."""
-
-    del monkeypatch
-    attempts = iter([1, 1, 1, 1])
-
-    def fake_run(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: int,
-    ) -> subprocess.CompletedProcess[str]:
-        """Return repeated preview failures."""
-
-        return subprocess.CompletedProcess(
-            command,
-            next(attempts),
-            stdout="",
-            stderr="preview failed",
-        )
-
-    with pytest.raises(PreviewError, match="preview failed") as error_info:
-        run_preview_command(
-            COMMAND_TEST_ACCESSION_FILE,
-            "genome",
-            sleep_func=lambda delay: None,
-            runner=fake_run,
-        )
-    assert [failure.final_status for failure in error_info.value.failures] == [
-        "retry_scheduled",
-        "retry_scheduled",
-        "retry_scheduled",
-        "retry_exhausted",
-    ]
-
-
-def test_preview_command_returns_retry_history_after_success() -> None:
-    """Preview should preserve earlier retry failures when a later attempt works."""
-
-    attempts = iter([1, 0])
-    sleep_calls: list[float] = []
-    observed_attempts: list[int] = []
-
-    def runner(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: int,
-    ) -> subprocess.CompletedProcess[str]:
-        """Return one transient preview failure before a successful response."""
-
-        return_code = next(attempts)
-        observed_attempts.append(return_code)
-        return subprocess.CompletedProcess(
-            command,
-            return_code,
-            stdout="Package size: 1.0 GB\n" if return_code == 0 else "",
-            stderr="" if return_code == 0 else "preview failed",
-        )
-
-    result = run_preview_command(
-        COMMAND_TEST_ACCESSION_FILE,
-        "genome",
-        sleep_func=sleep_calls.append,
-        runner=runner,
-    )
-
-    assert result.preview_text == "Package size: 1.0 GB\n"
-    assert sleep_calls == [5]
-    assert observed_attempts == [1, 0]
-    assert len(result.failures) == 1
-    assert result.failures[0].stage == "preview"
-    assert result.failures[0].final_status == "retry_scheduled"

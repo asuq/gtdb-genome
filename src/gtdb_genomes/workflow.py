@@ -129,7 +129,6 @@ def run_workflow(args: CliArgs) -> int:
                 unsupported_selected_frame,
                 args,
                 logger,
-                secrets,
             )
         )
     except MetadataLookupError as error:

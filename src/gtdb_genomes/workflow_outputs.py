@@ -430,7 +430,6 @@ def build_failure_rows(
 
 
 def build_enriched_output_rows(
-    args: CliArgs,
     resolved_release: str,
     mapped_frame: pl.DataFrame,
     execution_result: DownloadExecutionResult,
@@ -438,7 +437,6 @@ def build_enriched_output_rows(
     run_directories: RunDirectories,
     logger: logging.Logger,
 ) -> tuple[
-    list[EnrichedOutputRow],
     list[EnrichedOutputRow],
     dict[str, list[PerTaxonOutputRow]],
     dict[str, int],
@@ -450,7 +448,6 @@ def build_enriched_output_rows(
         **unsupported_executions,
     }
     enriched_rows: list[EnrichedOutputRow] = []
-    supported_enriched_rows: list[EnrichedOutputRow] = []
     for row in mapped_frame.rows(named=True):
         execution = executions[row["ncbi_accession"]]
         selected_accession = row["final_accession"]
@@ -475,15 +472,15 @@ def build_enriched_output_rows(
                     else ""
                 ),
                 "conversion_status": execution.conversion_status,
-                "download_method_used": execution_result.method_used,
-                "download_batch": execution.download_batch,
+                "download_method_used": (
+                    "" if unsupported_accession else execution_result.method_used
+                ),
+                "download_batch": "" if unsupported_accession else execution.download_batch,
                 "output_relpath": "",
                 "download_status": execution.download_status,
                 "duplicate_across_taxa": False,
             },
         )
-        if not unsupported_accession:
-            supported_enriched_rows.append(enriched_rows[-1])
 
     duplicate_accessions = get_duplicate_accessions(enriched_rows)
     seen_taxon_accessions: set[tuple[str, str]] = set()
@@ -548,7 +545,7 @@ def build_enriched_output_rows(
             },
         )
 
-    return enriched_rows, supported_enriched_rows, per_taxon_rows, duplicate_counts
+    return enriched_rows, per_taxon_rows, duplicate_counts
 
 
 def resolve_exit_code(
@@ -593,9 +590,8 @@ def materialise_real_run_outputs(
     """Copy payloads, write manifests, and return the final exit code."""
 
     logger.info("Writing output manifests to %s", run_directories.output_root)
-    enriched_rows, supported_enriched_rows, per_taxon_rows, duplicate_counts = (
+    enriched_rows, per_taxon_rows, duplicate_counts = (
         build_enriched_output_rows(
-            args,
             resolution.resolved_release,
             mapped_frame,
             execution_result,

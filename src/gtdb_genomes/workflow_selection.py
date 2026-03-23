@@ -137,7 +137,7 @@ def build_unsupported_executions(
             final_accession=None,
             conversion_status="failed_no_usable_accession",
             download_status="failed",
-            download_batch=accession,
+            download_batch="",
             payload_directory=None,
             failures=(
                 CommandFailureRecord(

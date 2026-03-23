@@ -12,7 +12,6 @@ from gtdb_genomes.cli import CliArgs
 from gtdb_genomes.download import (
     CommandFailureRecord,
     DownloadMethodDecision,
-    PreviewCommandResult,
     RetryableCommandResult,
 )
 from gtdb_genomes.workflow_execution_models import (
@@ -49,15 +48,6 @@ def fake_release_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep planning-contract tests independent of generated checkout data."""
 
     install_fake_release_resolution(monkeypatch)
-
-
-def successful_preview_result() -> PreviewCommandResult:
-    """Return one successful preview result for stubbed planning tests."""
-
-    return PreviewCommandResult(
-        preview_text="Package size: 1.0 GB\n",
-        failures=(),
-    )
 
 
 def test_build_unsupported_uba_warning_mentions_examples_and_bioproject() -> None:
@@ -211,11 +201,6 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse_in_l
         dry_run=False,
     )
 
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
-    )
-
     observed_counts: list[int] = []
 
     def fake_select_download_method(
@@ -225,10 +210,8 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse_in_l
 
         observed_counts.append(accession_count)
         return DownloadMethodDecision(
-            requested_method="auto",
             method_used="direct",
             accession_count=accession_count,
-            preview_size_bytes=None,
         )
 
     monkeypatch.setattr(
@@ -236,16 +219,12 @@ def test_auto_method_uses_unique_download_request_count_after_stem_collapse_in_l
         fake_select_download_method,
     )
 
-    plans, decision_method, planning_shared_failures = plan_supported_downloads(
-        supported_mapped_frame,
-        args,
-    )
+    plans, decision_method = plan_supported_downloads(supported_mapped_frame, args)
 
     assert len(plans) == 2
     assert {plan.download_request_accession for plan in plans} == {"GCA_000001"}
     assert observed_counts == [1]
     assert decision_method == "direct"
-    assert planning_shared_failures == ()
 
 
 def test_auto_method_keeps_versioned_requests_by_default_with_prefer_genbank(
@@ -275,11 +254,6 @@ def test_auto_method_keeps_versioned_requests_by_default_with_prefer_genbank(
         dry_run=False,
     )
 
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
-    )
-
     observed_counts: list[int] = []
 
     def fake_select_download_method(
@@ -289,10 +263,8 @@ def test_auto_method_keeps_versioned_requests_by_default_with_prefer_genbank(
 
         observed_counts.append(accession_count)
         return DownloadMethodDecision(
-            requested_method="auto",
             method_used="direct",
             accession_count=accession_count,
-            preview_size_bytes=None,
         )
 
     monkeypatch.setattr(
@@ -300,10 +272,7 @@ def test_auto_method_keeps_versioned_requests_by_default_with_prefer_genbank(
         fake_select_download_method,
     )
 
-    plans, decision_method, planning_shared_failures = plan_supported_downloads(
-        supported_mapped_frame,
-        args,
-    )
+    plans, decision_method = plan_supported_downloads(supported_mapped_frame, args)
 
     assert len(plans) == 2
     assert {plan.download_request_accession for plan in plans} == {
@@ -312,7 +281,6 @@ def test_auto_method_keeps_versioned_requests_by_default_with_prefer_genbank(
     }
     assert observed_counts == [2]
     assert decision_method == "direct"
-    assert planning_shared_failures == ()
 
 
 def test_plan_supported_downloads_switches_to_dehydrate_only_above_request_threshold(
@@ -348,26 +316,17 @@ def test_plan_supported_downloads_switches_to_dehydrate_only_above_request_thres
         dry_run=False,
     )
 
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
-    )
-
-    plans, decision_method, planning_shared_failures = plan_supported_downloads(
-        supported_mapped_frame,
-        args,
-    )
+    plans, decision_method = plan_supported_downloads(supported_mapped_frame, args)
 
     assert len(plans) == 1001
     assert decision_method == "dehydrate"
-    assert planning_shared_failures == ()
 
 
-def test_plan_supported_downloads_skips_preview_calls(
+def test_plan_supported_downloads_uses_count_based_selection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Count-based planning should not call the old preview helper."""
+    """Count-based planning should rely only on unique request tokens."""
 
     supported_mapped_frame = pl.DataFrame(
         {
@@ -390,21 +349,29 @@ def test_plan_supported_downloads_skips_preview_calls(
         dry_run=False,
     )
 
+    observed_counts: list[int] = []
+
+    def fake_select_download_method(
+        accession_count: int,
+    ) -> DownloadMethodDecision:
+        """Capture the request count without any preview-specific seam."""
+
+        observed_counts.append(accession_count)
+        return DownloadMethodDecision(
+            method_used="direct",
+            accession_count=accession_count,
+        )
+
     monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("preview should not run"),
-        ),
+        "gtdb_genomes.workflow_planning.select_download_method",
+        fake_select_download_method,
     )
 
-    plans, decision_method, planning_shared_failures = plan_supported_downloads(
-        supported_mapped_frame,
-        args,
-    )
+    plans, decision_method = plan_supported_downloads(supported_mapped_frame, args)
 
     assert len(plans) == 2
+    assert observed_counts == [2]
     assert decision_method == "direct"
-    assert planning_shared_failures == ()
 
 
 def test_dry_run_logs_info_milestones(
@@ -427,10 +394,6 @@ def test_dry_run_logs_info_milestones(
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
     )
 
     output_dir = tmp_path / "dry-run-info"
@@ -493,10 +456,6 @@ def test_dry_run_warns_for_suppressed_planned_accession(
             failures=(),
         ),
     )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
-    )
 
     output_dir = tmp_path / "dry-run-suppressed-warning"
     exit_code = main(
@@ -540,10 +499,6 @@ def test_real_run_logs_info_milestones(
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_execution_direct.run_retryable_command",
@@ -643,10 +598,6 @@ def test_metadata_lookup_uses_accession_input_file_and_cleans_it_up(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         fake_run_summary_lookup_with_retries,
     )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
-    )
 
     output_dir = tmp_path / "metadata-input-file"
     exit_code = main(
@@ -705,10 +656,6 @@ def test_total_runtime_failure_leaves_final_accession_blank(
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
         lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
     )
 
     def fake_execute_accession_plans(
@@ -810,10 +757,6 @@ def test_failed_suppressed_accession_repeats_warning_and_failure_note(
             },
             failures=(),
         ),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_planning.run_preview_command",
-        lambda *args, **kwargs: successful_preview_result(),
     )
 
     def fake_execute_accession_plans(
