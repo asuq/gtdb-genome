@@ -164,6 +164,30 @@ def read_wheel_member_text(wheel_path: Path, member_name: str) -> str:
         return handle.read(member_name).decode("utf-8")
 
 
+def read_archive_member_by_suffix(archive_path: Path, suffix: str) -> str:
+    """Return one archive member selected by its suffix."""
+
+    if archive_path.suffix == ".whl":
+        with zipfile.ZipFile(archive_path) as handle:
+            matching_members = [
+                member_name
+                for member_name in handle.namelist()
+                if member_name.endswith(suffix)
+            ]
+            assert len(matching_members) == 1
+            return handle.read(matching_members[0]).decode("utf-8")
+    with tarfile.open(archive_path, "r:gz") as handle:
+        matching_members = [
+            member
+            for member in handle.getmembers()
+            if member.name.endswith(suffix)
+        ]
+        assert len(matching_members) == 1
+        extracted_file = handle.extractfile(matching_members[0])
+        assert extracted_file is not None
+        return extracted_file.read().decode("utf-8")
+
+
 def assert_contains_all(text: str, snippets: tuple[str, ...]) -> None:
     """Assert that every snippet is present in one document."""
 
@@ -204,6 +228,12 @@ def test_pyproject_exposes_console_script() -> None:
         "NOTICE",
         "licenses/CC-BY-SA-4.0.txt",
     ]
+    assert pyproject["tool"]["hatch"]["build"]["hooks"]["custom"]["path"] == (
+        "hatch_build.py"
+    )
+    assert pyproject["tool"]["hatch"]["metadata"]["hooks"]["custom"]["path"] == (
+        "hatch_metadata.py"
+    )
 
 
 def test_pyproject_build_targets_include_runtime_package_sources() -> None:
@@ -229,6 +259,8 @@ def test_pyproject_build_targets_include_runtime_package_sources() -> None:
     assert wheel_force_include["data/gtdb_taxonomy"] == (
         "gtdb_genomes/data/gtdb_taxonomy"
     )
+    assert "hatch_build.py" in sdist_include
+    assert "hatch_metadata.py" in sdist_include
     assert "src/gtdb_genomes/**" in sdist_include
     assert "data/gtdb_taxonomy/**" in sdist_artifacts
     assert "data/gtdb_taxonomy/**" not in sdist_include
@@ -315,6 +347,61 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
         check=False,
     )
     assert inspect_result.returncode == 0, inspect_result.stderr
+
+
+def test_uv_build_advertises_external_runtime_requirements_in_metadata(
+    tmp_path: Path,
+) -> None:
+    """Built artefacts should carry the external runtime requirements in metadata."""
+
+    fixture_root = copy_manifest_only_project_fixture(tmp_path)
+    taxonomy_root = fixture_root / "data" / "gtdb_taxonomy" / "999.0"
+    bacterial_payload = taxonomy_root / "bac120_taxonomy_r999.tsv.gz"
+    archaeal_payload = taxonomy_root / "ar53_taxonomy_r999.tsv.gz"
+    bacterial_sha256, bacterial_rows = write_taxonomy_payload(
+        bacterial_payload,
+        "GB_GCA_999999.1\td__Bacteria;g__Syntheticus\n",
+    )
+    archaeal_sha256, archaeal_rows = write_taxonomy_payload(
+        archaeal_payload,
+        "GB_GCA_999998.1\td__Archaea;g__Syntheticus\n",
+    )
+    (fixture_root / "data" / "gtdb_taxonomy" / "releases.tsv").write_text(
+        (
+            "resolved_release\taliases\tbacterial_taxonomy\tarchaeal_taxonomy\t"
+            "bacterial_taxonomy_sha256\tarchaeal_taxonomy_sha256\t"
+            "bacterial_taxonomy_rows\tarchaeal_taxonomy_rows\tis_latest\t"
+            "source_root_url\tchecksum_filename\n"
+            "999.0\t999,999.0,latest\tbac120_taxonomy_r999.tsv.gz\t"
+            "ar53_taxonomy_r999.tsv.gz\t"
+            f"{bacterial_sha256}\t{archaeal_sha256}\t"
+            f"{bacterial_rows}\t{archaeal_rows}\ttrue\t"
+            "https://example.org/999\tMD5SUM.txt\n"
+        ),
+        encoding="utf-8",
+    )
+
+    dist_root = tmp_path / "dist"
+    build_result = build_fixture_project(fixture_root, dist_root)
+    assert_build_result_succeeded(build_result)
+
+    sdist_path = next(dist_root.glob("*.tar.gz"))
+    wheel_path = next(dist_root.glob("*.whl"))
+    wheel_metadata_text = read_archive_member_by_suffix(
+        wheel_path,
+        ".dist-info/METADATA",
+    )
+    sdist_metadata_text = read_archive_member_by_suffix(
+        sdist_path,
+        "/PKG-INFO",
+    )
+
+    for requirement_line in (
+        "Requires-External: ncbi-datasets-cli (>=18.4.0,<18.22.0)",
+        "Requires-External: unzip (>=6.0,<7.0)",
+    ):
+        assert requirement_line in wheel_metadata_text
+        assert requirement_line in sdist_metadata_text
 
 
 def test_uv_build_rejects_manifest_only_source_fixture(tmp_path: Path) -> None:
@@ -499,10 +586,15 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "The planner intentionally stays count-only for this project.",
             "Direct downloads remain serial in the current workflow.",
             "consult current NCBI metadata",
+            "versioned request tokens must resolve to the exact realised",
+            "selected_accession",
+            "download_request_accession",
+            "final_accession",
             "cannot be combined with an effective NCBI API key",
             "`genome`, `gff3`, and `protein`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
+            "Requires-External",
             "The CLI checks these versions during preflight",
             "first public Bioconda release is pending a tagged source release",
             "draft template",
@@ -525,6 +617,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "`polars >=1.31.0,<2.0.0`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
+            "Requires-External",
             "packaged-runtime",
             "real-data validation currently run on Linux",
             "source-checkout workflow in Development And Packaging below",
@@ -551,6 +644,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "data/gtdb_taxonomy/releases.tsv",
             "MD5SUM",
             "refresh_taxonomy_manifest",
+            "maintainer and source-checkout",
         ),
     )
     assert_not_contains_any(
@@ -595,15 +689,19 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "first uses explicit",
                 "paired-assembly metadata from the RefSeq summary record",
                 "candidate metadata lookup fails or stays incomplete",
+                "paired_gca_conflict_fallback_original",
                 "1,000 or more",
                 "generic `datasets` `> 15 GB` heuristic",
             "planning or runtime failure with no successful genomes",
             "local final-output materialisation failure",
+            "unexpected internal failure",
             "MD5SUM",
             "--threads",
             "child process environment",
             "Ambient `NCBI_API_KEY` is the normal workflow path",
             "forbids `--debug` while an effective NCBI API key is active",
+            "versioned request tokens fail closed",
+            "Requires-External",
         ),
     )
     assert_not_contains_any(usage_details_text, ("--download-method", "--no-prefer-genbank"))
@@ -786,6 +884,7 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "case-results.tsv",
             "tool-versions.txt",
             "Dry-runs preflight `unzip` early",
+            "runtime contract matches",
             "C5",
             "C7",
             "`NCBI_API_KEY` for `C7`",
@@ -798,11 +897,15 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "no `uv` on `PATH`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
+            "Requires-External",
             "ncbi-datasets-cli=18.4.0",
             "ncbi-datasets-cli=18.21.0",
             "-c conda-forge -c bioconda",
             "unzip=6.0",
             "load_release_taxonomy()",
+            "selected_accession",
+            "download_request_accession",
+            "final_accession",
         ),
     )
     assert_not_contains_any(

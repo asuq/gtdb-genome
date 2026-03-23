@@ -199,8 +199,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--version-latest",
         action="store_true",
         help=(
-            "Request the latest available revision in the selected accession "
-            "family from current NCBI metadata; requires --prefer-genbank."
+            "Request the latest available revision in the selected paired "
+            "GenBank family when explicit pairing is available, otherwise in "
+            "the selected accession family from current NCBI metadata; "
+            "requires --prefer-genbank."
         ),
     )
     parser.add_argument(
@@ -241,7 +243,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Resolve inputs without downloading genome payloads.",
+        help=(
+            "Resolve inputs without downloading genome payloads; still "
+            "preflights unzip so real-run archive requirements fail fast."
+        ),
     )
     return parser
 

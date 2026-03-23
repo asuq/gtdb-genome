@@ -28,8 +28,10 @@ The packaged runtime is validated against:
 - `ncbi-datasets-cli >=18.4.0,<18.22.0`
 - `unzip >=6.0,<7.0`
 
-The CLI checks these versions during preflight and exits with code `5` when
-the installed runtime falls outside this supported window.
+Built wheel and sdist metadata also advertise `Requires-External` hints for
+`ncbi-datasets-cli` and `unzip`. The CLI checks these versions during preflight,
+remains the authoritative runtime check, and exits with code `5` when the
+installed runtime falls outside this supported window.
 
 The pytest matrix runs on Linux, macOS, and Windows. Clean packaged-runtime
 and real-data validation currently run on Linux. For now, use the
@@ -55,12 +57,12 @@ In short:
 ### Optional:
 - `--gtdb-release`: gtdb release number, defaults to `latest`
 - `--prefer-genbank`: prefers paired GenBank accessions discovered from current NCBI metadata and keeps the exact selected version by default
-- `--version-latest`: paired with `--prefer-genbank`, opts into the latest available revision within the selected GenBank family from current NCBI metadata, e.g. `GCA_000005845.2` -> `GCA_000005845.3` if the latter is available
+- `--version-latest`: paired with `--prefer-genbank`, opts into the latest available revision within the selected paired GenBank family from current NCBI metadata when explicit pairing is available, e.g. `GCA_000005845.2` -> `GCA_000005845.3` if the latter is available
 - `--threads`: number of threads to run, defaults to 8
 - `--include`: locally supported tokens are `genome`, `gff3`, and `protein`, e.g. `genome,gff3,protein`, see [NCBI datasets documentation](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/genomes/download-genome/#choosing-which-data-files-to-include-in-the-data-package)
 - `--ncbi-api-key`: overrides ambient `NCBI_API_KEY`, passes the effective key only to child `datasets` processes, and does not write it to the tool's own logs or manifests
 - `--debug`: enables debug logging and cannot be combined with an effective NCBI API key
-- `--dry-run`: supported with automatic planning, resolves inputs without creating the final output tree
+- `--dry-run`: supported with automatic planning, resolves inputs without creating the final output tree, and still preflights `unzip` so real-run archive requirements fail fast
 
 ## Examples
 
@@ -117,8 +119,14 @@ gtdb-genomes \
   the generic `> 15 GB` `datasets` guidance because the workflow targets
   prokaryote genome downloads, where the request-token threshold is expected
   to be reached before package size becomes the limiting factor.
+- After extraction, versioned request tokens must resolve to the exact realised
+  accession directory. Only versionless `--version-latest` request tokens may
+  accept a unique same-family realised version from the extracted payload.
 - `--prefer-genbank` and `--version-latest` consult current NCBI metadata, so
-  they are time-dependent rather than frozen to one GTDB release snapshot.
+  they are time-dependent rather than frozen to one GTDB release snapshot. Use
+  `run_summary.tsv` timestamps plus `selected_accession`,
+  `download_request_accession`, and `final_accession` as the audit trail for
+  those live decisions.
 - Direct downloads remain serial in the current workflow.
 - `--debug` cannot be combined with an effective NCBI API key because
   upstream `datasets` debug output may expose the secret header.
@@ -165,7 +173,7 @@ data notes, see [docs/usage-details.md](docs/usage-details.md).
 
 Supported workflows:
 
-- source-checkout development through `uv`
+- maintainer and source-checkout development through `uv`
 - packaged wheel and sdist validation in CI on Linux
 - maintainer manifest refresh through
   `uv run python -m gtdb_genomes.refresh_taxonomy_manifest`
@@ -173,7 +181,7 @@ Supported workflows:
   `packaging/bioconda/meta.yaml.template`
   and is quarantined until a tagged release archive and final SHA256 are available
 
-Source checkouts use the development workflow:
+Source checkouts use the maintainer or source-checkout development workflow:
 
 ```bash
 uv sync --group dev
@@ -186,9 +194,10 @@ step downloads the configured taxonomy files from the HTTPS UQ mirror recorded
 in the manifest, verifies them against the published `MD5SUM` listing, and
 materialises the local `data/gtdb_taxonomy/<release>/*.tsv.gz` layout used by
 a source checkout and source build. Run that bootstrap step before any source
-checkout CLI invocation. The bootstrap authenticity boundary is therefore
-limited by the upstream MD5 listing; packaged runtime integrity uses the
-bundled local SHA-256 and row-count manifest instead.
+checkout CLI invocation. This is a maintainer and source-checkout workflow,
+not the recommended end-user install path. The bootstrap authenticity boundary
+is therefore limited by the upstream MD5 listing; packaged runtime integrity
+uses the bundled local SHA-256 and row-count manifest instead.
 
 `uv` is a development tool only. Packaged runtime use should not depend on it.
 

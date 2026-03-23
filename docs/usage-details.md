@@ -51,8 +51,12 @@ gtdb-genomes \
 - `--version-latest`: Disabled by default. Requires `--prefer-genbank`. Drops
   the version suffix from the selected accession and asks `datasets` for the
   latest available revision in that accession family from current NCBI
-  metadata, which may differ from the originally selected RefSeq or GenBank
-  version and may change over time.
+  metadata. When complete explicit paired-assembly metadata are available, the
+  latest choice is limited to that paired GenBank family. If explicit pairing
+  conflicts with the heuristic family view, the workflow falls back
+  conservatively to the original accession. The realised accession may differ
+  from the originally selected RefSeq or GenBank version and may change over
+  time.
 
 - download strategy is automatic only.
 
@@ -123,7 +127,8 @@ gtdb-genomes \
 
   - resolve the bundled GTDB release
   - read bundled GTDB taxonomy TSVs and the local release manifest
-  - preflight `unzip` early so real-run archive requirements fail fast
+  - preflight `unzip` early so the runtime contract matches real runs and
+    archive requirements fail fast
   - perform NCBI metadata lookup when `--prefer-genbank` is enabled and the
     selected rows include supported non-`UBA*` accessions
 
@@ -178,6 +183,11 @@ Layout rules:
 - populated output directories are rejected instead of being resumed in place
 - each accession directory keeps the full downloaded payload requested through
   `datasets`
+- versioned request tokens must resolve to the exact realised accession
+  directory after extraction
+- only versionless request tokens, such as the stem requests emitted by
+  `--version-latest`, may accept a unique same-family realised version during
+  post-extraction payload discovery
 
 Taxon slugs preserve the GTDB token text where practical, replace unsafe
 characters with `_`, and append a short hash suffix only when two taxa would
@@ -276,6 +286,7 @@ Exit codes:
 - `6`: partial failure with at least one successful genome
 - `7`: planning or runtime failure with no successful genomes
 - `8`: local final-output materialisation failure
+- `9`: unexpected internal failure
 
 Status values:
 
@@ -284,6 +295,7 @@ Status values:
   - `paired_to_gca`
   - `metadata_lookup_failed_fallback_original`
   - `paired_gca_metadata_incomplete_fallback_original`
+  - `paired_gca_conflict_fallback_original`
   - `paired_gca_suppressed_fallback_original`
   - `paired_to_gca_fallback_original_on_download_failure`
   - `failed_no_usable_accession`
@@ -329,9 +341,9 @@ Fixed TSV columns:
   - `ncbi_accession` records the original requested accession, while
     `download_request_accession` records the terminal exact token passed to
     `datasets` for that row. `final_accession` is the realised versioned
-    accession from the extracted payload on successful downloads. Unsupported
-    legacy `UBA*` rows leave `download_method_used` and `download_batch`
-    blank because the workflow skips execution for them.
+    accession from the extracted payload on successful downloads. The workflow treats that realised accession as authoritative, so versioned request tokens fail closed if the exact realised accession is absent after extraction; only versionless request tokens may accept a unique same-family realised version. Unsupported legacy `UBA*` rows leave
+    `download_method_used` and `download_batch` blank because the workflow
+    skips execution for them.
 - `download_failures.tsv`
   - `requested_taxon`, `taxon_slug`, `gtdb_accession`,
     `attempted_accession`, `final_accession`, `stage`, `attempt_index`,
@@ -363,8 +375,8 @@ inspect and validate. It now carries both the runtime release mapping columns
 and build-only UQ mirror metadata used by the bootstrap flow.
 
 Fresh source checkouts do not track the generated `<resolved_release>/`
-payload directories in Git. Before GTDB-dependent source-checkout runs, build
-the local runtime payload with:
+payload directories in Git. Before GTDB-dependent maintainer or source-checkout
+runs, build the local runtime payload with:
 
 ```bash
 uv run python -m gtdb_genomes.bootstrap_taxonomy
@@ -374,7 +386,9 @@ The bootstrap step downloads the configured taxonomy files from the HTTPS UQ
 mirror release directory recorded in `releases.tsv`, verifies each source file
 against the release `MD5SUM` or `MD5SUM.txt` listing, and materialises the
 local `.tsv.gz` runtime layout. That source-checkout bootstrap authenticity
-boundary is limited by the upstream-published MD5 listing.
+boundary is limited by the upstream-published MD5 listing. This bootstrap path
+is for maintainers and source checkouts; packaged runtimes already ship the
+generated payload.
 
 Maintainers can refresh the build-only mirror metadata for the existing release
 rows with:
@@ -392,6 +406,11 @@ validated locally from the bundled SHA-256 and expected row counts recorded in
 `resolve_and_validate_release()`, which now performs that full bundled-payload
 validation before runtime taxonomy loading.
 
+Built wheels and sdists also advertise `Requires-External` hints for
+`ncbi-datasets-cli (>=18.4.0,<18.22.0)` and `unzip (>=6.0,<7.0)`. Those
+metadata hints do not replace the CLI preflight, which remains the
+authoritative runtime check.
+
 Published distribution archives include MIT-licensed project code plus bundled
 GTDB taxonomy data under CC BY-SA 4.0. The bundled taxonomy payload is shipped
 as separate `.tsv.gz` package data generated from the UQ mirror and is not
@@ -405,6 +424,11 @@ requested genomes fail. It records unsuccessful attempts in
 `download_failures.tsv` and exits non-zero for incomplete runs. Legacy `UBA*`
 accessions are warned about, skipped, and recorded as failed in manifests for
 non-dry runs.
+
+When `--prefer-genbank` or `--version-latest` is enabled, reproducibility is
+limited by current NCBI metadata. Use `run_summary.tsv` timestamps together
+with `selected_accession`, `download_request_accession`, and `final_accession`
+from the accession manifests as the audit trail for those live decisions.
 
 ## Known Limitations
 

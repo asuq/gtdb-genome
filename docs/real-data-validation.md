@@ -72,8 +72,9 @@ bin/run-real-data-tests-remote.sh C1 C4 C5 C6
 
 ## Local Prerequisites
 
-Local validation assumes source-checkout execution through a prepared and
-synced local project environment with generated GTDB taxonomy payloads.
+Local validation assumes maintainer or source-checkout execution through a
+prepared and synced local project environment with generated GTDB taxonomy
+payloads.
 
 The local runner defaults to:
 
@@ -104,6 +105,10 @@ checkout. Run it before any source-checkout dry-run or real run. That bootstrap
 authenticity boundary is limited by the upstream MD5 listing; packaged runtime
 integrity uses the bundled local SHA-256 and row-count manifest.
 
+This bootstrap step is a maintainer and source-checkout workflow only.
+Packaged runtimes already include the generated taxonomy payload and should be
+the preferred path for end users once a public release exists.
+
 Optional environment:
 
 - `NCBI_API_KEY` for metadata-heavy cases such as `B2` and `B6`
@@ -122,7 +127,8 @@ The local runner uses:
 
 Local environment notes:
 
-- Dry-runs preflight `unzip` early so real-run archive requirements fail fast.
+- Dry-runs preflight `unzip` early by design so the runtime contract matches
+  real runs and archive requirements fail fast.
 - zero-match and unsupported-`UBA*`-only dry-runs remain valid without NCBI
   access
 - the documented `A*` release-coverage dry-runs and all `B*` cases require
@@ -176,6 +182,11 @@ the CLI passes the effective key to child `datasets` processes through the
 child environment. `C5` now runs without the key and uses it opportunistically
 when present.
 
+Built wheels and sdists advertise `Requires-External` hints for
+`ncbi-datasets-cli (>=18.4.0,<18.22.0)` and `unzip (>=6.0,<7.0)`, but remote
+validation still installs concrete tool versions and relies on CLI preflight as
+the authoritative runtime gate.
+
 ## GitHub CI Coverage
 
 The main GitHub Actions CI workflow runs:
@@ -198,6 +209,11 @@ runtime job installs that wheel into a clean mamba environment with no `uv` on
 bundled taxonomy tables so the installed payload is exercised, not just the
 manifest header. In workflow terms, that check resolves `latest` and then
 calls `load_release_taxonomy()`.
+
+When `--prefer-genbank` or `--version-latest` is enabled during validation,
+use the generated `run_summary.tsv` timestamps together with
+`selected_accession`, `download_request_accession`, and `final_accession` as
+the audit trail for live NCBI-driven identity decisions.
 
 The CI workflow excludes:
 

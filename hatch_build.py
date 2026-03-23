@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 import sys
+import tarfile
+import zipfile
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from hatch_metadata import get_external_runtime_requirements
+
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -25,6 +32,113 @@ from gtdb_genomes.release_resolver import (
     load_release_manifest,
     validate_release_payload,
 )
+
+
+REQUIRES_EXTERNAL_PREFIX = "Requires-External: "
+
+
+def append_requires_external_metadata(metadata_text: str) -> str:
+    """Append the external-runtime requirements to one metadata payload."""
+
+    existing_requirements = {
+        line.removeprefix(REQUIRES_EXTERNAL_PREFIX)
+        for line in metadata_text.splitlines()
+        if line.startswith(REQUIRES_EXTERNAL_PREFIX)
+    }
+    appended_lines = [
+        f"{REQUIRES_EXTERNAL_PREFIX}{requirement}"
+        for requirement in get_external_runtime_requirements()
+        if requirement not in existing_requirements
+    ]
+    if not appended_lines:
+        return metadata_text
+    metadata_body = metadata_text.rstrip("\n")
+    return "\n".join([metadata_body, *appended_lines, ""])
+
+
+def build_copied_tar_info(member: tarfile.TarInfo) -> tarfile.TarInfo:
+    """Return a writable copy of one tar member descriptor."""
+
+    copied_member = tarfile.TarInfo(member.name)
+    copied_member.mode = member.mode
+    copied_member.uid = member.uid
+    copied_member.gid = member.gid
+    copied_member.size = member.size
+    copied_member.mtime = member.mtime
+    copied_member.type = member.type
+    copied_member.linkname = member.linkname
+    copied_member.uname = member.uname
+    copied_member.gname = member.gname
+    copied_member.devmajor = member.devmajor
+    copied_member.devminor = member.devminor
+    copied_member.pax_headers = dict(member.pax_headers)
+    return copied_member
+
+
+def patch_wheel_metadata(artifact_path: Path) -> None:
+    """Inject `Requires-External` headers into one built wheel."""
+
+    temporary_path = artifact_path.with_suffix(".tmp.whl")
+    metadata_patched = False
+    with zipfile.ZipFile(artifact_path) as source_archive:
+        with zipfile.ZipFile(temporary_path, "w") as rewritten_archive:
+            for member in source_archive.infolist():
+                payload_bytes = source_archive.read(member.filename)
+                if member.filename.endswith(".dist-info/METADATA"):
+                    payload_bytes = append_requires_external_metadata(
+                        payload_bytes.decode("utf-8"),
+                    ).encode("utf-8")
+                    metadata_patched = True
+                rewritten_archive.writestr(member, payload_bytes)
+    if not metadata_patched:
+        temporary_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Built wheel is missing a dist-info METADATA file: {artifact_path}",
+        )
+    temporary_path.replace(artifact_path)
+
+
+def patch_sdist_metadata(artifact_path: Path) -> None:
+    """Inject `Requires-External` headers into one built sdist."""
+
+    temporary_path = artifact_path.with_suffix(".tmp.tar.gz")
+    metadata_patched = False
+    with tarfile.open(artifact_path, "r:gz") as source_archive:
+        with tarfile.open(temporary_path, "w:gz") as rewritten_archive:
+            for member in source_archive.getmembers():
+                copied_member = build_copied_tar_info(member)
+                if member.isfile():
+                    extracted_file = source_archive.extractfile(member)
+                    if extracted_file is None:
+                        raise RuntimeError(
+                            f"Could not read sdist member {member.name}: {artifact_path}",
+                        )
+                    payload_bytes = extracted_file.read()
+                    if member.name.endswith("/PKG-INFO") or member.name == "PKG-INFO":
+                        payload_bytes = append_requires_external_metadata(
+                            payload_bytes.decode("utf-8"),
+                        ).encode("utf-8")
+                        copied_member.size = len(payload_bytes)
+                        metadata_patched = True
+                    rewritten_archive.addfile(copied_member, io.BytesIO(payload_bytes))
+                    continue
+                rewritten_archive.addfile(copied_member)
+    if not metadata_patched:
+        temporary_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Built sdist is missing a PKG-INFO file: {artifact_path}",
+        )
+    temporary_path.replace(artifact_path)
+
+
+def patch_artifact_runtime_metadata(artifact_path: Path) -> None:
+    """Inject external-runtime requirements into one built distribution."""
+
+    if artifact_path.suffix == ".whl":
+        patch_wheel_metadata(artifact_path)
+        return
+    if "".join(artifact_path.suffixes[-2:]) == ".tar.gz":
+        patch_sdist_metadata(artifact_path)
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -90,3 +204,16 @@ class CustomBuildHook(BuildHookInterface):
                 f"{error}",
             ) from error
         self.initialise_build_info(build_data=build_data)
+
+    def finalize(
+        self,
+        version: str,
+        build_data: dict[str, object],
+        artifact_path: str,
+    ) -> None:
+        """Patch built artefacts with the external runtime metadata headers."""
+
+        del build_data
+        if version == "editable":
+            return
+        patch_artifact_runtime_metadata(Path(artifact_path))
