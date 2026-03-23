@@ -8,9 +8,11 @@ from gtdb_genomes.workflow_execution_dehydrate import (
     execute_batch_dehydrate_plans,
     fallback_batch_to_direct,
 )
+from gtdb_genomes.workflow_execution_batches import (
+    group_plans_by_download_request_accession,
+)
 from gtdb_genomes.workflow_execution_direct import (
     execute_direct_accession_plans,
-    group_plans_by_download_request_accession,
 )
 from gtdb_genomes.workflow_execution_models import (
     AccessionExecution,

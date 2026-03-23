@@ -14,6 +14,7 @@ from gtdb_genomes.workflow_execution import (
     AccessionExecution,
     AccessionPlan,
     DownloadExecutionResult,
+    PartialBatchPayloadResolution,
     ResolvedPayloadDirectory,
     execute_batch_dehydrate_plans,
     execute_direct_accession_plans,
@@ -906,6 +907,231 @@ def test_direct_mode_records_failed_fallback_after_layout_exhaustion(
     ]
 
 
+def test_direct_mode_decomposes_failed_batches_before_final_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A failed mixed batch should isolate the bad request before final failure."""
+
+    payload_directory = tmp_path / "payload-good"
+    payload_directory.mkdir()
+    download_calls: list[str] = []
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        environment: dict[str, str] | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Fail the mixed batch and the bad singleton, but not the good one."""
+
+        del command, final_failure_status, environment, sleep_func, runner
+        assert stage == "preferred_download"
+        download_calls.append(attempted_accession or "")
+        if attempted_accession == "GCF_000001.1;GCF_000002.1":
+            return RetryableCommandResult(
+                succeeded=False,
+                stdout="",
+                stderr="batch failed",
+                failures=(
+                    CommandFailureRecord(
+                        stage="preferred_download",
+                        attempt_index=4,
+                        max_attempts=4,
+                        error_type="subprocess",
+                        error_message="batch failed",
+                        final_status="retry_exhausted",
+                    ),
+                ),
+            )
+        if attempted_accession == "GCF_000001.1":
+            return RetryableCommandResult(
+                succeeded=True,
+                stdout="",
+                stderr="",
+                failures=(),
+            )
+        assert attempted_accession == "GCF_000002.1"
+        return RetryableCommandResult(
+            succeeded=False,
+            stdout="",
+            stderr="single failed",
+            failures=(
+                CommandFailureRecord(
+                    stage="preferred_download",
+                    attempt_index=4,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="single failed",
+                    final_status="retry_exhausted",
+                ),
+            ),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create the extraction root for the successful singleton only."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Resolve only the good singleton batch after decomposition."""
+
+        if extraction_root.name == "direct_batch_2":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000001.1",
+                    directory=payload_directory,
+                ),
+            )
+        return ()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
+    run_directories = initialise_run_directories(tmp_path / "direct-batch-decompose")
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_000001.1",
+                download_request_accession="GCF_000001.1",
+                conversion_status="unchanged_original",
+            ),
+            AccessionPlan(
+                original_accession="GCF_000002.1",
+                download_request_accession="GCF_000002.1",
+                conversion_status="unchanged_original",
+            ),
+        ),
+        build_cli_args(tmp_path / "out"),
+        run_directories,
+        logging.getLogger("test-direct-batch-decompose"),
+    )
+
+    assert download_calls == [
+        "GCF_000001.1;GCF_000002.1",
+        "GCF_000001.1",
+        "GCF_000002.1",
+    ]
+    assert result.executions["GCF_000001.1"].download_status == "downloaded"
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_2"
+    assert result.executions["GCF_000002.1"].download_status == "failed"
+    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_3"
+    assert len(result.shared_failures) == 2
+
+
+def test_direct_mode_decomposes_layout_failures_to_the_bad_request(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A layout-only failure should not strand unrelated direct requests."""
+
+    payload_directory = tmp_path / "payload-good-layout"
+    payload_directory.mkdir()
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        environment: dict[str, str] | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Succeed all downloads so only layout decomposition decides the result."""
+
+        del command, final_failure_status, environment, sleep_func, runner
+        assert stage == "preferred_download"
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create extraction roots for all preferred batches."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Resolve only the good singleton batch after layout decomposition."""
+
+        if extraction_root.name == "direct_batch_2":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000001.1",
+                    directory=payload_directory,
+                ),
+            )
+        return ()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
+    run_directories = initialise_run_directories(tmp_path / "direct-layout-decompose")
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_000001.1",
+                download_request_accession="GCF_000001.1",
+                conversion_status="unchanged_original",
+            ),
+            AccessionPlan(
+                original_accession="GCF_000002.1",
+                download_request_accession="GCF_000002.1",
+                conversion_status="unchanged_original",
+            ),
+        ),
+        build_cli_args(tmp_path / "out"),
+        run_directories,
+        logging.getLogger("test-direct-layout-decompose"),
+    )
+
+    assert result.executions["GCF_000001.1"].download_status == "downloaded"
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_2"
+    assert result.executions["GCF_000002.1"].download_status == "failed"
+    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_3"
+    assert [failure.attempted_accession for failure in result.executions["GCF_000002.1"].failures] == [
+        "GCF_000002.1",
+        "GCF_000002.1",
+    ]
+
+
 def test_batch_dehydrate_failure_falls_back_to_direct(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1007,6 +1233,160 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
     )
 
 
+def test_batch_dehydrate_preserves_partial_success_before_direct_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Resolved dehydrated payloads should be kept when only part of the cohort fails."""
+
+    payload_directory = tmp_path / "dehydrate-payload"
+    payload_directory.mkdir()
+    fallback_calls: list[tuple[str, ...]] = []
+    plans = (
+        AccessionPlan(
+            original_accession="GCF_000001.1",
+            download_request_accession="GCA_000001",
+            conversion_status="paired_to_gca",
+        ),
+        AccessionPlan(
+            original_accession="GCF_000002.1",
+            download_request_accession="GCA_000002",
+            conversion_status="paired_to_gca",
+        ),
+    )
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        environment: dict[str, str] | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Succeed the batch download but fail rehydrate after extraction."""
+
+        del command, final_failure_status, environment, sleep_func, runner, attempted_accession
+        if stage == "preferred_download":
+            return RetryableCommandResult(
+                succeeded=True,
+                stdout="",
+                stderr="",
+                failures=(),
+            )
+        assert stage == "rehydrate"
+        return RetryableCommandResult(
+            succeeded=False,
+            stdout="",
+            stderr="rehydrate failed",
+            failures=(
+                CommandFailureRecord(
+                    stage="rehydrate",
+                    attempt_index=4,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="rehydrate failed",
+                    final_status="retry_exhausted",
+                ),
+            ),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create the extraction root for partial dehydrated resolution."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_locate_partial_batch_payload_directories(
+        extraction_root: Path,
+        requested_accessions: tuple[str, ...],
+    ):
+        """Resolve only one dehydrated payload and leave one unresolved."""
+
+        assert extraction_root.name == "dehydrated_batch"
+        assert requested_accessions == ("GCA_000001", "GCA_000002")
+        return type(
+            "PartialResolution",
+            (),
+            {
+                "resolved_payloads": {
+                    "GCA_000001": ResolvedPayloadDirectory(
+                        final_accession="GCA_000001.3",
+                        directory=payload_directory,
+                    ),
+                },
+                "unresolved_messages": {
+                    "GCA_000002": (
+                        "Could not locate extracted payload directory for requested accession GCA_000002"
+                    ),
+                },
+            },
+        )()
+
+    def fake_execute_direct_accession_plans(
+        plans: tuple[AccessionPlan, ...],
+        args: CliArgs,
+        run_directories,
+        logger,
+    ) -> DownloadExecutionResult:
+        """Resolve only the unresolved dehydrated plan through direct fallback."""
+
+        del args, run_directories, logger
+        fallback_calls.append(tuple(plan.original_accession for plan in plans))
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000002.1": AccessionExecution(
+                    original_accession="GCF_000002.1",
+                    final_accession="GCF_000002.1",
+                    conversion_status="paired_to_gca_fallback_original_on_download_failure",
+                    download_status="downloaded_after_fallback",
+                    download_batch="direct_fallback_batch_1",
+                    payload_directory=tmp_path,
+                    failures=(),
+                    request_accession_used="GCF_000002.1",
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+            shared_failures=(),
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_dehydrate.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_dehydrate.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_dehydrate.locate_partial_batch_payload_directories",
+        fake_locate_partial_batch_payload_directories,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_dehydrate.execute_direct_accession_plans",
+        fake_execute_direct_accession_plans,
+    )
+
+    result = execute_batch_dehydrate_plans(
+        plans,
+        build_cli_args(tmp_path / "out"),
+        initialise_run_directories(tmp_path / "dehydrate-partial-fallback"),
+        logging.getLogger("test-dehydrate-partial-fallback"),
+        (),
+    )
+
+    assert fallback_calls == [("GCF_000002.1",)]
+    assert result.method_used == "dehydrate_fallback_direct"
+    assert result.executions["GCF_000001.1"].download_status == "downloaded"
+    assert result.executions["GCF_000001.1"].download_batch == "dehydrated_batch"
+    assert result.executions["GCF_000002.1"].download_status == "downloaded_after_fallback"
+
+
 def test_batch_dehydrate_passes_api_key_via_child_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1056,14 +1436,17 @@ def test_batch_dehydrate_passes_api_key_via_child_environment(
         fake_extract_archive,
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow_execution_dehydrate.locate_batch_payload_directories",
-        lambda extraction_root, requested_accessions: {
-            requested_accession: ResolvedPayloadDirectory(
-                final_accession=f"{requested_accession}.1",
-                directory=payload_directory,
-            )
-            for requested_accession in requested_accessions
-        },
+        "gtdb_genomes.workflow_execution_dehydrate.locate_partial_batch_payload_directories",
+        lambda extraction_root, requested_accessions: PartialBatchPayloadResolution(
+            resolved_payloads={
+                requested_accession: ResolvedPayloadDirectory(
+                    final_accession=f"{requested_accession}.1",
+                    directory=payload_directory,
+                )
+                for requested_accession in requested_accessions
+            },
+            unresolved_messages={},
+        ),
     )
 
     args = build_cli_args(tmp_path / "out")

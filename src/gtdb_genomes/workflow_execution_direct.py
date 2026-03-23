@@ -15,6 +15,11 @@ from gtdb_genomes.download import (
 from gtdb_genomes.layout import LayoutError, RunDirectories, extract_archive
 from gtdb_genomes.logging_utils import redact_command
 from gtdb_genomes.subprocess_utils import build_datasets_subprocess_environment
+from gtdb_genomes.workflow_execution_batches import (
+    RequestPlanGroups,
+    execute_decomposed_direct_phase,
+    group_plans_by_download_request_accession,
+)
 from gtdb_genomes.workflow_execution_models import (
     AccessionExecution,
     AccessionPlan,
@@ -40,22 +45,8 @@ if TYPE_CHECKING:
 MAX_DIRECT_BATCH_PASSES = 4
 
 
-def group_plans_by_download_request_accession(
-    plans: tuple[AccessionPlan, ...],
-) -> tuple[tuple[str, tuple[AccessionPlan, ...]], ...]:
-    """Group accession plans by request accession in first-seen order."""
-
-    grouped_plans: dict[str, list[AccessionPlan]] = {}
-    for plan in plans:
-        grouped_plans.setdefault(plan.download_request_accession, []).append(plan)
-    return tuple(
-        (download_request_accession, tuple(group))
-        for download_request_accession, group in grouped_plans.items()
-    )
-
-
 def run_direct_batch_phase(
-    plan_groups: tuple[tuple[str, tuple[AccessionPlan, ...]], ...],
+    plan_groups: RequestPlanGroups,
     args: CliArgs,
     run_directories: RunDirectories,
     logger: logging.Logger,
@@ -66,6 +57,7 @@ def run_direct_batch_phase(
     failure_history: dict[str, list[CommandFailureRecord]],
     last_download_batches: dict[str, str],
     last_request_accessions: dict[str, str],
+    batch_label_counter: list[int],
 ) -> DirectBatchPhaseResult:
     """Execute one batch-based direct phase with shrinking retry inputs."""
 
@@ -78,7 +70,8 @@ def run_direct_batch_phase(
     for attempt_index in range(1, MAX_DIRECT_BATCH_PASSES + 1):
         if not pending_groups:
             break
-        batch_label = f"{batch_prefix}_{attempt_index}"
+        batch_label_counter[0] += 1
+        batch_label = f"{batch_prefix}_{batch_label_counter[0]}"
         pending_request_accessions = tuple(
             request_accession for request_accession, _ in pending_groups
         )
@@ -265,18 +258,23 @@ def execute_direct_accession_plans(
     last_request_accessions: dict[str, str] = {
         plan.original_accession: plan.download_request_accession for plan in plans
     }
+    preferred_batch_counter = [0]
 
-    preferred_phase = run_direct_batch_phase(
+    preferred_phase = execute_decomposed_direct_phase(
         plan_groups,
-        args,
-        run_directories,
-        logger,
-        batch_stage="preferred_download",
-        batch_prefix="direct_batch",
-        success_status="downloaded",
-        failure_history=failure_history,
-        last_download_batches=last_download_batches,
-        last_request_accessions=last_request_accessions,
+        lambda current_groups: run_direct_batch_phase(
+            current_groups,
+            args,
+            run_directories,
+            logger,
+            batch_stage="preferred_download",
+            batch_prefix="direct_batch",
+            success_status="downloaded",
+            failure_history=failure_history,
+            last_download_batches=last_download_batches,
+            last_request_accessions=last_request_accessions,
+            batch_label_counter=preferred_batch_counter,
+        ),
     )
     executions.update(preferred_phase.executions)
     shared_failures.extend(preferred_phase.shared_failures)
@@ -304,17 +302,22 @@ def execute_direct_accession_plans(
     )
 
     if fallback_groups:
-        fallback_phase = run_direct_batch_phase(
+        fallback_batch_counter = [0]
+        fallback_phase = execute_decomposed_direct_phase(
             tuple(fallback_groups),
-            args,
-            run_directories,
-            logger,
-            batch_stage="fallback_download",
-            batch_prefix="direct_fallback_batch",
-            success_status="downloaded_after_fallback",
-            failure_history=failure_history,
-            last_download_batches=last_download_batches,
-            last_request_accessions=last_request_accessions,
+            lambda current_groups: run_direct_batch_phase(
+                current_groups,
+                args,
+                run_directories,
+                logger,
+                batch_stage="fallback_download",
+                batch_prefix="direct_fallback_batch",
+                success_status="downloaded_after_fallback",
+                failure_history=failure_history,
+                last_download_batches=last_download_batches,
+                last_request_accessions=last_request_accessions,
+                batch_label_counter=fallback_batch_counter,
+            ),
         )
         executions.update(fallback_phase.executions)
         shared_failures.extend(fallback_phase.shared_failures)

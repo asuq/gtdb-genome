@@ -21,12 +21,15 @@ from gtdb_genomes.workflow_execution_models import (
     AccessionExecution,
     AccessionPlan,
     DownloadExecutionResult,
+    SharedFailureContext,
 )
 from gtdb_genomes.workflow_execution_payloads import (
     build_batch_archive_path,
     build_batch_layout_failures,
     build_shared_failure_context,
+    build_successful_execution,
     locate_batch_payload_directories,
+    locate_partial_batch_payload_directories,
 )
 
 
@@ -39,8 +42,9 @@ def fallback_batch_to_direct(
     args: CliArgs,
     run_directories: RunDirectories,
     logger: logging.Logger,
-    batch_failures,
+    batch_failures: tuple[SharedFailureContext, ...],
     rehydrate_workers_used: int,
+    resolved_executions: dict[str, AccessionExecution] | None = None,
 ) -> DownloadExecutionResult:
     """Fall back from a failed dehydrated batch workflow to direct downloads."""
 
@@ -57,12 +61,86 @@ def fallback_batch_to_direct(
         run_directories,
         logger,
     )
+    executions = {} if resolved_executions is None else dict(resolved_executions)
+    executions.update(direct_result.executions)
     return DownloadExecutionResult(
-        executions=direct_result.executions,
+        executions=executions,
         method_used="dehydrate_fallback_direct",
         download_concurrency_used=direct_result.download_concurrency_used,
         rehydrate_workers_used=rehydrate_workers_used,
-        shared_failures=(batch_failures, *direct_result.shared_failures),
+        shared_failures=batch_failures + direct_result.shared_failures,
+    )
+
+
+def build_optional_shared_failure_context(
+    original_accessions: tuple[str, ...],
+    failures,
+    attempted_accession: str,
+) -> tuple[SharedFailureContext, ...]:
+    """Return one shared failure context only when there is content to record."""
+
+    if not original_accessions or not failures:
+        return ()
+    return (
+        build_shared_failure_context(
+            original_accessions,
+            failures,
+            attempted_accession,
+        ),
+    )
+
+
+def resolve_partial_dehydrate_executions(
+    plans: tuple[AccessionPlan, ...],
+    extraction_root,
+) -> tuple[dict[str, AccessionExecution], tuple[AccessionPlan, ...], dict[str, str]]:
+    """Resolve any available dehydrated payloads without failing atomically."""
+
+    resolution = locate_partial_batch_payload_directories(
+        extraction_root,
+        tuple(plan.download_request_accession for plan in plans),
+    )
+    executions: dict[str, AccessionExecution] = {}
+    unresolved_plans: list[AccessionPlan] = []
+    for plan in plans:
+        payload = resolution.resolved_payloads.get(plan.download_request_accession)
+        if payload is None:
+            unresolved_plans.append(plan)
+            continue
+        executions[plan.original_accession] = build_successful_execution(
+            plan,
+            payload.final_accession,
+            "downloaded",
+            "dehydrated_batch",
+            plan.download_request_accession,
+            payload.directory,
+            (),
+        )
+    return executions, tuple(unresolved_plans), resolution.unresolved_messages
+
+
+def build_unresolved_layout_failure_context(
+    unresolved_plans: tuple[AccessionPlan, ...],
+    unresolved_messages: dict[str, str],
+    batch_attempted_accessions: str,
+) -> tuple[SharedFailureContext, ...]:
+    """Return one scoped layout failure context for unresolved dehydrated rows."""
+
+    if not unresolved_plans:
+        return ()
+    unresolved_text = "; ".join(
+        unresolved_messages[plan.download_request_accession]
+        for plan in unresolved_plans
+        if plan.download_request_accession in unresolved_messages
+    )
+    if not unresolved_text:
+        return ()
+    return (
+        build_shared_failure_context(
+            tuple(plan.original_accession for plan in unresolved_plans),
+            build_batch_layout_failures((), LayoutError(unresolved_text)),
+            batch_attempted_accessions,
+        ),
     )
 
 
@@ -120,7 +198,7 @@ def execute_batch_dehydrate_plans(
             args,
             run_directories,
             logger,
-            batch_failures=build_shared_failure_context(
+            batch_failures=build_optional_shared_failure_context(
                 affected_original_accessions,
                 batch_download.failures,
                 batch_attempted_accessions,
@@ -133,17 +211,39 @@ def execute_batch_dehydrate_plans(
     try:
         extract_archive(archive_path, extraction_root)
     except LayoutError as error:
+        resolved_executions, unresolved_plans, unresolved_messages = (
+            resolve_partial_dehydrate_executions(plans, extraction_root)
+        )
+        shared_failures = build_optional_shared_failure_context(
+            affected_original_accessions,
+            batch_download.failures,
+            batch_attempted_accessions,
+        ) + build_unresolved_layout_failure_context(
+            unresolved_plans,
+            unresolved_messages
+            if unresolved_messages
+            else {
+                plan.download_request_accession: str(error)
+                for plan in unresolved_plans
+            },
+            batch_attempted_accessions,
+        )
+        if not unresolved_plans:
+            return DownloadExecutionResult(
+                executions=resolved_executions,
+                method_used="dehydrate",
+                download_concurrency_used=1,
+                rehydrate_workers_used=0,
+                shared_failures=shared_failures,
+            )
         return fallback_batch_to_direct(
-            plans,
+            unresolved_plans,
             args,
             run_directories,
             logger,
-            batch_failures=build_shared_failure_context(
-                affected_original_accessions,
-                build_batch_layout_failures(batch_download.failures, error),
-                batch_attempted_accessions,
-            ),
+            batch_failures=shared_failures,
             rehydrate_workers_used=0,
+            resolved_executions=resolved_executions,
         )
 
     rehydrate_workers = get_rehydrate_workers(args.threads)
@@ -164,65 +264,69 @@ def execute_batch_dehydrate_plans(
         environment=environment,
     )
     if not rehydrate_result.succeeded:
-        return fallback_batch_to_direct(
+        resolved_executions, unresolved_plans, _ = resolve_partial_dehydrate_executions(
             plans,
+            extraction_root,
+        )
+        shared_failures = build_optional_shared_failure_context(
+            affected_original_accessions,
+            batch_download.failures,
+            batch_attempted_accessions,
+        ) + build_optional_shared_failure_context(
+            tuple(plan.original_accession for plan in unresolved_plans),
+            rehydrate_result.failures,
+            batch_attempted_accessions,
+        )
+        if not unresolved_plans:
+            return DownloadExecutionResult(
+                executions=resolved_executions,
+                method_used="dehydrate",
+                download_concurrency_used=1,
+                rehydrate_workers_used=rehydrate_workers,
+                shared_failures=shared_failures,
+            )
+        return fallback_batch_to_direct(
+            unresolved_plans,
             args,
             run_directories,
             logger,
-            batch_failures=build_shared_failure_context(
-                affected_original_accessions,
-                batch_download.failures + rehydrate_result.failures,
-                batch_attempted_accessions,
-            ),
+            batch_failures=shared_failures,
             rehydrate_workers_used=rehydrate_workers,
+            resolved_executions=resolved_executions,
         )
     logger.info("dehydrated_batch: rehydrate completed")
 
-    shared_failures = build_shared_failure_context(
+    shared_failures = build_optional_shared_failure_context(
         affected_original_accessions,
         batch_download.failures + rehydrate_result.failures,
         batch_attempted_accessions,
     )
-    executions: dict[str, AccessionExecution] = {}
-    try:
-        payload_directories = locate_batch_payload_directories(
-            extraction_root,
-            tuple(plan.download_request_accession for plan in plans),
-        )
-        for plan in plans:
-            payload = payload_directories[plan.download_request_accession]
-            executions[plan.original_accession] = AccessionExecution(
-                original_accession=plan.original_accession,
-                final_accession=payload.final_accession,
-                conversion_status=plan.conversion_status,
-                download_status="downloaded",
-                download_batch="dehydrated_batch",
-                payload_directory=payload.directory,
-                failures=(),
-                request_accession_used=plan.download_request_accession,
-            )
-    except LayoutError as error:
+    resolved_executions, unresolved_plans, unresolved_messages = (
+        resolve_partial_dehydrate_executions(plans, extraction_root)
+    )
+    if unresolved_plans:
         return fallback_batch_to_direct(
-            plans,
+            unresolved_plans,
             args,
             run_directories,
             logger,
-            batch_failures=build_shared_failure_context(
-                affected_original_accessions,
-                build_batch_layout_failures(shared_failures.failures, error),
+            batch_failures=shared_failures + build_unresolved_layout_failure_context(
+                unresolved_plans,
+                unresolved_messages,
                 batch_attempted_accessions,
             ),
             rehydrate_workers_used=rehydrate_workers,
+            resolved_executions=resolved_executions,
         )
     logger.info(
         "dehydrated_batch: completed with %d resolved accession(s)",
-        len(executions),
+        len(resolved_executions),
     )
 
     return DownloadExecutionResult(
-        executions=executions,
+        executions=resolved_executions,
         method_used="dehydrate",
         download_concurrency_used=1,
         rehydrate_workers_used=rehydrate_workers,
-        shared_failures=(shared_failures,) if shared_failures.failures else (),
+        shared_failures=shared_failures,
     )
