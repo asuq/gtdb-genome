@@ -81,6 +81,27 @@ def has_accession_named_parent(candidate: Path, root: Path) -> bool:
     return False
 
 
+def should_allow_payload_stem_match(requested_accession: str) -> bool:
+    """Return whether one request may resolve by accession stem alone."""
+
+    return (
+        parse_assembly_accession(requested_accession) is None
+        and parse_assembly_accession_stem(requested_accession) is not None
+    )
+
+
+def get_requested_accession_stem(requested_accession: str) -> str | None:
+    """Return the comparable accession stem for one requested payload token."""
+
+    parsed_accession = parse_assembly_accession(requested_accession)
+    if parsed_accession is not None:
+        return f"{parsed_accession.prefix}_{parsed_accession.numeric_identifier}"
+    parsed_stem = parse_assembly_accession_stem(requested_accession)
+    if parsed_stem is None:
+        return None
+    return parsed_stem.accession
+
+
 def collect_payload_directories(
     extraction_root: Path,
 ) -> tuple[ResolvedPayloadDirectory, ...]:
@@ -91,6 +112,8 @@ def collect_payload_directories(
     if data_root.is_dir():
         for payload_directory in collect_root_payload_directories(data_root):
             payloads_by_directory[payload_directory.directory] = payload_directory
+        if payloads_by_directory:
+            return tuple(payloads_by_directory.values())
 
     for payload_directory in (
         resolved_payload
@@ -175,7 +198,7 @@ def locate_partial_batch_payload_directories(
             )
             continue
 
-        request_stem = parse_assembly_accession_stem(requested_accession)
+        request_stem = get_requested_accession_stem(requested_accession)
         if request_stem is None:
             unresolved_messages[requested_accession] = (
                 "Could not locate extracted payload directory for requested "
@@ -183,7 +206,27 @@ def locate_partial_batch_payload_directories(
             )
             continue
 
-        stem_matches = tuple(payloads_by_stem.get(request_stem.accession, ()))
+        stem_matches = tuple(payloads_by_stem.get(request_stem, ()))
+        if not should_allow_payload_stem_match(requested_accession):
+            if len(stem_matches) == 1:
+                unresolved_messages[requested_accession] = (
+                    "Could not locate exact extracted payload directory for "
+                    f"requested accession {requested_accession}; found only "
+                    f"non-exact family match {stem_matches[0].final_accession}"
+                )
+                continue
+            if len(stem_matches) > 1:
+                unresolved_messages[requested_accession] = (
+                    "Resolved multiple extracted payload directories for requested "
+                    f"accession {requested_accession}: "
+                    f"{', '.join(payload.final_accession for payload in stem_matches)}"
+                )
+                continue
+            unresolved_messages[requested_accession] = (
+                "Could not locate extracted payload directory for requested "
+                f"accession {requested_accession}"
+            )
+            continue
         if len(stem_matches) == 1:
             located_payloads[requested_accession] = stem_matches[0]
             continue

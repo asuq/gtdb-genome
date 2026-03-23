@@ -637,6 +637,28 @@ def test_create_staging_directory_uses_tmpdir_when_configured(
     assert not staging_path.exists()
 
 
+@pytest.mark.parametrize("environment_variable", ["TMP", "TEMP"])
+def test_create_staging_directory_uses_fallback_temp_environment_variables(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    environment_variable: str,
+) -> None:
+    """Workflow staging directories should honour TMP and TEMP when TMPDIR is unset."""
+
+    temp_root = tmp_path / f"custom-{environment_variable.lower()}-root"
+    monkeypatch.delenv("TMPDIR", raising=False)
+    monkeypatch.delenv("TMP", raising=False)
+    monkeypatch.delenv("TEMP", raising=False)
+    monkeypatch.setenv(environment_variable, str(temp_root))
+
+    with create_staging_directory("gtdb_genomes_test_") as staging_directory:
+        staging_path = Path(staging_directory)
+        assert staging_path.parent == temp_root
+        assert staging_path.name.startswith("gtdb_genomes_test_")
+
+    assert not staging_path.exists()
+
+
 def test_total_runtime_failure_leaves_final_accession_blank(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

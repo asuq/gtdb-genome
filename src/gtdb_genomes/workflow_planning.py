@@ -46,14 +46,16 @@ if TYPE_CHECKING:
 def get_staging_directory_root() -> Path | None:
     """Return the configured temporary root for workflow staging files."""
 
-    temp_root = os.environ.get("TMPDIR")
-    if not temp_root:
-        return None
-    path = Path(temp_root)
-    if path.exists() and not path.is_dir():
-        return None
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    for environment_variable in ("TMPDIR", "TMP", "TEMP"):
+        temp_root = os.environ.get(environment_variable)
+        if not temp_root:
+            continue
+        path = Path(temp_root)
+        if path.exists() and not path.is_dir():
+            continue
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    return None
 
 
 def create_staging_directory(prefix: str) -> TemporaryDirectory[str]:
