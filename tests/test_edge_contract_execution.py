@@ -17,6 +17,7 @@ from gtdb_genomes.workflow_execution import (
     PartialBatchPayloadResolution,
     ResolvedPayloadDirectory,
     execute_batch_dehydrate_plans,
+    execute_accession_plans,
     execute_direct_accession_plans,
 )
 from tests.workflow_contract_helpers import (
@@ -242,6 +243,42 @@ def test_direct_mode_passes_api_key_via_child_environment(
     )
 
     assert result.executions["GCF_000001.1"].download_status == "downloaded"
+
+
+def test_execute_accession_plans_rejects_unknown_method(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Unknown execution methods should fail fast instead of running direct mode."""
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_direct_accession_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("direct execution should not run"),
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_batch_dehydrate_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("dehydrate execution should not run"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Unsupported download method: invalid"):
+        execute_accession_plans(
+            (
+                AccessionPlan(
+                    original_accession="GCF_000001.1",
+                    download_request_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                ),
+            ),
+            build_cli_args(tmp_path / "out"),
+            "invalid",
+            initialise_run_directories(tmp_path / "invalid-method"),
+            logging.getLogger("test-invalid-execution-method"),
+            (),
+        )
 
 
 def test_direct_mode_retries_unresolved_accessions_in_later_batches(

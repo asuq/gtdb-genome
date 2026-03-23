@@ -70,9 +70,11 @@ def execute_accession_plans(
             logger,
             secrets,
         )
-    return execute_direct_accession_plans(
-        plans,
-        args,
-        run_directories,
-        logger,
-    )
+    if decision_method == "direct":
+        return execute_direct_accession_plans(
+            plans,
+            args,
+            run_directories,
+            logger,
+        )
+    raise ValueError(f"Unsupported download method: {decision_method}")
