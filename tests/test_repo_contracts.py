@@ -600,8 +600,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "(https://github.com/asuq/gtdb-genomes/blob/main/CITATION.cff)"
             ),
             (
-                "[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19206058.svg)]"
-                "(https://doi.org/10.5281/zenodo.19206058)"
+                "[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19198946.svg)]"
+                "(https://doi.org/10.5281/zenodo.19198946)"
             ),
             (
                 "[Genome Taxonomy Database (GTDB)]"
@@ -1001,7 +1001,7 @@ def test_citation_file_uses_canonical_release_metadata() -> None:
             "abstract: CLI to download genomes by GTDB taxon and GTDB release",
             "identifiers:",
             "  - type: doi",
-            "    value: 10.5281/zenodo.19206058",
+            "    value: 10.5281/zenodo.19198946",
         ),
     )
 

@@ -15,4 +15,4 @@ abstract: CLI to download genomes by GTDB taxon and GTDB release
 license: MIT
 identifiers:
   - type: doi
-    value: 10.5281/zenodo.19206058
+    value: 10.5281/zenodo.19198946
