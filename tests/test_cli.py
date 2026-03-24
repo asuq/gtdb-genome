@@ -25,23 +25,27 @@ def test_help_includes_documented_flags() -> None:
     assert "optional options:" in help_text
     assert help_text.index("mandatory options:") < help_text.index("optional options:")
     assert (
-        "usage: gtdb-genomes --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...] "
-        "--outdir OUTDIR [-h]"
+        "usage: gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] -o OUTDIR [-h]"
     ) in help_text
+    assert "-r GTDB_RELEASE" in help_text
     assert "--gtdb-release" in help_text
+    assert "-t GTDB_TAXON" in help_text
     assert "--gtdb-taxon" in help_text
+    assert "-o OUTDIR" in help_text
     assert "--outdir" in help_text
     assert "--prefer-genbank" in help_text
     assert "--version-latest" in help_text
     assert "--version-fixed" not in help_text
     assert "--no-prefer-genbank" not in help_text
     assert "--download-method" not in help_text
+    assert "-j THREADS" in help_text
     assert "--threads" in help_text
     assert "--ncbi-api-key" in help_text
     assert "--include" in help_text
     assert "--debug" in help_text
     assert "--keep-tmp" in help_text
     assert "--keep-temp" not in help_text
+    assert "-d, --dry-run" in help_text
     assert "--dry-run" in help_text
     assert "Exact GTDB taxon. You can give one or more values" in help_text
     assert "after the flag and repeat it as needed." in help_text
@@ -87,6 +91,40 @@ def test_parse_args_defaults_release_to_latest(tmp_path: Path) -> None:
 
     assert isinstance(args, CliArgs)
     assert args.gtdb_release == "latest"
+
+
+def test_parse_args_accepts_requested_short_aliases(tmp_path: Path) -> None:
+    """Requested short aliases should map to the documented long-form fields."""
+
+    parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "-r",
+            " latest ",
+            "-t",
+            " g__Escherichia ",
+            " s__Escherichia coli ",
+            "-t",
+            "g__Bacillus",
+            "-o",
+            str(tmp_path),
+            "-j",
+            "3",
+            "-d",
+        ],
+    )
+
+    assert isinstance(args, CliArgs)
+    assert args.gtdb_release == "latest"
+    assert args.gtdb_taxa == (
+        "g__Escherichia",
+        "s__Escherichia coli",
+        "g__Bacillus",
+    )
+    assert args.outdir == tmp_path
+    assert args.threads == 3
+    assert args.dry_run is True
 
 
 def test_parse_args_accepts_multiple_taxa_after_one_flag(tmp_path: Path) -> None:

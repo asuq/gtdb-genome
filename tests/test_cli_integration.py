@@ -84,6 +84,56 @@ def test_main_passes_normalised_arguments_into_workflow(
     ]
 
 
+def test_main_accepts_requested_short_aliases(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """The CLI boundary should honour the requested short aliases."""
+
+    captured_args: list[CliArgs] = []
+
+    def fake_run_workflow(args: CliArgs) -> int:
+        """Capture the parsed arguments and return a stubbed exit code."""
+
+        captured_args.append(args)
+        return 0
+
+    monkeypatch.delenv(NCBI_API_KEY_ENV_VAR, raising=False)
+    monkeypatch.setattr("gtdb_genomes.workflow.run_workflow", fake_run_workflow)
+
+    exit_code = main(
+        [
+            "-r",
+            "latest",
+            "-t",
+            "g__Escherichia",
+            "s__Escherichia coli",
+            "-o",
+            str(tmp_path / "output"),
+            "-j",
+            "3",
+            "-d",
+        ],
+    )
+
+    assert exit_code == 0
+    assert captured_args == [
+        CliArgs(
+            gtdb_release="latest",
+            gtdb_taxa=("g__Escherichia", "s__Escherichia coli"),
+            outdir=tmp_path / "output",
+            prefer_genbank=False,
+            version_latest=False,
+            threads=3,
+            ncbi_api_key=None,
+            include="genome",
+            debug=False,
+            keep_temp=False,
+            dry_run=True,
+        ),
+    ]
+
+
 def test_main_rejects_shell_split_species_input_under_multi_value_taxa(
     tmp_path: Path,
 ) -> None:

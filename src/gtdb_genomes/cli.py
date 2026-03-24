@@ -168,12 +168,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="gtdb-genomes",
         description="Download NCBI genomes by GTDB taxon and GTDB release",
         usage=(
-            "gtdb-genomes --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...] "
-            "--outdir OUTDIR "
-            "[-h] [--gtdb-release GTDB_RELEASE] [--prefer-genbank] "
-            "[--version-latest] [--threads THREADS] "
+            "gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] "
+            "-o OUTDIR "
+            "[-h] [-r GTDB_RELEASE] [--prefer-genbank] "
+            "[--version-latest] [-j THREADS] "
             "[--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] "
-            "[--debug] [--keep-tmp] [--dry-run]"
+            "[--debug] [--keep-tmp] [-d]"
         ),
     )
     mandatory_options = parser.add_argument_group("mandatory options")
@@ -185,11 +185,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="show this help message and exit",
     )
     optional_options.add_argument(
+        "-r",
         "--gtdb-release",
         default="latest",
         help="GTDB release alias or included release identifier; default: latest",
     )
     mandatory_options.add_argument(
+        "-t",
         "--gtdb-taxon",
         action="append",
         nargs="+",
@@ -201,6 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     mandatory_options.add_argument(
+        "-o",
         "--outdir",
         required=True,
         help="Output directory for the run",
@@ -225,6 +228,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     optional_options.add_argument(
+        "-j",
         "--threads",
         type=int,
         default=DEFAULT_THREADS,
@@ -261,6 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Keep intermediate working files",
     )
     optional_options.add_argument(
+        "-d",
         "--dry-run",
         action="store_true",
         help=(
