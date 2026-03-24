@@ -609,6 +609,13 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "checked-in recipe is a draft",
             "polars >=1.31.0,<2.0.0",
             "--keep-tmp",
+            "> [!IMPORTANT]",
+            "> [!NOTE]",
+            "`datasets` command",
+            "GTDB release resolution",
+            "taxonomy loading",
+            "UBA",
+            "PRJNA417962",
             "Output Layout",
             "Contribution",
             "CONTRIBUTING.md",
@@ -701,6 +708,9 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Requires-External",
         ),
     )
+    assert "service" not in readme_text
+    assert "service" not in contributing_text
+    assert "service" not in usage_details_text
 
     assert_contains_all(
         usage_details_text,

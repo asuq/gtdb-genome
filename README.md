@@ -106,6 +106,18 @@ gtdb-genomes \
   --outdir /tmp/gtdb_dry_run
 ```
 
+> [!IMPORTANT]
+> `--ncbi-api-key` expects an NCBI API key. The tool passes it only to the
+> `datasets` command and does not use it for GTDB release resolution, local
+> taxonomy loading, or any other use.
+
+> [!NOTE]
+> Some legacy GTDB releases include genome accessions starting with `UBA`.
+> These legacy accessions are not supported by NCBI and are not supported by
+> `gtdb-genomes`. When selected, the tool warns and skips them. Check
+> BioProject `PRJNA417962`, since most `UBA` genomes are assigned through that
+> bioproject.
+
 ## Output Layout
 
 ```text

@@ -149,7 +149,7 @@ optional options:
   environment. If both are present, the explicit flag wins. The tool passes
   only the effective key to child `datasets` processes through the child
   process environment and does not use it for GTDB release resolution, local
-  taxonomy loading, or any other service.
+  taxonomy loading, or any other use.
 
 - `--include`: Defaults to `genome`.
 
