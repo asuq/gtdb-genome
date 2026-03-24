@@ -73,7 +73,7 @@ def normalise_taxa(
             if not is_complete_requested_taxon(taxon):
                 parser.error(
                     "argument --gtdb-taxon: each value must be one complete GTDB "
-                    "taxon token with a recognised rank prefix",
+                    "taxon with a recognised rank prefix",
                 )
             if taxon in seen:
                 continue
@@ -117,7 +117,7 @@ def resolve_effective_ncbi_api_key(
     explicit_api_key: str | None,
     environment: Mapping[str, str] | None = None,
 ) -> str | None:
-    """Resolve the effective NCBI API key from CLI input or ambient environment."""
+    """Resolve the effective NCBI API key from CLI input or the environment."""
 
     normalised_explicit_api_key = normalise_optional_api_key(explicit_api_key)
     if normalised_explicit_api_key is not None:
@@ -161,91 +161,108 @@ def parse_args(
 def build_parser() -> argparse.ArgumentParser:
     """Build the base argument parser for the CLI."""
     parser = argparse.ArgumentParser(
+        add_help=False,
         prog="gtdb-genomes",
-        description="Download NCBI genomes by GTDB taxon and GTDB release.",
+        description="Download NCBI genomes by GTDB taxon and GTDB release",
+        usage=(
+            "gtdb-genomes --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...] "
+            "--outdir OUTDIR "
+            "[-h] [--gtdb-release GTDB_RELEASE] [--prefer-genbank] "
+            "[--version-latest] [--threads THREADS] "
+            "[--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] "
+            "[--debug] [--keep-tmp] [--dry-run]"
+        ),
     )
-    parser.add_argument(
+    mandatory_options = parser.add_argument_group("mandatory options")
+    optional_options = parser.add_argument_group("optional options")
+    optional_options.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="show this help message and exit",
+    )
+    optional_options.add_argument(
         "--gtdb-release",
         default="latest",
-        help="GTDB release alias or bundled release identifier. Default: latest.",
+        help="GTDB release alias or included release identifier; default: latest",
     )
-    parser.add_argument(
+    mandatory_options.add_argument(
         "--gtdb-taxon",
         action="append",
         nargs="+",
         required=True,
         help=(
-            "Exact GTDB taxon token. Accept one or more values per use and "
-            "repeat as needed. "
-            "Quote species taxa with spaces, for example "
-            "\"s__Altiarchaeum hamiconexum\"."
+            "Exact GTDB taxon. You can give one or more values after the flag "
+            "and repeat it as needed. Quote species names with spaces, for "
+            "example \"s__Altiarchaeum hamiconexum\""
         ),
     )
-    parser.add_argument(
+    mandatory_options.add_argument(
         "--outdir",
         required=True,
-        help="Output directory for the run.",
+        help="Output directory for the run",
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--prefer-genbank",
         action="store_true",
         help=(
             "Prefer paired GenBank accessions discovered from current NCBI "
             "metadata and, by default, keep the exact selected versioned "
-            "accession."
+            "accession"
         ),
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--version-latest",
         action="store_true",
         help=(
             "Request the latest available revision in the selected paired "
             "GenBank family when explicit pairing is available, otherwise in "
             "the selected accession family from current NCBI metadata; "
-            "requires --prefer-genbank."
+            "requires --prefer-genbank"
         ),
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--threads",
         type=int,
         default=DEFAULT_THREADS,
         help=(
             "Choose the worker count used by compatible workflow steps; "
-            "direct downloads remain serial. Default: 8."
+            "direct downloads remain serial; default: 8"
         ),
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--ncbi-api-key",
         help=(
-            "NCBI API key used only for datasets commands. Overrides ambient "
-            f"{NCBI_API_KEY_ENV_VAR}. The tool does not write it to its own "
-            "logs or manifests."
+            "NCBI API key used only for datasets commands; overrides "
+            f"{NCBI_API_KEY_ENV_VAR} from the environment; the tool does not "
+            "write it to its own logs or manifests"
         ),
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--include",
         default="genome",
-        help="Comma-separated datasets include values; must contain genome.",
+        help="Comma-separated datasets include values; must contain genome",
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--debug",
         action="store_true",
         help=(
-            "Enable debug logging. Cannot be used while an NCBI API key is "
-            "active."
+            "Enable debug logging; cannot be used while an NCBI API key is "
+            "active"
         ),
     )
-    parser.add_argument(
-        "--keep-temp",
+    optional_options.add_argument(
+        "--keep-tmp",
+        dest="keep_temp",
         action="store_true",
-        help="Keep intermediate working files.",
+        help="Keep intermediate working files",
     )
-    parser.add_argument(
+    optional_options.add_argument(
         "--dry-run",
         action="store_true",
         help=(
             "Resolve inputs without downloading genome payloads; still "
-            "preflights unzip so real-run archive requirements fail fast."
+            "preflights unzip so real-run archive requirements fail fast"
         ),
     )
     return parser

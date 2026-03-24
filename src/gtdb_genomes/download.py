@@ -66,20 +66,20 @@ def get_ordered_unique_accessions(
 def validate_include_value(include: str) -> str:
     """Normalise and validate a datasets include value."""
 
-    tokens: list[str] = []
-    for raw_token in include.split(","):
-        token = raw_token.strip()
-        if not token:
+    include_values: list[str] = []
+    for raw_value in include.split(","):
+        value = raw_value.strip()
+        if not value:
             raise ValueError("argument --include: values must not be empty")
-        if token not in SUPPORTED_INCLUDE_TOKENS:
+        if value not in SUPPORTED_INCLUDE_TOKENS:
             raise ValueError(
-                "argument --include: unsupported include token "
-                f"{token!r}; supported values are genome, gff3, protein",
+                "argument --include: unsupported include value "
+                f"{value!r}; supported values are genome, gff3, protein",
             )
-        tokens.append(token)
-    if "genome" not in tokens:
+        include_values.append(value)
+    if "genome" not in include_values:
         raise ValueError("argument --include: value must contain 'genome'")
-    return ",".join(tokens)
+    return ",".join(include_values)
 
 
 def build_direct_batch_download_command(

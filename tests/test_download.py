@@ -39,10 +39,10 @@ def test_validate_include_value_requires_genome() -> None:
         validate_include_value("protein,gff3")
 
 
-def test_validate_include_value_rejects_unknown_tokens() -> None:
-    """Unsupported include tokens should fail locally."""
+def test_validate_include_value_rejects_unknown_values() -> None:
+    """Unsupported include values should fail locally."""
 
-    with pytest.raises(ValueError, match="unsupported include token"):
+    with pytest.raises(ValueError, match="unsupported include value"):
         validate_include_value("genome,mrna")
 
 

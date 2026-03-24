@@ -21,6 +21,13 @@ def test_help_includes_documented_flags() -> None:
     """The parser help should include the documented Phase 1 flags."""
 
     help_text = build_parser().format_help()
+    assert "mandatory options:" in help_text
+    assert "optional options:" in help_text
+    assert help_text.index("mandatory options:") < help_text.index("optional options:")
+    assert (
+        "usage: gtdb-genomes --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...] "
+        "--outdir OUTDIR [-h]"
+    ) in help_text
     assert "--gtdb-release" in help_text
     assert "--gtdb-taxon" in help_text
     assert "--outdir" in help_text
@@ -33,17 +40,19 @@ def test_help_includes_documented_flags() -> None:
     assert "--ncbi-api-key" in help_text
     assert "--include" in help_text
     assert "--debug" in help_text
-    assert "--keep-temp" in help_text
+    assert "--keep-tmp" in help_text
+    assert "--keep-temp" not in help_text
     assert "--dry-run" in help_text
-    assert "Accept one or more values per" in help_text
-    assert "use and repeat as needed." in help_text
-    assert "Quote species taxa with" in help_text
-    assert 'spaces, for example "s__Altiarchaeum hamiconexum".' in help_text
+    assert "Exact GTDB taxon. You can give one or more values" in help_text
+    assert "after the flag and repeat it as needed." in help_text
+    assert 'names with spaces, for example "s__Altiarchaeum' in help_text
     assert "current NCBI metadata" in help_text
     assert "direct downloads remain serial" in help_text
-    assert "Default: latest." in help_text
-    assert "8." in help_text
-    assert f"Overrides ambient {NCBI_API_KEY_ENV_VAR}." in help_text
+    assert "default: latest" in help_text
+    assert "default: 8" in help_text
+    assert f"overrides {NCBI_API_KEY_ENV_VAR} from the environment" in help_text
+    assert "token" not in help_text.lower()
+    assert "ambient" not in help_text.lower()
 
 
 def test_parse_args_defaults_release_to_latest(tmp_path: Path) -> None:
@@ -161,7 +170,7 @@ def test_parse_args_rejects_shell_split_species_taxon(tmp_path: Path) -> None:
 def test_parse_args_rejects_taxon_without_recognised_rank_prefix(
     tmp_path: Path,
 ) -> None:
-    """Each parsed value should be validated as one complete GTDB taxon token."""
+    """Each parsed value should be validated as one complete GTDB taxon."""
 
     parser = build_parser()
     with pytest.raises(SystemExit) as error:
@@ -381,14 +390,14 @@ def test_parse_args_accepts_ncbi_api_key_flag(tmp_path: Path) -> None:
     assert args.ncbi_api_key == "secret"
 
 
-def test_parse_args_uses_ambient_ncbi_api_key_when_flag_is_absent(
+def test_parse_args_uses_environment_ncbi_api_key_when_flag_is_absent(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Ambient NCBI API keys should become the effective CLI secret."""
+    """An environment NCBI API key should become the effective CLI secret."""
 
     parser = build_parser()
-    monkeypatch.setenv(NCBI_API_KEY_ENV_VAR, "ambient-secret")
+    monkeypatch.setenv(NCBI_API_KEY_ENV_VAR, "environment-secret")
 
     args = parse_args(
         parser,
@@ -402,17 +411,17 @@ def test_parse_args_uses_ambient_ncbi_api_key_when_flag_is_absent(
         ],
     )
 
-    assert args.ncbi_api_key == "ambient-secret"
+    assert args.ncbi_api_key == "environment-secret"
 
 
-def test_parse_args_prefers_cli_ncbi_api_key_over_ambient_value(
+def test_parse_args_prefers_cli_ncbi_api_key_over_environment_value(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Explicit API keys should override ambient environment values."""
+    """Explicit API keys should override environment values."""
 
     parser = build_parser()
-    monkeypatch.setenv(NCBI_API_KEY_ENV_VAR, "ambient-secret")
+    monkeypatch.setenv(NCBI_API_KEY_ENV_VAR, "environment-secret")
 
     args = parse_args(
         parser,
@@ -454,14 +463,14 @@ def test_parse_args_rejects_debug_with_ncbi_api_key(tmp_path: Path) -> None:
     assert error.value.code == 2
 
 
-def test_parse_args_rejects_debug_with_ambient_ncbi_api_key(
+def test_parse_args_rejects_debug_with_environment_ncbi_api_key(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Debug mode should be rejected when an ambient API key is active."""
+    """Debug mode should be rejected when an environment API key is active."""
 
     parser = build_parser()
-    monkeypatch.setenv(NCBI_API_KEY_ENV_VAR, "ambient-secret")
+    monkeypatch.setenv(NCBI_API_KEY_ENV_VAR, "environment-secret")
     with pytest.raises(SystemExit) as error:
         parse_args(
             parser,
@@ -524,6 +533,26 @@ def test_parse_args_accepts_version_latest_with_prefer_genbank(
 
     assert args.prefer_genbank is True
     assert args.version_latest is True
+
+
+def test_parse_args_accepts_keep_tmp_flag(tmp_path: Path) -> None:
+    """The keep-temporary-files flag should parse into the normalised args."""
+
+    parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "--gtdb-release",
+            "latest",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(tmp_path),
+            "--keep-tmp",
+        ],
+    )
+
+    assert args.keep_temp is True
 
 
 def test_parse_args_rejects_removed_version_fixed_flag(tmp_path: Path) -> None:
@@ -608,6 +637,26 @@ def test_parse_args_rejects_removed_legacy_flags(tmp_path: Path) -> None:
         with pytest.raises(SystemExit) as error:
             parse_args(parser, argv)
         assert error.value.code == 2
+
+
+def test_parse_args_rejects_removed_keep_temp_flag(tmp_path: Path) -> None:
+    """The old keep-temp flag should be rejected."""
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as error:
+        parse_args(
+            parser,
+            [
+                "--gtdb-release",
+                "latest",
+                "--gtdb-taxon",
+                "g__Escherichia",
+                "--outdir",
+                str(tmp_path),
+                "--keep-temp",
+            ],
+        )
+    assert error.value.code == 2
 
 
 def test_main_returns_preflight_error_code(
