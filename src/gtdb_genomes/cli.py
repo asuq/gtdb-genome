@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from gtdb_genomes.download import validate_include_value
+from gtdb_genomes.layout import (
+    build_leftover_run_abort_message,
+    find_leftover_run_artefacts,
+)
 from gtdb_genomes.preflight import PreflightError
 from gtdb_genomes.subprocess_utils import NCBI_API_KEY_ENV_VAR
 from gtdb_genomes.taxon_normalisation import (
@@ -91,20 +95,35 @@ def normalise_include(parser: argparse.ArgumentParser, include: str) -> str:
         parser.error(str(error))
 
 
-def validate_output_path(parser: argparse.ArgumentParser, output: str) -> Path:
+def resolve_output_path(output: str | None) -> Path:
+    """Resolve one optional output path to the effective filesystem location."""
+
+    if output is None:
+        return Path.cwd()
+    return Path(output).expanduser()
+
+
+def validate_output_path(
+    parser: argparse.ArgumentParser,
+    output: str | None,
+) -> Path:
     """Validate the output path without creating directories."""
 
-    path = Path(output).expanduser()
+    path = resolve_output_path(output)
     try:
-        path_exists = path.exists()
-        if path_exists:
+        if path.exists():
             if not path.is_dir():
                 parser.error(
                     "argument --outdir: path must not be an existing file",
                 )
-            if any(path.iterdir()):
+            leftover_artefacts = find_leftover_run_artefacts(path)
+            if leftover_artefacts:
                 parser.error(
-                    "argument --outdir: directory must be empty if it already exists",
+                    "argument --outdir: "
+                    + build_leftover_run_abort_message(
+                        path,
+                        leftover_artefacts,
+                    ),
                 )
     except OSError as error:
         parser.error(
@@ -169,8 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Download NCBI genomes by GTDB taxon and GTDB release",
         usage=(
             "gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] "
-            "-o OUTDIR "
-            "[-h] [-r GTDB_RELEASE] [--prefer-genbank] "
+            "[-o OUTDIR] [-h] [-r GTDB_RELEASE] [--prefer-genbank] "
             "[--version-latest] [-j THREADS] "
             "[--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] "
             "[--debug] [--keep-tmp] [-d]"
@@ -202,11 +220,10 @@ def build_parser() -> argparse.ArgumentParser:
             "example \"s__Altiarchaeum hamiconexum\""
         ),
     )
-    mandatory_options.add_argument(
+    optional_options.add_argument(
         "-o",
         "--outdir",
-        required=True,
-        help="Output directory for the run",
+        help="Output directory for the run; default: current working directory",
     )
     optional_options.add_argument(
         "--prefer-genbank",

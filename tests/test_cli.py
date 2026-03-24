@@ -13,6 +13,7 @@ from gtdb_genomes.cli import (
     main,
     parse_args,
 )
+from gtdb_genomes.layout import RESERVED_OUTPUT_ARTEFACTS
 from gtdb_genomes.subprocess_utils import NCBI_API_KEY_ENV_VAR
 from gtdb_genomes.preflight import PreflightError
 
@@ -25,7 +26,7 @@ def test_help_includes_documented_flags() -> None:
     assert "optional options:" in help_text
     assert help_text.index("mandatory options:") < help_text.index("optional options:")
     assert (
-        "usage: gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] -o OUTDIR [-h]"
+        "usage: gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] [-o OUTDIR] [-h]"
     ) in help_text
     assert "-r GTDB_RELEASE" in help_text
     assert "--gtdb-release" in help_text
@@ -54,6 +55,7 @@ def test_help_includes_documented_flags() -> None:
     assert "direct downloads remain serial" in help_text
     assert "default: latest" in help_text
     assert "default: 8" in help_text
+    assert "Output directory for the run; default: current working" in help_text
     assert f"overrides {NCBI_API_KEY_ENV_VAR} from the environment" in help_text
     assert "token" not in help_text.lower()
     assert "ambient" not in help_text.lower()
@@ -91,6 +93,27 @@ def test_parse_args_defaults_release_to_latest(tmp_path: Path) -> None:
 
     assert isinstance(args, CliArgs)
     assert args.gtdb_release == "latest"
+
+
+def test_parse_args_defaults_outdir_to_current_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Omitting `--outdir` should use the current working directory."""
+
+    parser = build_parser()
+    monkeypatch.chdir(tmp_path)
+
+    args = parse_args(
+        parser,
+        [
+            "--gtdb-taxon",
+            "g__Escherichia",
+        ],
+    )
+
+    assert isinstance(args, CliArgs)
+    assert args.outdir == tmp_path
 
 
 def test_parse_args_accepts_requested_short_aliases(tmp_path: Path) -> None:
@@ -290,33 +313,15 @@ def test_parse_args_rejects_uninspectable_output_directory(
     parser = build_parser()
     output_dir = tmp_path / "uninspectable"
     original_exists = Path.exists
-    original_is_dir = Path.is_dir
-    original_iterdir = Path.iterdir
 
     def fake_exists(path: Path) -> bool:
-        """Pretend that only the test output directory already exists."""
-
-        if path == output_dir:
-            return True
-        return original_exists(path)
-
-    def fake_is_dir(path: Path) -> bool:
-        """Report the test path as an existing directory."""
-
-        if path == output_dir:
-            return True
-        return original_is_dir(path)
-
-    def fake_iterdir(path: Path):
         """Raise a deterministic permission error for the test path."""
 
         if path == output_dir:
             raise PermissionError("permission denied")
-        return original_iterdir(path)
+        return original_exists(path)
 
     monkeypatch.setattr(Path, "exists", fake_exists)
-    monkeypatch.setattr(Path, "is_dir", fake_is_dir)
-    monkeypatch.setattr(Path, "iterdir", fake_iterdir)
 
     with pytest.raises(SystemExit) as error:
         parse_args(
@@ -400,27 +405,80 @@ def test_parse_args_requires_genome_in_include(tmp_path: Path) -> None:
     assert error.value.code == 2
 
 
-def test_parse_args_rejects_non_empty_output_directory(tmp_path: Path) -> None:
-    """Existing non-empty output directories should fail validation."""
+def test_parse_args_accepts_non_empty_output_directory_with_unrelated_files(
+    tmp_path: Path,
+) -> None:
+    """Unrelated existing files should not be treated as leftover run output."""
 
     output_dir = tmp_path / "results"
     output_dir.mkdir()
-    (output_dir / "sentinel.txt").write_text("x", encoding="ascii")
+    (output_dir / "notes.txt").write_text("x", encoding="ascii")
 
     parser = build_parser()
+    args = parse_args(
+        parser,
+        [
+            "--gtdb-release",
+            "latest",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert args.outdir == output_dir
+
+
+def materialise_reserved_output_artefact(output_dir: Path, artefact: str) -> None:
+    """Create one reserved GTDB-genomes artefact for output-path tests."""
+
+    artefact_path = output_dir / artefact
+    if artefact in {".gtdb_genomes_work", "taxa"}:
+        artefact_path.mkdir(parents=True, exist_ok=True)
+        return
+    artefact_path.parent.mkdir(parents=True, exist_ok=True)
+    artefact_path.write_text("x\n", encoding="ascii")
+
+
+@pytest.mark.parametrize("artefact", RESERVED_OUTPUT_ARTEFACTS)
+@pytest.mark.parametrize("use_default_outdir", (False, True))
+def test_parse_args_rejects_leftover_run_artefacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    artefact: str,
+    use_default_outdir: bool,
+) -> None:
+    """Reserved GTDB-genomes leftovers should abort explicit and default outdirs."""
+
+    parser = build_parser()
+    output_dir = tmp_path
+    argv = [
+        "--gtdb-release",
+        "latest",
+        "--gtdb-taxon",
+        "g__Escherichia",
+    ]
+    if use_default_outdir:
+        monkeypatch.chdir(tmp_path)
+    else:
+        output_dir = tmp_path / "results"
+        output_dir.mkdir()
+        argv.extend(("--outdir", str(output_dir)))
+    materialise_reserved_output_artefact(output_dir, artefact)
+
     with pytest.raises(SystemExit) as error:
-        parse_args(
-            parser,
-            [
-                "--gtdb-release",
-                "latest",
-                "--gtdb-taxon",
-                "g__Escherichia",
-                "--outdir",
-                str(output_dir),
-            ],
-        )
+        parse_args(parser, argv)
+
+    captured = capsys.readouterr()
     assert error.value.code == 2
+    assert (
+        "detected leftover GTDB-genomes output from a previous run"
+        in captured.err
+    )
+    assert "aborting because these artefacts already exist" in captured.err
+    assert artefact in captured.err
 
 
 def test_parse_args_accepts_ncbi_api_key_flag(tmp_path: Path) -> None:

@@ -197,6 +197,49 @@ def test_main_defaults_release_to_latest_when_flag_is_omitted(
     ]
 
 
+def test_main_defaults_outdir_to_current_working_directory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """The CLI boundary should use the current working directory by default."""
+
+    captured_args: list[CliArgs] = []
+
+    def fake_run_workflow(args: CliArgs) -> int:
+        """Capture the parsed arguments and return a stubbed exit code."""
+
+        captured_args.append(args)
+        return 0
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(NCBI_API_KEY_ENV_VAR, raising=False)
+    monkeypatch.setattr("gtdb_genomes.workflow.run_workflow", fake_run_workflow)
+
+    exit_code = main(
+        [
+            "--gtdb-taxon",
+            "g__Escherichia",
+        ],
+    )
+
+    assert exit_code == 0
+    assert captured_args == [
+        CliArgs(
+            gtdb_release="latest",
+            gtdb_taxa=("g__Escherichia",),
+            outdir=tmp_path,
+            prefer_genbank=False,
+            version_latest=False,
+            threads=8,
+            ncbi_api_key=None,
+            include="genome",
+            debug=False,
+            keep_temp=False,
+            dry_run=False,
+        ),
+    ]
+
+
 def test_main_passes_version_latest_into_workflow(
     monkeypatch,
     tmp_path: Path,
