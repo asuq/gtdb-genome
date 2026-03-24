@@ -16,7 +16,6 @@ It uses included
 [Genome Taxonomy Database (GTDB)](https://gtdb.ecogenomic.org/) taxonomy tables and
 [NCBI datasets CLI](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/getting_started/).
 
-The README gives the short version.
 The detailed guide covers the
 [Runtime Contract](docs/usage-details.md#runtime-contract),
 [Output Layout](docs/usage-details.md#output-layout),
