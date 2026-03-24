@@ -6,8 +6,22 @@ from pathlib import Path
 
 import pytest
 
-from gtdb_genomes.cli import CliArgs, main
+from gtdb_genomes.cli import CliArgs, build_parser, main
 from gtdb_genomes.subprocess_utils import NCBI_API_KEY_ENV_VAR
+
+
+def test_main_with_no_arguments_shows_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty CLI invocation should behave like `--help`."""
+
+    with pytest.raises(SystemExit) as error:
+        main([])
+
+    captured = capsys.readouterr()
+    assert error.value.code == 0
+    assert captured.out == build_parser().format_help()
+    assert captured.err == ""
 
 
 def test_main_passes_normalised_arguments_into_workflow(

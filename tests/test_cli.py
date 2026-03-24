@@ -55,6 +55,22 @@ def test_help_includes_documented_flags() -> None:
     assert "ambient" not in help_text.lower()
 
 
+def test_parse_args_with_no_arguments_shows_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty command should follow the documented help path."""
+
+    parser = build_parser()
+
+    with pytest.raises(SystemExit) as error:
+        parse_args(parser, [])
+
+    captured = capsys.readouterr()
+    assert error.value.code == 0
+    assert captured.out == parser.format_help()
+    assert captured.err == ""
+
+
 def test_parse_args_defaults_release_to_latest(tmp_path: Path) -> None:
     """Omitting the release flag should default to the bundled latest alias."""
 
