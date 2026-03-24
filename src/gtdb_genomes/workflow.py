@@ -235,7 +235,6 @@ def run_workflow(args: CliArgs) -> int:
                 started_at,
                 resolution,
                 mapped_frame,
-                planning_shared_failures,
                 execution_result,
                 unsupported_executions,
                 secrets,

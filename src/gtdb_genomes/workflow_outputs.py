@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
@@ -27,7 +27,7 @@ from gtdb_genomes.layout import (
     write_taxon_accessions,
 )
 from gtdb_genomes.logging_utils import attach_debug_log_handler, redact_text
-from gtdb_genomes.metadata import SUPPRESSED_ASSEMBLY_NOTE, get_accession_type
+from gtdb_genomes.metadata import SUPPRESSED_ASSEMBLY_NOTE
 from gtdb_genomes.provenance import build_runtime_provenance
 from gtdb_genomes.run_identity import (
     build_accession_decision_sha256,
@@ -37,7 +37,6 @@ from gtdb_genomes.selection import build_taxon_slug_map
 from gtdb_genomes.workflow_execution import (
     AccessionExecution,
     DownloadExecutionResult,
-    SharedFailureContext,
 )
 
 if TYPE_CHECKING:
@@ -50,7 +49,7 @@ if TYPE_CHECKING:
 
 
 class RunSummaryRow(TypedDict):
-    """Structured row for `run_summary.tsv`."""
+    """Structured data for `run_summary.log`."""
 
     run_id: str
     accession_decision_sha256: str
@@ -77,7 +76,6 @@ class RunSummaryRow(TypedDict):
     requested_taxa_count: int
     matched_rows: int
     unique_gtdb_accessions: int
-    final_accessions: int
     successful_accessions: int
     failed_accessions: int
     output_dir: str
@@ -88,10 +86,7 @@ class TaxonSummaryRow(TypedDict):
     """Structured row for `taxon_summary.tsv`."""
 
     requested_taxon: str
-    taxon_slug: str
-    matched_rows: int
     unique_gtdb_accessions: int
-    final_accessions: int
     successful_accessions: int
     failed_accessions: int
     duplicate_copies_written: int
@@ -111,27 +106,36 @@ class EnrichedOutputRow(TypedDict):
     selected_accession: str
     download_request_accession: str
     final_accession: str
-    accession_type_original: str
-    accession_type_final: str
     conversion_status: str
-    download_method_used: str
-    download_batch: str
     output_relpath: str
     download_status: str
     duplicate_across_taxa: bool
 
 
+class AccessionMapRow(TypedDict):
+    """Structured row for the condensed `accession_map.tsv`."""
+
+    final_accession: str
+    requested_taxa: str
+    gtdb_accessions: str
+    selected_accessions: str
+    download_request_accessions: str
+    conversion_status: str
+    download_status: str
+    output_relpaths: str
+    duplicate_across_taxa: str
+
+
 class PerTaxonOutputRow(TypedDict):
     """Structured row for `taxon_accessions.tsv`."""
 
+    final_accession: str
     requested_taxon: str
-    taxon_slug: str
     lineage: str
     gtdb_accession: str
     ncbi_accession: str
     selected_accession: str
     download_request_accession: str
-    final_accession: str
     conversion_status: str
     output_relpath: str
     download_status: str
@@ -141,17 +145,23 @@ class PerTaxonOutputRow(TypedDict):
 class FailureManifestRow(TypedDict):
     """Structured row for `download_failures.tsv`."""
 
-    requested_taxon: str
-    taxon_slug: str
-    gtdb_accession: str
-    attempted_accession: str
-    final_accession: str
+    accession: str
+    requested_taxa: str
+    gtdb_accessions: str
+    suppressed: str
     stage: str
-    attempt_index: int
-    max_attempts: int
     error_type: str
-    error_message_redacted: str
-    final_status: str
+    reason: str
+    status: str
+
+
+class DuplicatedGenomeRow(TypedDict):
+    """Structured row for `duplicated_genomes.tsv`."""
+
+    final_accession: str
+    requested_taxa: str
+    taxa_count: int
+    output_relpaths: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,17 +227,8 @@ def build_taxon_summary_rows(
         summary_rows.append(
             {
                 "requested_taxon": requested_taxon,
-                "taxon_slug": taxon_slug,
-                "matched_rows": len(rows),
                 "unique_gtdb_accessions": len(
                     {row["gtdb_accession"] for row in rows},
-                ),
-                "final_accessions": len(
-                    {
-                        row["final_accession"]
-                        for row in rows
-                        if row["final_accession"]
-                    },
                 ),
                 "successful_accessions": len(
                     {
@@ -264,7 +265,7 @@ def build_run_summary_row(
     started_at: str,
     finished_at: str,
 ) -> RunSummaryRow:
-    """Build the single `run_summary.tsv` row."""
+    """Build the single `run_summary.log` data record."""
 
     provenance = build_runtime_provenance(
         release_manifest_sha256=resolution.release_manifest_sha256,
@@ -313,9 +314,6 @@ def build_run_summary_row(
         "unique_gtdb_accessions": len(
             {row["gtdb_accession"] for row in accession_rows},
         ),
-        "final_accessions": len(
-            {row["final_accession"] for row in accession_rows if row["final_accession"]},
-        ),
         "successful_accessions": len(
             {
                 row["final_accession"]
@@ -335,133 +333,173 @@ def build_run_summary_row(
     }
 
 
+def render_run_summary_log(run_summary: RunSummaryRow) -> str:
+    """Render one human-readable `run_summary.log` file."""
+
+    sections = (
+        ("Run Identity", ("run_id", "accession_decision_sha256", "started_at", "finished_at")),
+        (
+            "Release And Provenance",
+            (
+                "requested_release",
+                "resolved_release",
+                "download_method_requested",
+                "download_method_used",
+                "threads_requested",
+                "download_concurrency_used",
+                "rehydrate_workers_used",
+                "include",
+                "prefer_genbank",
+                "version_latest",
+                "package_version",
+                "git_revision",
+                "datasets_version",
+                "unzip_version",
+                "release_manifest_sha256",
+                "bacterial_taxonomy_sha256",
+                "archaeal_taxonomy_sha256",
+                "debug_enabled",
+            ),
+        ),
+        (
+            "Counts",
+            (
+                "requested_taxa_count",
+                "matched_rows",
+                "unique_gtdb_accessions",
+                "successful_accessions",
+                "failed_accessions",
+            ),
+        ),
+        ("Paths And Exit", ("output_dir", "exit_code")),
+    )
+    lines: list[str] = []
+    for section_title, section_keys in sections:
+        lines.append(section_title)
+        for key in section_keys:
+            lines.append(f"{key}: {run_summary[key]}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def join_sorted_values(values: list[str]) -> str:
+    """Return deterministic semicolon-joined unique non-empty values."""
+
+    return ";".join(sorted({value.strip() for value in values if value.strip()}))
+
+
 def join_unique_row_values(
     rows: list[EnrichedOutputRow],
     field_name: str,
 ) -> str:
     """Collapse one row field into a deterministic semicolon-joined value."""
 
-    return ";".join(
-        sorted(
-            {
-                str(row.get(field_name, "")).strip()
-                for row in rows
-                if str(row.get(field_name, "")).strip()
-            },
-        ),
+    return join_sorted_values(
+        [str(row.get(field_name, "")).strip() for row in rows],
     )
 
 
-def build_shared_failure_rows(
-    rows: list[EnrichedOutputRow],
-    failures: tuple[CommandFailureRecord, ...],
-    secrets: tuple[str, ...],
-) -> list[FailureManifestRow]:
-    """Build one failure-manifest row per shared command attempt."""
+def build_accession_map_rows(
+    enriched_rows: list[EnrichedOutputRow],
+) -> list[AccessionMapRow]:
+    """Build the condensed run-level `accession_map.tsv` rows."""
 
-    if not rows or not failures:
-        return []
-    requested_taxa = join_unique_row_values(rows, "requested_taxon")
-    taxon_slugs = join_unique_row_values(rows, "taxon_slug")
-    gtdb_accessions = join_unique_row_values(rows, "gtdb_accession")
-    ncbi_accessions = join_unique_row_values(rows, "ncbi_accession")
-    final_accessions = join_unique_row_values(rows, "final_accession")
-    return [
-        {
-            "requested_taxon": requested_taxa,
-            "taxon_slug": taxon_slugs,
-            "gtdb_accession": gtdb_accessions,
-            "attempted_accession": (
-                failure.attempted_accession or ncbi_accessions
-            ),
-            "final_accession": final_accessions,
-            "stage": failure.stage,
-            "attempt_index": failure.attempt_index,
-            "max_attempts": failure.max_attempts,
-            "error_type": failure.error_type,
-            "error_message_redacted": redact_text(
-                failure.error_message,
-                secrets,
-            ),
-            "final_status": failure.final_status,
-        }
-        for failure in failures
-    ]
+    grouped_rows: dict[str, list[EnrichedOutputRow]] = defaultdict(list)
+    for row in enriched_rows:
+        group_key = row["final_accession"] or row["ncbi_accession"]
+        grouped_rows[group_key].append(row)
+
+    accession_rows: list[AccessionMapRow] = []
+    for group_key in sorted(grouped_rows):
+        rows = grouped_rows[group_key]
+        accession_rows.append(
+            {
+                "final_accession": join_unique_row_values(rows, "final_accession"),
+                "requested_taxa": join_unique_row_values(rows, "requested_taxon"),
+                "gtdb_accessions": join_unique_row_values(rows, "gtdb_accession"),
+                "selected_accessions": join_unique_row_values(rows, "selected_accession"),
+                "download_request_accessions": join_unique_row_values(
+                    rows,
+                    "download_request_accession",
+                ),
+                "conversion_status": join_unique_row_values(rows, "conversion_status"),
+                "download_status": join_unique_row_values(rows, "download_status"),
+                "output_relpaths": join_unique_row_values(rows, "output_relpath"),
+                "duplicate_across_taxa": str(
+                    any(row["duplicate_across_taxa"] for row in rows),
+                ).lower(),
+            },
+        )
+    return accession_rows
+
+
+def build_duplicated_genome_rows(
+    enriched_rows: list[EnrichedOutputRow],
+) -> list[DuplicatedGenomeRow]:
+    """Build one row per duplicated realised accession."""
+
+    grouped_rows: dict[str, list[EnrichedOutputRow]] = defaultdict(list)
+    for row in enriched_rows:
+        if row["duplicate_across_taxa"] and row["final_accession"]:
+            grouped_rows[row["final_accession"]].append(row)
+
+    duplicate_rows: list[DuplicatedGenomeRow] = []
+    for final_accession in sorted(grouped_rows):
+        rows = grouped_rows[final_accession]
+        requested_taxa = join_unique_row_values(rows, "requested_taxon")
+        duplicate_rows.append(
+            {
+                "final_accession": final_accession,
+                "requested_taxa": requested_taxa,
+                "taxa_count": len(requested_taxa.split(";")) if requested_taxa else 0,
+                "output_relpaths": join_unique_row_values(rows, "output_relpath"),
+            },
+        )
+    return duplicate_rows
 
 
 def build_failure_rows(
     enriched_rows: list[EnrichedOutputRow],
     executions: dict[str, AccessionExecution],
-    planning_shared_failures: tuple[SharedFailureContext, ...],
-    shared_failures: tuple[SharedFailureContext, ...],
     secrets: tuple[str, ...],
     suppressed_notes: dict[str, SuppressedAccessionNote] | None = None,
 ) -> list[FailureManifestRow]:
-    """Build attempt-centric `download_failures.tsv` rows."""
+    """Build terminal-failure `download_failures.tsv` rows."""
 
     failure_rows: list[FailureManifestRow] = []
-    suppressed_accessions = (
-        {}
-        if suppressed_notes is None
-        else suppressed_notes
-    )
+    suppressed_accessions = {} if suppressed_notes is None else suppressed_notes
 
     rows_by_accession: dict[str, list[EnrichedOutputRow]] = defaultdict(list)
     for row in enriched_rows:
         rows_by_accession[row["ncbi_accession"]].append(row)
 
-    for shared_failure in planning_shared_failures + shared_failures:
-        scoped_rows = [
-            row
-            for accession in shared_failure.affected_original_accessions
-            for row in rows_by_accession.get(accession, ())
-        ]
-        failure_rows.extend(
-            build_shared_failure_rows(
-                scoped_rows,
-                shared_failure.failures,
-                secrets,
-            ),
-        )
-
-    for accession, rows in rows_by_accession.items():
+    for accession, rows in sorted(rows_by_accession.items()):
         execution = executions[accession]
-        requested_taxa = ";".join(
-            sorted({row["requested_taxon"] for row in rows}),
+        if execution.download_status != "failed" or not execution.failures:
+            continue
+        failure = execution.failures[-1]
+        reason = failure.error_message
+        suppressed = accession in suppressed_accessions
+        if suppressed:
+            reason = f"{reason} {SUPPRESSED_ASSEMBLY_NOTE}"
+        failure_rows.append(
+            {
+                "accession": (
+                    execution.final_accession
+                    or execution.request_accession_used
+                    or failure.attempted_accession
+                    or accession
+                ),
+                "requested_taxa": join_unique_row_values(rows, "requested_taxon"),
+                "gtdb_accessions": join_unique_row_values(rows, "gtdb_accession"),
+                "suppressed": str(suppressed).lower(),
+                "stage": failure.stage,
+                "error_type": failure.error_type,
+                "reason": redact_text(reason, secrets),
+                "status": failure.final_status,
+            },
         )
-        taxon_slugs = ";".join(
-            sorted({row["taxon_slug"] for row in rows}),
-        )
-        gtdb_accessions = ";".join(
-            sorted({row["gtdb_accession"] for row in rows}),
-        )
-        final_accession = execution.final_accession or ""
-        for failure in execution.failures:
-            error_message = failure.error_message
-            if (
-                accession in suppressed_accessions
-                and execution.download_status == "failed"
-            ):
-                error_message = f"{error_message} {SUPPRESSED_ASSEMBLY_NOTE}"
-            failure_rows.append(
-                {
-                    "requested_taxon": requested_taxa,
-                    "taxon_slug": taxon_slugs,
-                    "gtdb_accession": gtdb_accessions,
-                    "attempted_accession": failure.attempted_accession or accession,
-                    "final_accession": final_accession,
-                    "stage": failure.stage,
-                    "attempt_index": failure.attempt_index,
-                    "max_attempts": failure.max_attempts,
-                    "error_type": failure.error_type,
-                    "error_message_redacted": redact_text(
-                        error_message,
-                        secrets,
-                    ),
-                    "final_status": failure.final_status,
-                },
-            )
-    return failure_rows
+    return sorted(failure_rows, key=lambda row: row["accession"])
 
 
 # Output materialisation and exit handling.
@@ -490,7 +528,6 @@ def build_enriched_output_rows(
         execution = executions[row["ncbi_accession"]]
         selected_accession = row["final_accession"]
         final_accession = execution.final_accession or ""
-        unsupported_accession = row["ncbi_accession"] in unsupported_executions
         enriched_rows.append(
             {
                 "requested_taxon": row["requested_taxon"],
@@ -503,17 +540,7 @@ def build_enriched_output_rows(
                 "selected_accession": selected_accession,
                 "download_request_accession": execution.request_accession_used,
                 "final_accession": final_accession,
-                "accession_type_original": row["accession_type_original"],
-                "accession_type_final": (
-                    get_accession_type(execution.final_accession)
-                    if execution.final_accession is not None
-                    else ""
-                ),
                 "conversion_status": execution.conversion_status,
-                "download_method_used": (
-                    "" if unsupported_accession else execution_result.method_used
-                ),
-                "download_batch": "" if unsupported_accession else execution.download_batch,
                 "output_relpath": "",
                 "download_status": execution.download_status,
                 "duplicate_across_taxa": False,
@@ -528,14 +555,13 @@ def build_enriched_output_rows(
     for row in enriched_rows:
         per_taxon_rows[row["taxon_slug"]].append(
             {
+                "final_accession": row["final_accession"],
                 "requested_taxon": row["requested_taxon"],
-                "taxon_slug": row["taxon_slug"],
                 "lineage": row["lineage"],
                 "gtdb_accession": row["gtdb_accession"],
                 "ncbi_accession": row["ncbi_accession"],
                 "selected_accession": row["selected_accession"],
                 "download_request_accession": row["download_request_accession"],
-                "final_accession": row["final_accession"],
                 "conversion_status": row["conversion_status"],
                 "output_relpath": row["output_relpath"],
                 "download_status": row["download_status"],
@@ -741,14 +767,13 @@ def execute_transfer_batches(
     for row in enriched_rows:
         per_taxon_rows[row["taxon_slug"]].append(
             {
+                "final_accession": row["final_accession"],
                 "requested_taxon": row["requested_taxon"],
-                "taxon_slug": row["taxon_slug"],
                 "lineage": row["lineage"],
                 "gtdb_accession": row["gtdb_accession"],
                 "ncbi_accession": row["ncbi_accession"],
                 "selected_accession": row["selected_accession"],
                 "download_request_accession": row["download_request_accession"],
-                "final_accession": row["final_accession"],
                 "conversion_status": row["conversion_status"],
                 "output_relpath": row["output_relpath"],
                 "download_status": row["download_status"],
@@ -791,7 +816,6 @@ def materialise_real_run_outputs(
     started_at: str,
     resolution: ReleaseResolution,
     mapped_frame: pl.DataFrame,
-    planning_shared_failures: tuple[SharedFailureContext, ...],
     execution_result: DownloadExecutionResult,
     unsupported_executions: dict[str, AccessionExecution],
     secrets: tuple[str, ...],
@@ -831,8 +855,6 @@ def materialise_real_run_outputs(
     failure_rows = build_failure_rows(
         enriched_rows,
         executions,
-        planning_shared_failures,
-        execution_result.shared_failures,
         secrets,
         suppressed_notes=suppressed_notes,
     )
@@ -844,7 +866,7 @@ def materialise_real_run_outputs(
         taxon_slug_map,
     )
     successful_count, failed_count, exit_code = resolve_exit_code(enriched_rows)
-    run_summary_rows = [
+    run_summary_text = render_run_summary_log(
         build_run_summary_row(
             args,
             resolution,
@@ -858,34 +880,14 @@ def materialise_real_run_outputs(
             started_at,
             datetime.now(UTC).isoformat(),
         ),
-    ]
+    )
     write_root_manifests(
         run_directories,
-        run_summary_rows,
+        run_summary_text,
         taxon_summary_rows,
-        [
-            {
-                "requested_taxon": row["requested_taxon"],
-                "taxon_slug": row["taxon_slug"],
-                "resolved_release": row["resolved_release"],
-                "taxonomy_file": row["taxonomy_file"],
-                "lineage": row["lineage"],
-                "gtdb_accession": row["gtdb_accession"],
-                "ncbi_accession": row["ncbi_accession"],
-                "selected_accession": row["selected_accession"],
-                "download_request_accession": row["download_request_accession"],
-                "final_accession": row["final_accession"],
-                "accession_type_original": row["accession_type_original"],
-                "accession_type_final": row["accession_type_final"],
-                "conversion_status": row["conversion_status"],
-                "download_method_used": row["download_method_used"],
-                "download_batch": row["download_batch"],
-                "output_relpath": row["output_relpath"],
-                "download_status": row["download_status"],
-            }
-            for row in enriched_rows
-        ],
+        build_accession_map_rows(enriched_rows),
         failure_rows,
+        build_duplicated_genome_rows(enriched_rows),
     )
     for requested_taxon in args.gtdb_taxa:
         taxon_slug = taxon_slug_map[requested_taxon]

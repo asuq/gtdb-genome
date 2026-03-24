@@ -28,7 +28,11 @@ from gtdb_genomes.release_resolver import ReleaseResolution, resolve_and_validat
 from gtdb_genomes.selection import attach_taxon_slugs, build_taxon_slug_map, select_taxa
 from gtdb_genomes.taxonomy import load_release_taxonomy
 from gtdb_genomes.workflow_execution import AccessionExecution
-from gtdb_genomes.workflow_outputs import build_run_summary_row, configure_output_logger
+from gtdb_genomes.workflow_outputs import (
+    build_run_summary_row,
+    configure_output_logger,
+    render_run_summary_log,
+)
 
 if TYPE_CHECKING:
     from gtdb_genomes.cli import CliArgs
@@ -243,7 +247,7 @@ def handle_zero_match_exit(
     logger.info("Writing output manifests to %s", run_directories.output_root)
     taxon_slug_map = build_taxon_slug_map(args.gtdb_taxa)
     exit_code = 4
-    run_summary_rows = [
+    run_summary_text = render_run_summary_log(
         build_run_summary_row(
             args,
             resolution,
@@ -257,14 +261,11 @@ def handle_zero_match_exit(
             started_at,
             datetime.now(UTC).isoformat(),
         ),
-    ]
+    )
     taxon_summary_rows = [
         {
             "requested_taxon": requested_taxon,
-            "taxon_slug": taxon_slug_map[requested_taxon],
-            "matched_rows": 0,
             "unique_gtdb_accessions": 0,
-            "final_accessions": 0,
             "successful_accessions": 0,
             "failed_accessions": 0,
             "duplicate_copies_written": 0,
@@ -278,7 +279,7 @@ def handle_zero_match_exit(
         run_directories,
         args.gtdb_taxa,
         taxon_slug_map,
-        run_summary_rows,
+        run_summary_text,
         taxon_summary_rows,
     )
     logger.warning("No genomes matched the requested taxa")

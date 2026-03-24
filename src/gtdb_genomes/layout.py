@@ -42,7 +42,7 @@ class RunDirectories:
     extracted_root: Path
 
 
-RUN_SUMMARY_COLUMNS = (
+RUN_SUMMARY_KEYS = (
     "run_id",
     "accession_decision_sha256",
     "started_at",
@@ -68,7 +68,6 @@ RUN_SUMMARY_COLUMNS = (
     "requested_taxa_count",
     "matched_rows",
     "unique_gtdb_accessions",
-    "final_accessions",
     "successful_accessions",
     "failed_accessions",
     "output_dir",
@@ -76,56 +75,47 @@ RUN_SUMMARY_COLUMNS = (
 )
 TAXON_SUMMARY_COLUMNS = (
     "requested_taxon",
-    "taxon_slug",
-    "matched_rows",
     "unique_gtdb_accessions",
-    "final_accessions",
     "successful_accessions",
     "failed_accessions",
     "duplicate_copies_written",
     "output_dir",
 )
 ACCESSION_MAP_COLUMNS = (
-    "requested_taxon",
-    "taxon_slug",
-    "resolved_release",
-    "taxonomy_file",
-    "lineage",
-    "gtdb_accession",
-    "ncbi_accession",
-    "selected_accession",
-    "download_request_accession",
     "final_accession",
-    "accession_type_original",
-    "accession_type_final",
+    "requested_taxa",
+    "gtdb_accessions",
+    "selected_accessions",
+    "download_request_accessions",
     "conversion_status",
-    "download_method_used",
-    "download_batch",
-    "output_relpath",
     "download_status",
+    "output_relpaths",
+    "duplicate_across_taxa",
 )
 DOWNLOAD_FAILURE_COLUMNS = (
-    "requested_taxon",
-    "taxon_slug",
-    "gtdb_accession",
-    "attempted_accession",
-    "final_accession",
+    "accession",
+    "requested_taxa",
+    "gtdb_accessions",
+    "suppressed",
     "stage",
-    "attempt_index",
-    "max_attempts",
     "error_type",
-    "error_message_redacted",
-    "final_status",
+    "reason",
+    "status",
+)
+DUPLICATED_GENOMES_COLUMNS = (
+    "final_accession",
+    "requested_taxa",
+    "taxa_count",
+    "output_relpaths",
 )
 TAXON_ACCESSION_COLUMNS = (
+    "final_accession",
     "requested_taxon",
-    "taxon_slug",
     "lineage",
     "gtdb_accession",
     "ncbi_accession",
     "selected_accession",
     "download_request_accession",
-    "final_accession",
     "conversion_status",
     "output_relpath",
     "download_status",
@@ -280,13 +270,14 @@ def cleanup_working_directories(
 
 
 def get_root_manifest_paths(output_root: Path) -> dict[str, Path]:
-    """Return the fixed root TSV paths for one output directory."""
+    """Return the fixed root manifest paths for one output directory."""
 
     return {
-        "run_summary": output_root / "run_summary.tsv",
+        "run_summary": output_root / "run_summary.log",
         "taxon_summary": output_root / "taxon_summary.tsv",
         "accession_map": output_root / "accession_map.tsv",
         "download_failures": output_root / "download_failures.tsv",
+        "duplicated_genomes": output_root / "duplicated_genomes.tsv",
     }
 
 
@@ -332,21 +323,25 @@ def write_tsv_rows(
             )
 
 
+def write_text(path: Path, text: str) -> None:
+    """Write one UTF-8 text file, creating parent directories as needed."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
 def write_root_manifests(
     run_directories: RunDirectories,
-    run_summary_rows: list[dict[str, object]],
+    run_summary_text: str,
     taxon_summary_rows: list[dict[str, object]],
     accession_rows: list[dict[str, object]],
     failure_rows: list[dict[str, object]],
+    duplicated_rows: list[dict[str, object]],
 ) -> None:
-    """Write the fixed root TSV manifests for one run."""
+    """Write the fixed root manifests for one run."""
 
     manifest_paths = get_root_manifest_paths(run_directories.output_root)
-    write_tsv_rows(
-        manifest_paths["run_summary"],
-        RUN_SUMMARY_COLUMNS,
-        run_summary_rows,
-    )
+    write_text(manifest_paths["run_summary"], run_summary_text)
     write_tsv_rows(
         manifest_paths["taxon_summary"],
         TAXON_SUMMARY_COLUMNS,
@@ -361,6 +356,11 @@ def write_root_manifests(
         manifest_paths["download_failures"],
         DOWNLOAD_FAILURE_COLUMNS,
         failure_rows,
+    )
+    write_tsv_rows(
+        manifest_paths["duplicated_genomes"],
+        DUPLICATED_GENOMES_COLUMNS,
+        duplicated_rows,
     )
 
 
@@ -434,15 +434,16 @@ def write_zero_match_outputs(
     run_directories: RunDirectories,
     requested_taxa: tuple[str, ...],
     taxon_slug_map: dict[str, str],
-    run_summary_rows: list[dict[str, object]],
+    run_summary_text: str,
     taxon_summary_rows: list[dict[str, object]],
 ) -> None:
     """Write the documented zero-match output tree."""
 
     write_root_manifests(
         run_directories,
-        run_summary_rows,
+        run_summary_text,
         taxon_summary_rows,
+        [],
         [],
         [],
     )
