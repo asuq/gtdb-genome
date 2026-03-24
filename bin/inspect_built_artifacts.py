@@ -146,6 +146,11 @@ def validate_wheel_record(wheel_path: Path) -> None:
                 raise ValueError(
                     f"{wheel_path.name} has a malformed RECORD row: {row!r}",
                 )
+            if row[0] in record_map:
+                raise ValueError(
+                    f"{wheel_path.name} RECORD contains duplicate rows for "
+                    f"{row[0]}",
+                )
             record_map[row[0]] = (row[1], row[2])
 
         missing_rows = [
