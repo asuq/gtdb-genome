@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from pathlib import Path
 
+from gtdb_genomes.logging_utils import configure_named_console_logging
 from gtdb_genomes.release_resolver import (
     get_bundled_data_root,
     get_release_manifest_path,
@@ -39,14 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Run the taxonomy bootstrap entrypoint."""
 
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logger = configure_named_console_logging("gtdb_genomes.bootstrap_taxonomy")
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         bootstrap_taxonomy_bundle(
             args.manifest_path,
             data_root=args.data_root,
-            logger=logging.getLogger("gtdb_genomes.bootstrap_taxonomy"),
+            logger=logger,
         )
     except TaxonomyBundleError as error:
         print(

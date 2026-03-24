@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+from copy import copy
 from collections.abc import Iterable
 import logging
 from logging.handlers import MemoryHandler
 from pathlib import Path
 import re
 import shlex
+from typing import TextIO
 
 
 LOGGER_NAME = "gtdb_genomes"
 DEBUG_LOG_BUFFER_CAPACITY = 10_000
 REDACTION_TOKEN = "[REDACTED]"
+CONSOLE_LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
+FILE_LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
+LOG_TIME_FORMAT = "%H:%M:%S"
+ANSI_RESET = "\x1b[0m"
+LOG_LEVEL_COLOURS = {
+    "DEBUG": "\x1b[36m",
+    "INFO": "\x1b[32m",
+    "WARNING": "\x1b[33m",
+    "ERROR": "\x1b[31m",
+    "CRITICAL": "\x1b[31m",
+}
 GENERIC_SECRET_PATTERNS = (
     re.compile(
         r"(?P<prefix>\bNCBI_API_KEY=)(?P<quote>['\"]?)(?P<value>[^\s'\";]+)(?P=quote)",
@@ -88,10 +101,16 @@ def redact_command(
 class RedactingFormatter(logging.Formatter):
     """Logging formatter that sanitises recognised secrets in rendered output."""
 
-    def __init__(self, fmt: str, *, secrets: Iterable[str | None]) -> None:
+    def __init__(
+        self,
+        fmt: str,
+        *,
+        secrets: Iterable[str | None],
+        datefmt: str | None = None,
+    ) -> None:
         """Initialise the formatter with one sanitised secret set."""
 
-        super().__init__(fmt)
+        super().__init__(fmt=fmt, datefmt=datefmt)
         self._secrets = normalise_secrets(secrets)
 
     def format(self, record: logging.LogRecord) -> str:
@@ -100,31 +119,128 @@ class RedactingFormatter(logging.Formatter):
         return redact_text(super().format(record), self._secrets)
 
 
+class ConsoleRedactingFormatter(RedactingFormatter):
+    """Console formatter with optional colourised log-level labels."""
+
+    def __init__(
+        self,
+        *,
+        secrets: Iterable[str | None],
+        use_colour: bool,
+    ) -> None:
+        """Initialise one console formatter."""
+
+        super().__init__(
+            CONSOLE_LOG_FORMAT,
+            secrets=secrets,
+            datefmt=LOG_TIME_FORMAT,
+        )
+        self._use_colour = use_colour
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format one console record with optional colour."""
+
+        console_record = copy(record)
+        if self._use_colour:
+            console_record.levelname = colourise_log_level(record.levelname)
+        return super().format(console_record)
+
+
 def get_logger() -> logging.Logger:
     """Return the package logger."""
 
     return logging.getLogger(LOGGER_NAME)
 
 
+def stream_supports_colour(stream: TextIO | None) -> bool:
+    """Return whether one console stream should receive ANSI colours."""
+
+    if stream is None or not hasattr(stream, "isatty"):
+        return False
+    try:
+        return bool(stream.isatty())
+    except OSError:
+        return False
+
+
+def colourise_log_level(level_name: str) -> str:
+    """Return one ANSI-colourised log-level label."""
+
+    colour = LOG_LEVEL_COLOURS.get(level_name)
+    if colour is None:
+        return level_name
+    return f"{colour}{level_name}{ANSI_RESET}"
+
+
+def build_console_handler(
+    debug: bool = False,
+    *,
+    secrets: Iterable[str | None] = (),
+    stream: TextIO | None = None,
+) -> logging.Handler:
+    """Build one configured console log handler."""
+
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(logging.DEBUG if debug else logging.INFO)
+    handler.setFormatter(
+        ConsoleRedactingFormatter(
+            secrets=secrets,
+            use_colour=stream_supports_colour(handler.stream),
+        ),
+    )
+    return handler
+
+
+def build_file_formatter(
+    *,
+    secrets: Iterable[str | None] = (),
+) -> RedactingFormatter:
+    """Build one plain-text formatter for file-backed debug logs."""
+
+    return RedactingFormatter(
+        FILE_LOG_FORMAT,
+        secrets=secrets,
+        datefmt=LOG_TIME_FORMAT,
+    )
+
+
+def configure_named_console_logging(
+    logger_name: str,
+    debug: bool = False,
+    *,
+    secrets: Iterable[str | None] = (),
+    stream: TextIO | None = None,
+) -> logging.Logger:
+    """Configure one named logger for console output."""
+
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    close_logger(logger)
+    logger.propagate = False
+    logger.addHandler(
+        build_console_handler(
+            debug=debug,
+            secrets=secrets,
+            stream=stream,
+        ),
+    )
+    return logger
+
+
 def configure_console_logging(
     debug: bool = False,
     *,
     secrets: Iterable[str | None] = (),
+    stream: TextIO | None = None,
 ) -> logging.Logger:
     """Configure console logging for the current process."""
 
-    logger = get_logger()
-    logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    close_logger(logger)
-    logger.propagate = False
-
-    handler = logging.StreamHandler()
-    handler.setLevel(logging.DEBUG if debug else logging.INFO)
-    handler.setFormatter(
-        RedactingFormatter("%(levelname)s %(message)s", secrets=secrets),
+    return configure_named_console_logging(
+        get_logger().name,
+        debug=debug,
+        secrets=secrets,
+        stream=stream,
     )
-    logger.addHandler(handler)
-    return logger
 
 
 def configure_logging(
@@ -144,24 +260,14 @@ def configure_logging(
             flushLevel=logging.CRITICAL + 1,
         )
         buffer_handler.setLevel(logging.DEBUG)
-        buffer_handler.setFormatter(
-            RedactingFormatter(
-                "%(asctime)s %(levelname)s %(message)s",
-                secrets=secrets,
-            ),
-        )
+        buffer_handler.setFormatter(build_file_formatter(secrets=secrets))
         logger.addHandler(buffer_handler)
     elif debug and not dry_run and output_root is not None:
         debug_log_path = output_root / "debug.log"
         debug_log_path.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(debug_log_path, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(
-            RedactingFormatter(
-                "%(asctime)s %(levelname)s %(message)s",
-                secrets=secrets,
-            ),
-        )
+        file_handler.setFormatter(build_file_formatter(secrets=secrets))
         logger.addHandler(file_handler)
     return logger, debug_log_path
 
@@ -180,12 +286,7 @@ def attach_debug_log_handler(
     debug_log_path.parent.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(debug_log_path, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(
-        RedactingFormatter(
-            "%(asctime)s %(levelname)s %(message)s",
-            secrets=secrets,
-        ),
-    )
+    file_handler.setFormatter(build_file_formatter(secrets=secrets))
     logger.addHandler(file_handler)
     for handler in tuple(logger.handlers):
         if not isinstance(handler, MemoryHandler):

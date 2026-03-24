@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
+import re
 
 from gtdb_genomes.logging_utils import (
     attach_debug_log_handler,
@@ -13,6 +15,15 @@ from gtdb_genomes.logging_utils import (
     redact_command,
     redact_text,
 )
+
+
+class TtyStringIO(io.StringIO):
+    """One string buffer that reports itself as a TTY."""
+
+    def isatty(self) -> bool:
+        """Return whether this test stream should receive ANSI colours."""
+
+        return True
 
 
 def test_redaction_helpers_hide_secrets() -> None:
@@ -47,7 +58,12 @@ def test_configure_logging_writes_debug_log_for_real_runs(tmp_path: Path) -> Non
     close_logger(logger)
 
     assert debug_log_path == tmp_path / "debug.log"
-    assert debug_log_path.read_text().strip().endswith("DEBUG debug message [REDACTED]")
+    debug_log_text = debug_log_path.read_text(encoding="utf-8").strip()
+    assert re.fullmatch(
+        r"\d{2}:\d{2}:\d{2} DEBUG debug message \[REDACTED\]",
+        debug_log_text,
+    )
+    assert "\x1b[" not in debug_log_text
 
 
 def test_configure_logging_skips_debug_file_for_dry_run(tmp_path: Path) -> None:
@@ -80,6 +96,62 @@ def test_attach_debug_log_handler_flushes_buffered_records(tmp_path: Path) -> No
     debug_log_text = realised_path.read_text(encoding="utf-8")
     assert "INFO selection started" in debug_log_text
     assert "DEBUG download started" in debug_log_text
+    assert "\x1b[" not in debug_log_text
+
+
+def test_configure_console_logging_writes_plain_timestamped_output_for_non_tty(
+    monkeypatch,
+) -> None:
+    """Non-TTY console streams should stay plain text and timestamped."""
+
+    logger = logging.getLogger("gtdb_genomes.test-non-tty-console")
+    logger.handlers.clear()
+    stream = io.StringIO()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.logging_utils.get_logger",
+        lambda: logger,
+    )
+
+    configured_logger = configure_console_logging(
+        debug=True,
+        secrets=("secret",),
+        stream=stream,
+    )
+    configured_logger.info("info secret")
+    close_logger(configured_logger)
+
+    console_text = stream.getvalue().strip()
+    assert re.fullmatch(
+        r"\d{2}:\d{2}:\d{2} INFO info \[REDACTED\]",
+        console_text,
+    )
+    assert "\x1b[" not in console_text
+
+
+def test_configure_console_logging_colourises_levels_for_tty_stream(
+    monkeypatch,
+) -> None:
+    """TTY console streams should receive colourised level labels."""
+
+    logger = logging.getLogger("gtdb_genomes.test-tty-console")
+    logger.handlers.clear()
+    stream = TtyStringIO()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.logging_utils.get_logger",
+        lambda: logger,
+    )
+
+    configured_logger = configure_console_logging(debug=True, stream=stream)
+    configured_logger.warning("warning message")
+    close_logger(configured_logger)
+
+    console_text = stream.getvalue().strip()
+    assert re.fullmatch(
+        r"\d{2}:\d{2}:\d{2} \x1b\[33mWARNING\x1b\[0m warning message",
+        console_text,
+    )
 
 
 def test_configure_console_logging_closes_existing_handlers(

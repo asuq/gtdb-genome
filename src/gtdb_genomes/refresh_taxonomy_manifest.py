@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from pathlib import Path
 
+from gtdb_genomes.logging_utils import configure_named_console_logging
 from gtdb_genomes.release_resolver import get_release_manifest_path
 from gtdb_genomes.taxonomy_bundle import (
     TaxonomyBundleError,
@@ -39,14 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Run the manifest refresh entrypoint."""
 
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    logger = configure_named_console_logging(
+        "gtdb_genomes.refresh_taxonomy_manifest",
+    )
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
         refresh_taxonomy_bundle_manifest(
             args.manifest_path,
             releases_root_url=args.releases_root_url,
-            logger=logging.getLogger("gtdb_genomes.refresh_taxonomy_manifest"),
+            logger=logger,
         )
     except TaxonomyBundleError as error:
         print(
