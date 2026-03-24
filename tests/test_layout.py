@@ -14,11 +14,13 @@ from gtdb_genomes.layout import (
     DOWNLOAD_FAILURE_COLUMNS,
     DUPLICATED_GENOMES_COLUMNS,
     LayoutError,
+    RESERVED_OUTPUT_ARTEFACTS,
     RUN_SUMMARY_KEYS,
     TAXON_ACCESSION_COLUMNS,
     build_unzip_command,
     copy_accession_payload,
     extract_archive,
+    find_leftover_run_artefacts,
     get_duplicate_accessions,
     initialise_run_directories,
     move_accession_payload,
@@ -49,6 +51,17 @@ def write_symlink_archive(archive_path: Path, member_name: str) -> None:
         handle.writestr(symlink_info, "target")
 
 
+def materialise_reserved_output_artefact(output_dir: Path, artefact: str) -> None:
+    """Create one reserved GTDB-genomes artefact for layout tests."""
+
+    artefact_path = output_dir / artefact
+    if artefact in {".gtdb_genomes_work", "taxa"}:
+        artefact_path.mkdir(parents=True, exist_ok=True)
+        return
+    artefact_path.parent.mkdir(parents=True, exist_ok=True)
+    artefact_path.write_text("x\n", encoding="ascii")
+
+
 def test_initialise_run_directories_creates_working_tree(tmp_path: Path) -> None:
     """Run-directory initialisation should create the documented tree."""
 
@@ -59,6 +72,55 @@ def test_initialise_run_directories_creates_working_tree(tmp_path: Path) -> None
     assert run_directories.working_root.is_dir()
     assert run_directories.downloads_root.is_dir()
     assert run_directories.extracted_root.is_dir()
+
+
+def test_initialise_run_directories_allows_unrelated_existing_files(
+    tmp_path: Path,
+) -> None:
+    """Existing unrelated files should not block output initialisation."""
+
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    (output_root / "notes.txt").write_text("x\n", encoding="ascii")
+
+    run_directories = initialise_run_directories(output_root)
+
+    assert run_directories.output_root == output_root
+    assert run_directories.working_root.is_dir()
+
+
+@pytest.mark.parametrize("artefact", RESERVED_OUTPUT_ARTEFACTS)
+def test_initialise_run_directories_rejects_leftover_run_artefacts(
+    tmp_path: Path,
+    artefact: str,
+) -> None:
+    """Reserved GTDB-genomes leftovers should abort output initialisation."""
+
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    materialise_reserved_output_artefact(output_root, artefact)
+
+    with pytest.raises(
+        LayoutError,
+        match="detected leftover GTDB-genomes output from a previous run",
+    ):
+        initialise_run_directories(output_root)
+
+
+def test_find_leftover_run_artefacts_returns_sorted_names(tmp_path: Path) -> None:
+    """Leftover artefact discovery should return deterministic sorted names."""
+
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    materialise_reserved_output_artefact(output_root, "taxon_summary.tsv")
+    materialise_reserved_output_artefact(output_root, ".gtdb_genomes_work")
+    materialise_reserved_output_artefact(output_root, "accession_map.tsv")
+
+    assert find_leftover_run_artefacts(output_root) == (
+        ".gtdb_genomes_work",
+        "accession_map.tsv",
+        "taxon_summary.tsv",
+    )
 
 
 def test_extract_archive_uses_unzip_runner(tmp_path: Path) -> None:

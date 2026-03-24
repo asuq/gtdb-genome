@@ -122,11 +122,73 @@ TAXON_ACCESSION_COLUMNS = (
     "duplicate_across_taxa",
 )
 WINDOWS_DRIVE_ROOT_PATTERN = re.compile(r"^[A-Za-z]:($|[\\/])")
+RESERVED_OUTPUT_ARTEFACTS = (
+    ".gtdb_genomes_work",
+    "accession_map.tsv",
+    "debug.log",
+    "download_failures.tsv",
+    "duplicated_genomes.tsv",
+    "run_summary.log",
+    "taxa",
+    "taxon_summary.tsv",
+)
+
+
+def find_leftover_run_artefacts(output_root: Path) -> tuple[str, ...]:
+    """Return the existing GTDB-genomes artefacts already present in one output root."""
+
+    if not output_root.exists():
+        return ()
+    return tuple(
+        sorted(
+            artefact
+            for artefact in RESERVED_OUTPUT_ARTEFACTS
+            if (output_root / artefact).exists()
+        ),
+    )
+
+
+def build_leftover_run_abort_message(
+    output_root: Path,
+    artefacts: tuple[str, ...],
+) -> str:
+    """Build one user-facing abort message for leftover run artefacts."""
+
+    artefacts_text = ", ".join(artefacts)
+    return (
+        "detected leftover GTDB-genomes output from a previous run in "
+        f"{output_root}; aborting because these artefacts already exist: "
+        f"{artefacts_text}"
+    )
+
+
+def validate_output_root_available(output_root: Path) -> None:
+    """Reject output roots that already contain GTDB-genomes run artefacts."""
+
+    try:
+        if output_root.exists():
+            if not output_root.is_dir():
+                raise LayoutError(
+                    f"Output path must not be an existing file: {output_root}",
+                )
+            leftover_artefacts = find_leftover_run_artefacts(output_root)
+            if leftover_artefacts:
+                raise LayoutError(
+                    build_leftover_run_abort_message(
+                        output_root,
+                        leftover_artefacts,
+                    ),
+                )
+    except OSError as error:
+        raise LayoutError(
+            f"Could not inspect output path {output_root}: {error}",
+        ) from error
 
 
 def initialise_run_directories(output_root: Path) -> RunDirectories:
     """Create the run output and internal working directories."""
 
+    validate_output_root_available(output_root)
     taxa_root = output_root / "taxa"
     working_root = output_root / ".gtdb_genomes_work"
     downloads_root = working_root / "downloads"
