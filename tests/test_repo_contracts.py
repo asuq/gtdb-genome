@@ -523,6 +523,26 @@ def test_module_entrypoint_help_runs() -> None:
     assert "gtdb-genomes" in result.stdout
 
 
+def test_module_entrypoint_without_arguments_shows_help() -> None:
+    """The bare module entrypoint should behave like `--help`."""
+
+    result = subprocess.run(
+        [sys.executable, "-m", "gtdb_genomes"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PYTHONPATH": "src"},
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "--gtdb-release" in result.stdout
+    assert "--gtdb-taxon" in result.stdout
+    assert "--outdir" in result.stdout
+    assert "--version-latest" in result.stdout
+    assert "gtdb-genomes" in result.stdout
+
+
 def test_source_checkout_cli_module_help_runs() -> None:
     """The CLI module should run against the checkout under test."""
 
@@ -538,6 +558,26 @@ def test_source_checkout_cli_module_help_runs() -> None:
     assert "--gtdb-release" in result.stdout
     assert "--version-latest" in result.stdout
     assert "--version-fixed" not in result.stdout
+    assert "gtdb-genomes" in result.stdout
+
+
+def test_source_checkout_cli_module_without_arguments_shows_help() -> None:
+    """The bare CLI module should behave like `--help`."""
+
+    result = subprocess.run(
+        [sys.executable, "-m", "gtdb_genomes.cli"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PYTHONPATH": "src"},
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "--gtdb-release" in result.stdout
+    assert "--gtdb-taxon" in result.stdout
+    assert "--outdir" in result.stdout
+    assert "--version-latest" in result.stdout
     assert "gtdb-genomes" in result.stdout
 
 
@@ -733,6 +773,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Output Layout",
             "Bundled GTDB Taxonomy",
             "usage: gtdb-genomes",
+            "Running `gtdb-genomes` with no arguments shows this full help text",
             "Download NCBI genomes by GTDB taxon and GTDB release",
             "mandatory options:",
             "optional options:",

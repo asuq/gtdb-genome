@@ -61,6 +61,9 @@ optional options:
                         requirements fail fast
 ```
 
+Running `gtdb-genomes` with no arguments shows this full help text and exits
+successfully.
+
 ## Options
 
 ### Required options
