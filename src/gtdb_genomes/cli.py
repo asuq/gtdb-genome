@@ -132,7 +132,10 @@ def parse_args(
 ) -> CliArgs:
     """Parse, normalise, and validate command-line arguments."""
 
-    namespace = parser.parse_args(argv)
+    effective_argv = tuple(sys.argv[1:] if argv is None else argv)
+    if not effective_argv:
+        parser.parse_args(["--help"])
+    namespace = parser.parse_args(effective_argv)
     effective_ncbi_api_key = resolve_effective_ncbi_api_key(namespace.ncbi_api_key)
     if namespace.threads <= 0:
         parser.error("argument --threads: value must be a positive integer")
