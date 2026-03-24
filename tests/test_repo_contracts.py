@@ -547,6 +547,21 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     readme_text = Path("README.md").read_text(encoding="utf-8")
     contributing_text = Path("CONTRIBUTING.md").read_text(encoding="utf-8")
     usage_details_text = Path("docs/usage-details.md").read_text(encoding="utf-8")
+    run_summary_text = Path("docs/summary-files/run_summary.tsv.txt").read_text(
+        encoding="utf-8",
+    )
+    taxon_summary_text = Path("docs/summary-files/taxon_summary.tsv.txt").read_text(
+        encoding="utf-8",
+    )
+    accession_map_text = Path("docs/summary-files/accession_map.tsv.txt").read_text(
+        encoding="utf-8",
+    )
+    download_failures_text = Path(
+        "docs/summary-files/download_failures.tsv.txt",
+    ).read_text(encoding="utf-8")
+    taxon_accessions_text = Path(
+        "docs/summary-files/taxon_accessions.tsv.txt",
+    ).read_text(encoding="utf-8")
     installation_text = markdown_level_two_section(readme_text, "Installation")
     output_layout_text = markdown_level_two_section(
         readme_text,
@@ -699,17 +714,6 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Bundled GTDB Taxonomy",
             "NCBI datasets CLI",
             "Direct downloads remain serial in the current workflow.",
-            "download_method_requested",
-            "version_latest",
-            "package_version",
-            "git_revision",
-            "datasets_version",
-            "unzip_version",
-            "release_manifest_sha256",
-            "bacterial_taxonomy_sha256",
-            "archaeal_taxonomy_sha256",
-                    "attempted_accession",
-            "download_request_accession",
             "Defaults to `latest`",
             "refresh_taxonomy_manifest",
             "--version-latest",
@@ -721,7 +725,6 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "paired_gca_conflict_fallback_original",
                 "1,000 or more",
                 "generic `datasets` `> 15 GB` heuristic",
-            "accession_decision_sha256",
             "tagged release `sdist`, not a repository snapshot",
             "planning or runtime failure with no successful genomes",
             "local final-output materialisation failure",
@@ -731,16 +734,82 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "child process environment",
             "Ambient `NCBI_API_KEY` is the normal workflow path",
             "forbids `--debug` while an effective NCBI API key is active",
-            "versioned request tokens fail closed",
             "Requires-External",
             "../CONTRIBUTING.md",
             "../packaging/bioconda/README.md",
             "pytest matrix runs on Linux, macOS, and Windows",
             "clean packaged-runtime and",
             "real-data validation currently run on Linux",
+            "[run_summary.tsv](summary-files/run_summary.tsv.txt)",
+            "[taxon_summary.tsv](summary-files/taxon_summary.tsv.txt)",
+            "[accession_map.tsv](summary-files/accession_map.tsv.txt)",
+            "[download_failures.tsv](summary-files/download_failures.tsv.txt)",
+            "[taxon_accessions.tsv](summary-files/taxon_accessions.tsv.txt)",
+            "Fixed column lists for all summary and manifest TSVs live under",
         ),
     )
     assert_not_contains_any(usage_details_text, ("--download-method", "--no-prefer-genbank"))
+    assert "Fixed TSV columns:" not in usage_details_text
+
+    assert_contains_all(
+        run_summary_text,
+        (
+            "run_summary.tsv",
+            "Output path: OUTPUT/run_summary.tsv",
+            "Fixed columns:",
+            "run_id",
+            "accession_decision_sha256",
+            "download_method_requested",
+            "git_revision",
+            "release_manifest_sha256",
+            "exit_code",
+            "always auto",
+        ),
+    )
+    assert_contains_all(
+        taxon_summary_text,
+        (
+            "taxon_summary.tsv",
+            "Output path: OUTPUT/taxon_summary.tsv",
+            "requested_taxon",
+            "duplicate_copies_written",
+            "output_dir",
+        ),
+    )
+    assert_contains_all(
+        accession_map_text,
+        (
+            "accession_map.tsv",
+            "Output path: OUTPUT/accession_map.tsv",
+            "download_request_accession",
+            "final_accession",
+            "download_batch",
+            "versioned request tokens fail closed",
+            "Only versionless request tokens may accept a unique same-family",
+        ),
+    )
+    assert_contains_all(
+        download_failures_text,
+        (
+            "download_failures.tsv",
+            "Output path: OUTPUT/download_failures.tsv",
+            "attempted_accession",
+            "error_message_redacted",
+            "final_status",
+            "preferred-accession attempts before fallback",
+        ),
+    )
+    assert_contains_all(
+        taxon_accessions_text,
+        (
+            "taxon_accessions.tsv",
+            "Output path: OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv",
+            "selected_accession",
+            "download_request_accession",
+            "duplicate_across_taxa",
+        ),
+    )
+
     datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
     unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
     assert f"`{datasets_policy.display_name} {datasets_policy.supported_range}`" in (

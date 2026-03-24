@@ -1,0 +1,38 @@
+run_summary.tsv
+
+Output path: OUTPUT/run_summary.tsv
+
+Fixed columns:
+run_id
+accession_decision_sha256
+started_at
+finished_at
+requested_release
+resolved_release
+download_method_requested
+download_method_used
+threads_requested
+download_concurrency_used
+rehydrate_workers_used
+include
+prefer_genbank
+version_latest
+package_version
+git_revision
+datasets_version
+unzip_version
+release_manifest_sha256
+bacterial_taxonomy_sha256
+archaeal_taxonomy_sha256
+debug_enabled
+requested_taxa_count
+matched_rows
+unique_gtdb_accessions
+final_accessions
+successful_accessions
+failed_accessions
+output_dir
+exit_code
+
+Notes:
+download_method_requested is an internal provenance field and is always auto.

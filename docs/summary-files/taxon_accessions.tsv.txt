@@ -1,0 +1,17 @@
+taxon_accessions.tsv
+
+Output path: OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv
+
+Fixed columns:
+requested_taxon
+taxon_slug
+lineage
+gtdb_accession
+ncbi_accession
+selected_accession
+download_request_accession
+final_accession
+conversion_status
+output_relpath
+download_status
+duplicate_across_taxa

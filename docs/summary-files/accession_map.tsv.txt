@@ -1,0 +1,33 @@
+accession_map.tsv
+
+Output path: OUTPUT/accession_map.tsv
+
+Fixed columns:
+requested_taxon
+taxon_slug
+resolved_release
+taxonomy_file
+lineage
+gtdb_accession
+ncbi_accession
+selected_accession
+download_request_accession
+final_accession
+accession_type_original
+accession_type_final
+conversion_status
+download_method_used
+download_batch
+output_relpath
+download_status
+
+Notes:
+ncbi_accession records the original requested accession.
+download_request_accession records the terminal exact token passed to datasets
+for that row.
+final_accession records the realised versioned accession from the extracted
+payload on successful downloads.
+The workflow treats the realised accession as authoritative, so versioned request tokens fail closed if the exact realised accession is absent after extraction.
+Only versionless request tokens may accept a unique same-family realised version.
+Unsupported legacy UBA* rows leave download_method_used and download_batch
+blank because the workflow skips execution for them.

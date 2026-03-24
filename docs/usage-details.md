@@ -213,12 +213,12 @@ otherwise collide.
   - one row per run
   - records requested and resolved release, chosen method, actual concurrency,
     worker usage, counts, output path, and exit code
-  - `download_method_requested` is an internal provenance field and is always
-    `auto`
+  - fixed columns: [run_summary.tsv](summary-files/run_summary.tsv.txt)
 - `taxon_summary.tsv`
   - one row per requested taxon
   - records matched rows, accession counts, duplicate-copy count, and output
     directory
+  - fixed columns: [taxon_summary.tsv](summary-files/taxon_summary.tsv.txt)
 - `accession_map.tsv`
   - one row per taxon-accession mapping
   - records lineage, original GTDB accession, final accession, conversion
@@ -227,16 +227,19 @@ otherwise collide.
     `direct_batch_1`, `direct_fallback_batch_1`, or `dehydrated_batch`
   - unsupported legacy `UBA*` rows leave `download_method_used` and
     `download_batch` blank because no download step ran
+  - fixed columns: [accession_map.tsv](summary-files/accession_map.tsv.txt)
 - `download_failures.tsv`
   - one row per recorded failed attempt
   - records collapsed taxon context, the attempted accession or accession set,
     the final accession or accession set when the failed step has a known final
     outcome, stage, retry counters, redacted error message, and final failure
     status
+  - fixed columns: [download_failures.tsv](summary-files/download_failures.tsv.txt)
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - one row per accession assigned to that taxon
   - records lineage, accession mapping, output path, and whether the accession
     is duplicated across taxa
+  - fixed columns: [taxon_accessions.tsv](summary-files/taxon_accessions.tsv.txt)
 
 When a failure comes from one shared metadata, batch download, or rehydrate
 command, the affected taxa and accessions are collapsed into semicolon-joined
@@ -329,47 +332,8 @@ Status values:
   - `retry_exhausted`
   - `unsupported_input`
 
-Fixed TSV columns:
-
-- `run_summary.tsv`
-  - `run_id`, `accession_decision_sha256`, `started_at`, `finished_at`, `requested_release`,
-    `resolved_release`, `download_method_requested`, `download_method_used`,
-    `threads_requested`, `download_concurrency_used`,
-    `rehydrate_workers_used`, `include`, `prefer_genbank`, `version_latest`,
-    `package_version`, `git_revision`, `datasets_version`, `unzip_version`,
-    `release_manifest_sha256`, `bacterial_taxonomy_sha256`,
-    `archaeal_taxonomy_sha256`, `debug_enabled`, `requested_taxa_count`,
-    `matched_rows`, `unique_gtdb_accessions`, `final_accessions`,
-    `successful_accessions`, `failed_accessions`, `output_dir`, `exit_code`
-- `taxon_summary.tsv`
-  - `requested_taxon`, `taxon_slug`, `matched_rows`,
-    `unique_gtdb_accessions`, `final_accessions`, `successful_accessions`,
-    `failed_accessions`, `duplicate_copies_written`, `output_dir`
-- `accession_map.tsv`
-  - `requested_taxon`, `taxon_slug`, `resolved_release`, `taxonomy_file`,
-    `lineage`, `gtdb_accession`, `ncbi_accession`, `selected_accession`,
-    `download_request_accession`, `final_accession`,
-    `accession_type_original`, `accession_type_final`, `conversion_status`,
-    `download_method_used`, `download_batch`, `output_relpath`,
-    `download_status`
-  - `ncbi_accession` records the original requested accession, while
-    `download_request_accession` records the terminal exact token passed to
-    `datasets` for that row. `final_accession` is the realised versioned
-    accession from the extracted payload on successful downloads. The workflow treats that realised accession as authoritative, so versioned request tokens fail closed if the exact realised accession is absent after extraction; only versionless request tokens may accept a unique same-family realised version. Unsupported legacy `UBA*` rows leave
-    `download_method_used` and `download_batch` blank because the workflow
-    skips execution for them.
-- `download_failures.tsv`
-  - `requested_taxon`, `taxon_slug`, `gtdb_accession`,
-    `attempted_accession`, `final_accession`, `stage`, `attempt_index`,
-    `max_attempts`, `error_type`, `error_message_redacted`, `final_status`
-  - `attempted_accession` is failure-path provenance and records the exact
-    token or semicolon-joined accession set passed to `datasets`, including
-    earlier preferred-accession attempts before fallback.
-- `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
-  - `requested_taxon`, `taxon_slug`, `lineage`, `gtdb_accession`,
-    `ncbi_accession`, `selected_accession`, `download_request_accession`,
-    `final_accession`, `conversion_status`, `output_relpath`,
-    `download_status`, `duplicate_across_taxa`
+Fixed column lists for all summary and manifest TSVs live under
+[Summary Files](#summary-files) and the linked per-file references.
 
 ## Bundled GTDB Taxonomy
 

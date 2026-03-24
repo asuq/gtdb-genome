@@ -1,0 +1,14 @@
+taxon_summary.tsv
+
+Output path: OUTPUT/taxon_summary.tsv
+
+Fixed columns:
+requested_taxon
+taxon_slug
+matched_rows
+unique_gtdb_accessions
+final_accessions
+successful_accessions
+failed_accessions
+duplicate_copies_written
+output_dir
