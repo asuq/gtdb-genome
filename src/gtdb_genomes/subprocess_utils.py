@@ -1,15 +1,19 @@
-"""Shared subprocess timeout and error-message helpers."""
+"""Shared subprocess timeout, progress, and error-message helpers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 import os
+import re
 import subprocess
 
 
 DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 4 * 60 * 60
 NCBI_API_KEY_ENV_VAR = "NCBI_API_KEY"
 TIMEOUT_OUTPUT_EXCERPT_LIMIT = 200
+PROGRESS_TAIL_LIMIT = 32
+PROGRESS_PERCENT_PATTERN = re.compile(r"(?<!\d)(100|[1-9]?\d)\s*%(?!\d)")
 
 
 def get_stage_display_name(stage: str) -> str:
@@ -38,6 +42,45 @@ def normalise_subprocess_stream_output(output: str | bytes | None) -> str:
     if isinstance(output, bytes):
         return output.decode("utf-8", errors="replace")
     return output
+
+
+def normalise_incremental_subprocess_output(output: str) -> str:
+    """Normalise one incremental subprocess chunk for progress parsing."""
+
+    return output.replace("\r", "\n")
+
+
+@dataclass(slots=True)
+class ProgressMilestoneTracker:
+    """Track percentage milestones across multiple streamed subprocess outputs."""
+
+    step: int = 10
+    next_milestone: int = 10
+    stream_tails: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate one tracker configuration."""
+
+        if self.step <= 0:
+            raise ValueError("progress step must be positive")
+
+    def consume(self, stream_name: str, output: str) -> tuple[int, ...]:
+        """Return newly crossed percentage milestones for one stream chunk."""
+
+        if not output:
+            return ()
+        prior_tail = self.stream_tails.get(stream_name, "")
+        combined = (
+            f"{prior_tail}{normalise_incremental_subprocess_output(output)}"
+        )
+        milestones: list[int] = []
+        for match in PROGRESS_PERCENT_PATTERN.finditer(combined):
+            percentage = int(match.group(1))
+            while self.next_milestone <= percentage and self.next_milestone <= 100:
+                milestones.append(self.next_milestone)
+                self.next_milestone += self.step
+        self.stream_tails[stream_name] = combined[-PROGRESS_TAIL_LIMIT:]
+        return tuple(milestones)
 
 
 def build_timeout_output_excerpt(timeout_error: subprocess.TimeoutExpired) -> str:

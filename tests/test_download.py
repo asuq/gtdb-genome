@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -14,6 +16,7 @@ from gtdb_genomes.download import (
     build_direct_batch_download_command,
     build_rehydrate_command,
     get_rehydrate_workers,
+    run_streamed_command,
     run_retryable_command,
     select_download_method,
     validate_include_value,
@@ -21,6 +24,7 @@ from gtdb_genomes.download import (
 )
 from gtdb_genomes.subprocess_utils import (
     NCBI_API_KEY_ENV_VAR,
+    ProgressMilestoneTracker,
     build_datasets_subprocess_environment,
 )
 
@@ -200,6 +204,93 @@ def test_run_retryable_command_records_retries_before_success() -> None:
     ]
 
 
+def test_progress_milestone_tracker_handles_newline_output() -> None:
+    """Progress milestones should advance deterministically from newline output."""
+
+    tracker = ProgressMilestoneTracker(step=10)
+
+    assert tracker.consume("stdout", "5%\n10%\n35%\n") == (10, 20, 30)
+    assert tracker.consume("stdout", "39%\n40%\n") == (40,)
+
+
+def test_progress_milestone_tracker_handles_carriage_return_and_mixed_streams() -> None:
+    """Progress milestones should survive carriage returns and mixed streams."""
+
+    tracker = ProgressMilestoneTracker(step=10)
+
+    assert tracker.consume("stdout", "\r5%\r15%\r20%") == (10, 20)
+    assert tracker.consume("stderr", "45%\n") == (30, 40)
+    assert tracker.consume("stdout", "92%\n") == (50, 60, 70, 80, 90)
+
+
+def test_run_streamed_command_logs_progress_milestones(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The streamed runner should log 10% milestones from stdout and stderr."""
+
+    logger = logging.getLogger("test-streamed-progress")
+    caplog.set_level(logging.INFO, logger=logger.name)
+
+    result = run_streamed_command(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.write('5%\\r15%\\r20%\\n'); "
+                "sys.stdout.flush(); "
+                "sys.stderr.write('45%\\n'); "
+                "sys.stderr.flush()"
+            ),
+        ],
+        environment=None,
+        timeout_seconds=10,
+        logger=logger,
+        progress_label="direct_batch_3: preferred_download",
+        progress_step=10,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "5%\n15%\n20%\n"
+    assert result.stderr == "45%\n"
+    assert "direct_batch_3: preferred_download progress 10%" in caplog.text
+    assert "direct_batch_3: preferred_download progress 20%" in caplog.text
+    assert "direct_batch_3: preferred_download progress 30%" in caplog.text
+    assert "direct_batch_3: preferred_download progress 40%" in caplog.text
+    assert "direct_batch_3: preferred_download progress 50%" not in caplog.text
+
+
+def test_run_streamed_command_skips_logs_without_parseable_percentages(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The streamed runner should stay quiet when no percentages are emitted."""
+
+    logger = logging.getLogger("test-streamed-no-progress")
+    caplog.set_level(logging.INFO, logger=logger.name)
+
+    result = run_streamed_command(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.write('Downloading data\\nDone\\n'); "
+                "sys.stdout.flush(); "
+                "sys.stderr.write('still working\\n'); "
+                "sys.stderr.flush()"
+            ),
+        ],
+        environment=None,
+        timeout_seconds=10,
+        logger=logger,
+        progress_label="dehydrated_batch: rehydrate",
+        progress_step=10,
+    )
+
+    assert result.returncode == 0
+    assert "progress" not in caplog.text
+
+
 def test_run_retryable_command_uses_stage_message_for_silent_failures() -> None:
     """Silent subprocess failures should still leave a useful error message."""
 
@@ -230,6 +321,69 @@ def test_run_retryable_command_uses_stage_message_for_silent_failures() -> None:
 
     assert result.succeeded is False
     assert result.failures[-1].error_message == "preferred download command failed"
+
+
+def test_run_retryable_command_streamed_mode_keeps_retry_history_before_success(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Streamed commands should preserve retries and log progress milestones."""
+
+    attempts = iter(["fail", "success"])
+    sleep_calls: list[float] = []
+    logger = logging.getLogger("test-streamed-retry-success")
+    caplog.set_level(logging.INFO, logger=logger.name)
+
+    def stream_runner(
+        command: list[str],
+        environment: dict[str, str] | None,
+        timeout_seconds: int,
+        progress_logger: logging.Logger,
+        progress_label: str,
+        progress_step: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Return one failure before a successful streamed retry."""
+
+        assert command == ["datasets", "download"]
+        assert environment == {NCBI_API_KEY_ENV_VAR: "secret"}
+        assert timeout_seconds > 0
+        assert progress_logger is logger
+        assert progress_label == "direct_batch_1: preferred_download"
+        assert progress_step == 10
+        attempt = next(attempts)
+        if attempt == "fail":
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="",
+                stderr="temporary failure",
+            )
+        progress_logger.info("%s progress 10%%", progress_label)
+        progress_logger.info("%s progress 20%%", progress_label)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="10%\n20%\ncomplete\n",
+            stderr="",
+        )
+
+    result = run_retryable_command(
+        ["datasets", "download"],
+        stage="preferred_download",
+        environment={NCBI_API_KEY_ENV_VAR: "secret"},
+        sleep_func=sleep_calls.append,
+        logger=logger,
+        progress_label="direct_batch_1: preferred_download",
+        stream_runner=stream_runner,
+    )
+
+    assert result.succeeded is True
+    assert result.stdout == "10%\n20%\ncomplete\n"
+    assert sleep_calls == [5]
+    assert [failure.final_status for failure in result.failures] == [
+        "retry_scheduled",
+    ]
+    assert "direct_batch_1: preferred_download progress 10%" in caplog.text
+    assert "direct_batch_1: preferred_download progress 20%" in caplog.text
 
 
 def test_run_retryable_command_retries_timeouts_before_success() -> None:
@@ -264,6 +418,46 @@ def test_run_retryable_command_retries_timeouts_before_success() -> None:
     assert result.succeeded is True
     assert sleep_calls == [5]
     assert result.failures[0].error_type == "timeout"
+
+
+def test_run_retryable_command_streamed_mode_keeps_partial_timeout_output() -> None:
+    """Streamed timeouts should preserve partial stdout and stderr."""
+
+    sleep_calls: list[float] = []
+
+    def stream_runner(
+        command: list[str],
+        environment: dict[str, str] | None,
+        timeout_seconds: int,
+        progress_logger: logging.Logger,
+        progress_label: str,
+        progress_step: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Raise one timeout with partial streamed output."""
+
+        del environment, progress_logger, progress_label, progress_step
+        raise subprocess.TimeoutExpired(
+            command,
+            timeout_seconds,
+            output="partial stdout",
+            stderr="partial stderr",
+        )
+
+    result = run_retryable_command(
+        ["datasets", "download"],
+        stage="preferred_download",
+        sleep_func=sleep_calls.append,
+        logger=logging.getLogger("test-streamed-timeout"),
+        progress_label="direct_batch_1: preferred_download",
+        stream_runner=stream_runner,
+    )
+
+    assert result.succeeded is False
+    assert result.stdout == "partial stdout"
+    assert result.stderr == "partial stderr"
+    assert sleep_calls == [5, 15, 45]
+    assert "stdout: partial stdout" in result.failures[-1].error_message
+    assert "stderr: partial stderr" in result.failures[-1].error_message
 
 
 def test_run_retryable_command_keeps_partial_timeout_output() -> None:
@@ -333,3 +527,34 @@ def test_run_retryable_command_returns_spawn_failure_without_retry() -> None:
     assert result.failures[0].error_message.startswith(
         "preferred download command could not start",
     )
+
+
+def test_run_retryable_command_streamed_mode_returns_spawn_failure_without_retry() -> None:
+    """Streamed spawn failures should still fail fast without retries."""
+
+    def stream_runner(
+        command: list[str],
+        environment: dict[str, str] | None,
+        timeout_seconds: int,
+        progress_logger: logging.Logger,
+        progress_label: str,
+        progress_step: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Raise a missing-executable error before the child starts."""
+
+        del command, environment, timeout_seconds, progress_logger, progress_label
+        del progress_step
+        raise FileNotFoundError("datasets")
+
+    result = run_retryable_command(
+        ["datasets", "download"],
+        stage="preferred_download",
+        sleep_func=lambda delay: None,
+        logger=logging.getLogger("test-streamed-spawn-error"),
+        progress_label="direct_batch_1: preferred_download",
+        stream_runner=stream_runner,
+    )
+
+    assert result.succeeded is False
+    assert len(result.failures) == 1
+    assert result.failures[0].error_type == "spawn_error"

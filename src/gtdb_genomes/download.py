@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 import subprocess
+from threading import Lock, Thread
 import time
+from typing import TextIO
 
 from gtdb_genomes.subprocess_utils import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    ProgressMilestoneTracker,
     build_spawn_error_message,
     build_subprocess_error_message,
     build_timeout_error_message,
+    normalise_incremental_subprocess_output,
     normalise_subprocess_stream_output,
 )
 
@@ -53,6 +58,12 @@ class RetryableCommandResult:
     stdout: str
     stderr: str
     failures: tuple[CommandFailureRecord, ...]
+
+
+type StreamedCommandRunner = Callable[
+    [list[str], dict[str, str] | None, int, logging.Logger, str, int],
+    subprocess.CompletedProcess[str],
+]
 
 
 def get_ordered_unique_accessions(
@@ -191,6 +202,118 @@ def get_rehydrate_workers(threads: int) -> int:
     return max(1, min(threads, REHYDRATE_WORKER_CAP))
 
 
+def _log_progress_milestones(
+    logger: logging.Logger,
+    progress_label: str,
+    milestones: tuple[int, ...],
+) -> None:
+    """Log one batch of newly crossed progress milestones."""
+
+    for milestone in milestones:
+        logger.info("%s progress %d%%", progress_label, milestone)
+
+
+def _drain_stream_text(
+    stream_name: str,
+    stream: TextIO | None,
+    collector: list[str],
+    tracker: ProgressMilestoneTracker,
+    tracker_lock: Lock,
+    logger: logging.Logger,
+    progress_label: str,
+) -> None:
+    """Drain one subprocess text stream while tracking progress percentages."""
+
+    if stream is None:
+        return
+    while True:
+        chunk = stream.read(1)
+        if chunk == "":
+            break
+        collector.append(chunk)
+        with tracker_lock:
+            _log_progress_milestones(
+                logger,
+                progress_label,
+                tracker.consume(
+                    stream_name,
+                    normalise_incremental_subprocess_output(chunk),
+                ),
+            )
+
+
+def run_streamed_command(
+    command: list[str],
+    environment: dict[str, str] | None,
+    timeout_seconds: int,
+    logger: logging.Logger,
+    progress_label: str,
+    progress_step: int,
+) -> subprocess.CompletedProcess[str]:
+    """Run one subprocess while streaming progress milestones to the logger."""
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+    tracker = ProgressMilestoneTracker(step=progress_step)
+    tracker_lock = Lock()
+    stdout_thread = Thread(
+        target=_drain_stream_text,
+        args=(
+            "stdout",
+            process.stdout,
+            stdout_chunks,
+            tracker,
+            tracker_lock,
+            logger,
+            progress_label,
+        ),
+        daemon=True,
+    )
+    stderr_thread = Thread(
+        target=_drain_stream_text,
+        args=(
+            "stderr",
+            process.stderr,
+            stderr_chunks,
+            tracker,
+            tracker_lock,
+            logger,
+            progress_label,
+        ),
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    try:
+        returncode = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        process.kill()
+        process.wait()
+        stdout_thread.join()
+        stderr_thread.join()
+        raise subprocess.TimeoutExpired(
+            error.cmd,
+            error.timeout,
+            output="".join(stdout_chunks),
+            stderr="".join(stderr_chunks),
+        ) from error
+    stdout_thread.join()
+    stderr_thread.join()
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        stdout="".join(stdout_chunks),
+        stderr="".join(stderr_chunks),
+    )
+
+
 def run_retryable_command(
     command: list[str],
     stage: str,
@@ -199,10 +322,18 @@ def run_retryable_command(
     environment: dict[str, str] | None = None,
     sleep_func: Callable[[float], None] = time.sleep,
     runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+    logger: logging.Logger | None = None,
+    progress_label: str | None = None,
+    progress_step: int = 10,
+    stream_runner: StreamedCommandRunner | None = None,
 ) -> RetryableCommandResult:
     """Run a retryable subprocess command with the fixed retry schedule."""
 
     command_runner = subprocess.run if runner is None else runner
+    streamed_command_runner = (
+        run_streamed_command if stream_runner is None else stream_runner
+    )
+    progress_logger = logging.getLogger("gtdb_genomes") if logger is None else logger
     max_attempts = len(RETRY_DELAYS_SECONDS) + 1
     failures: list[CommandFailureRecord] = []
     for attempt_index in range(1, max_attempts + 1):
@@ -210,14 +341,24 @@ def run_retryable_command(
         stderr = ""
         retry_allowed = attempt_index < max_attempts
         try:
-            result = command_runner(
-                command,
-                capture_output=True,
-                text=True,
-                check=False,
-                env=environment,
-                timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-            )
+            if progress_label is None:
+                result = command_runner(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=environment,
+                    timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+                )
+            else:
+                result = streamed_command_runner(
+                    command,
+                    environment,
+                    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+                    progress_logger,
+                    progress_label,
+                    progress_step,
+                )
         except subprocess.TimeoutExpired as error:
             stdout = normalise_subprocess_stream_output(error.output)
             stderr = normalise_subprocess_stream_output(error.stderr)
