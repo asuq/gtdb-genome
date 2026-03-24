@@ -26,6 +26,7 @@ from gtdb_genomes.metadata import (
     SummaryLookupResult,
 )
 from gtdb_genomes.workflow_planning import (
+    SuppressedAccessionNote,
     build_failed_suppressed_warning,
     build_planning_suppressed_warning,
     build_suppressed_accession_notes,
@@ -172,6 +173,58 @@ def test_build_failed_suppressed_warning_mentions_failed_accessions() -> None:
 
     assert "1 failed assembly was marked suppressed by NCBI" in warning_text
     assert SUPPRESSED_ASSEMBLY_NOTE in warning_text
+
+
+def test_suppressed_warning_builders_truncate_long_accession_lists() -> None:
+    """Suppressed warning builders should summarise long accession lists."""
+
+    suppressed_notes = {
+        "GCF_000001.1": SuppressedAccessionNote(
+            original_accession="GCF_000001.1",
+            selected_accession="GCF_000001.1",
+            suppression_reason="removed by submitter",
+        ),
+        "GCF_000002.1": SuppressedAccessionNote(
+            original_accession="GCF_000002.1",
+            selected_accession="GCA_000002.3",
+            suppression_reason=None,
+        ),
+        "GCF_000003.1": SuppressedAccessionNote(
+            original_accession="GCF_000003.1",
+            selected_accession="GCF_000003.1",
+            suppression_reason=None,
+        ),
+        "GCF_000004.1": SuppressedAccessionNote(
+            original_accession="GCF_000004.1",
+            selected_accession="GCF_000004.1",
+            suppression_reason=None,
+        ),
+        "GCF_000005.1": SuppressedAccessionNote(
+            original_accession="GCF_000005.1",
+            selected_accession="GCF_000005.1",
+            suppression_reason=None,
+        ),
+        "GCF_000006.1": SuppressedAccessionNote(
+            original_accession="GCF_000006.1",
+            selected_accession="GCF_000006.1",
+            suppression_reason=None,
+        ),
+    }
+
+    planning_warning = build_planning_suppressed_warning(suppressed_notes)
+    failed_warning = build_failed_suppressed_warning(
+        suppressed_notes,
+        tuple(suppressed_notes),
+    )
+
+    assert planning_warning is not None
+    assert failed_warning is not None
+    assert "GCF_000001.1 (reason: removed by submitter)" in planning_warning
+    assert "GCF_000002.1 -> GCA_000002.3" in planning_warning
+    assert "GCF_000006.1" not in planning_warning
+    assert "and 1 more" in planning_warning
+    assert "GCF_000006.1" not in failed_warning
+    assert "and 1 more" in failed_warning
 
 
 def test_auto_method_uses_unique_download_request_count_after_stem_collapse_in_latest_mode(

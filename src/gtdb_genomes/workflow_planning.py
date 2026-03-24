@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 
 
 # Temporary planning workspace helpers.
+SUPPRESSED_WARNING_EXAMPLES = 5
 
 
 def get_staging_directory_root() -> Path | None:
@@ -273,7 +274,11 @@ def format_suppressed_accession_examples(
                 f"{accession_text} (reason: {note.suppression_reason})"
             )
         examples.append(accession_text)
-    return ", ".join(examples)
+    if len(examples) <= SUPPRESSED_WARNING_EXAMPLES:
+        return ", ".join(examples)
+    remaining = len(examples) - SUPPRESSED_WARNING_EXAMPLES
+    visible_examples = examples[:SUPPRESSED_WARNING_EXAMPLES]
+    return f"{', '.join(visible_examples)}, and {remaining} more"
 
 
 def build_planning_suppressed_warning(
