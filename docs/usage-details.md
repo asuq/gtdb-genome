@@ -20,59 +20,97 @@ contract.
 
 ## Command Form
 
-```bash
-gtdb-genomes \
-  --gtdb-taxon g__Escherichia \
-  --outdir results
+```text
+usage: gtdb-genomes [-h] [--gtdb-release GTDB_RELEASE] --gtdb-taxon GTDB_TAXON
+                    [GTDB_TAXON ...] --outdir OUTDIR [--prefer-genbank]
+                    [--version-latest] [--threads THREADS]
+                    [--ncbi-api-key NCBI_API_KEY] [--include INCLUDE]
+                    [--debug] [--keep-temp] [--dry-run]
+
+Download NCBI genomes by GTDB taxon and GTDB release.
+
+options:
+  -h, --help            show this help message and exit
+  --gtdb-release GTDB_RELEASE
+                        GTDB release alias or bundled release identifier.
+                        Default: latest.
+  --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...]
+                        Exact GTDB taxon token. Accept one or more values per
+                        use and repeat as needed. Quote species taxa with
+                        spaces, for example "s__Altiarchaeum hamiconexum".
+  --outdir OUTDIR       Output directory for the run.
+  --prefer-genbank      Prefer paired GenBank accessions discovered from
+                        current NCBI metadata and, by default, keep the exact
+                        selected versioned accession.
+  --version-latest      Request the latest available revision in the selected
+                        paired GenBank family when explicit pairing is
+                        available, otherwise in the selected accession family
+                        from current NCBI metadata; requires --prefer-genbank.
+  --threads THREADS     Choose the worker count used by compatible workflow
+                        steps; direct downloads remain serial. Default: 8.
+  --ncbi-api-key NCBI_API_KEY
+                        NCBI API key used only for datasets commands.
+                        Overrides ambient NCBI_API_KEY. The tool does not
+                        write it to its own logs or manifests.
+  --include INCLUDE     Comma-separated datasets include values; must contain
+                        genome.
+  --debug               Enable debug logging. Cannot be used while an NCBI API
+                        key is active.
+  --keep-temp           Keep intermediate working files.
+  --dry-run             Resolve inputs without downloading genome payloads;
+                        still preflights unzip so real-run archive
+                        requirements fail fast.
 ```
 
 ## Options
 
-### Mandatory options
+### Required options
 
-- `--gtdb-taxon`: Each occurrence accepts one or more complete GTDB taxon
-  tokens, and the flag may also be repeated. A row is selected when its GTDB
-  lineage contains the requested GTDB token exactly after trimming surrounding
-  whitespace only. Matching is case-sensitive, internal species whitespace is
-  preserved, and suffix variants are separate taxa. For example,
-  `g__Frigididesulfovibrio` does not match `g__Frigididesulfovibrio_A`.
-  Species taxa contain spaces and must be quoted in the shell, for example
+- `--gtdb-taxon`: Give one complete GTDB taxon token per value. You can pass
+  several values after one flag and repeat the flag as needed. A row is
+  selected only when its GTDB lineage contains the requested token exactly
+  after trimming surrounding whitespace. Matching is case-sensitive, internal
+  species whitespace is preserved, and suffix variants stay separate taxa. For
+  example, `g__Frigididesulfovibrio` does not match
+  `g__Frigididesulfovibrio_A`. Species names contain spaces, so quote them:
   `--gtdb-taxon "s__Altiarchaeum hamiconexum"` or
-  `--gtdb-taxon g__Escherichia "s__Escherichia coli"`. Unquoted shell input
-  such as `--gtdb-taxon s__Altiarchaeum hamiconexum` is invalid.
+  `--gtdb-taxon g__Escherichia "s__Escherichia coli"`. Unquoted input such as
+  `--gtdb-taxon s__Altiarchaeum hamiconexum` is invalid.
 
-- `--outdir`: Output directory must either not exist or exist as an empty
-  directory. The tool does not merge into or overwrite a populated output tree.
+- `--outdir`: The output directory must not exist or must already be empty.
+  The tool does not merge into or overwrite a populated output tree.
 
-### Optional options
+### Release and accession choice
 
-- `--gtdb-release`: Defaults to `latest`. Accepts bundled aliases such as
-  `latest`, `80`, `95`, `214`, `226`, `220.0`, or `release220/220.0`.
+- `--gtdb-release`: Defaults to `latest`. Accepted bundled aliases include
+  `latest`, `80`, `95`, `214`, `226`, `220.0`, and `release220/220.0`.
 
-  `latest` is resolved from the bundled manifest row marked with
+  The `latest` alias is resolved from the bundled manifest row marked with
   `is_latest=true`. GTDB release resolution never contacts GTDB over the
   network.
 
 - `--prefer-genbank`: Disabled by default. When enabled, a requested `GCF_*`
-  accession triggers NCBI metadata lookup and first uses explicit
-  paired-assembly metadata from the RefSeq summary record when it is complete
-  and usable. If explicit pairing is unavailable, the workflow falls back to
+  accession triggers NCBI metadata lookup. The workflow first uses explicit
+  paired-assembly metadata from the RefSeq summary record when that metadata
+  is complete and usable. If explicit pairing is unavailable, it falls back to
   the current NCBI candidate set for `GCA_*` accessions that share the same
-  numeric assembly identifier. The download request then keeps the exact
-  selected versioned accession by default. This is a live NCBI optimisation,
-  not a frozen GTDB-release-preserving transform.
+  numeric assembly identifier. By default, the request keeps the exact
+  selected versioned accession. This is a live NCBI optimisation, not a
+  frozen GTDB-release-preserving transform.
 
 - `--version-latest`: Disabled by default. Requires `--prefer-genbank`. Drops
   the version suffix from the selected accession and asks `datasets` for the
   latest available revision in that accession family from current NCBI
   metadata. When complete explicit paired-assembly metadata are available, the
-  latest choice is limited to that paired GenBank family. If explicit pairing
+  latest choice stays inside that paired GenBank family. If explicit pairing
   conflicts with the heuristic family view, the workflow falls back
   conservatively to the original accession. The realised accession may differ
-  from the originally selected RefSeq or GenBank version and may change over
-  time.
+  from the selected RefSeq or GenBank version and may change over time.
 
-- download strategy is automatic only.
+### Planning and execution
+
+- Download planning is automatic. There is no user-facing flag to force direct
+  or dehydrated mode.
 
   Rules:
 
@@ -99,21 +137,29 @@ gtdb-genomes \
     batch rehydrate fails, the tool falls back to batch direct downloads and
     records `dehydrate_fallback_direct` as the final method used
 
-- `--threads`: Choose how many CPUs to use for the supported workflow steps.
-  Default: 8. Direct downloads remain serial in the current workflow.
+- `--threads`: Sets the worker count for the steps that can use it. Default:
+  8. Direct downloads remain serial in the current workflow.
 
-- `--ncbi-api-key`: This option expects an NCBI API key. The CLI also honours
-  ambient `NCBI_API_KEY`, and `--ncbi-api-key` overrides that ambient value
-  when both are present. The tool passes only the effective key to child
-  `datasets` processes through the child process environment and does not use
-  it for GTDB release resolution, local taxonomy loading, or any other
-  service.
+- `--keep-temp`: Keeps intermediate working files instead of cleaning them up
+  at the end of the run. This is mainly useful when you need to inspect a
+  failed run or keep the downloaded archives and working directories.
+
+### Data selection and debugging
+
+- `--ncbi-api-key`: You can pass an API key here or set ambient
+  `NCBI_API_KEY`. If both are present, the explicit flag wins. The tool passes
+  only the effective key to child `datasets` processes through the child
+  process environment and does not use it for GTDB release resolution, local
+  taxonomy loading, or any other service.
 
 - `--include`: Defaults to `genome`.
 
-  `--include` is passed through to
-  `datasets download genome accession --include` after light validation.
-  `genome` is mandatory in every accepted value.
+  The value is passed to `datasets download genome accession --include` after
+  a light validation step. In `gtdb-genomes`, `genome` is mandatory and the
+  accepted values are `genome`, `gff3`, and `protein`. The upstream Datasets
+  CLI accepts more include values; see
+  [Download a genome data package](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/genomes/download-genome/)
+  for the broader `--include` behaviour.
 
   Examples:
 
@@ -121,39 +167,27 @@ gtdb-genomes \
   - `genome,gff3`
   - `genome,gff3,protein`
 
-- `--debug`
+- `--debug`: Enables debug-level logging, prints redacted command traces, and
+  writes a redacted `OUTPUT/debug.log` for real runs. It cannot be combined
+  with an effective NCBI API key because upstream `datasets` debug output may
+  expose the API key header. `--debug --dry-run` is allowed when no effective
+  NCBI API key is active, but dry runs keep debug output on the console and do
+  not create `OUTPUT/debug.log`.
 
-  Debug mode:
-
-  - enables debug-level logging
-  - emits redacted command traces
-  - writes a redacted `OUTPUT/debug.log`
-  - cannot be combined with an effective NCBI API key because upstream
-    `datasets` debug output may expose the API key header
-
-  `--debug --dry-run` is allowed when no effective NCBI API key is active, but
-  dry-run keeps debug output on the console only and does not create
-  `OUTPUT/debug.log`.
-
-- `--dry-run`: Resolves inputs without creating the final output tree.
-
-  It may:
-
-  - resolve the bundled GTDB release
-  - read bundled GTDB taxonomy TSVs and the local release manifest
-  - preflight `unzip` early so the runtime contract matches real runs and
-    archive requirements fail fast
-  - perform NCBI metadata lookup when `--prefer-genbank` is enabled and the
-    selected rows include supported non-`UBA*` accessions
-
-  Zero-match runs and unsupported-`UBA*`-only runs still avoid NCBI calls, but
-  dry-runs still preflight `unzip` before they exit.
+- `--dry-run`: Resolves inputs without creating the final output tree or
+  downloading genome payloads. It may resolve the bundled GTDB release, read
+  the bundled GTDB taxonomy TSVs and the local release manifest, preflight
+  `unzip` so the runtime contract matches real runs, and perform NCBI metadata
+  lookup when `--prefer-genbank` is enabled and the selected rows include
+  supported non-`UBA*` accessions. Zero-match runs and unsupported-`UBA*`-only
+  runs still avoid NCBI calls, but dry runs still preflight `unzip` before
+  they exit.
 
 ## API Key Handling
 
 Ambient `NCBI_API_KEY` is the normal workflow path. `--ncbi-api-key` is an
-explicit override and is passed only to child `datasets` processes through the
-child environment.
+explicit override. The effective key is passed only to child `datasets`
+processes through the child environment.
 
 The tool:
 
@@ -165,9 +199,10 @@ The tool:
 
 Known limitation:
 
-- if a user types the API key directly on the shell command line, shell history
-  or inspection of the parent `gtdb-genomes` process may still expose it
-  outside the control of this tool, so ambient `NCBI_API_KEY` is preferred
+- if a user types the API key directly on the shell command line, shell
+  history or inspection of the parent `gtdb-genomes` process may still expose
+  it outside the control of this tool, so ambient `NCBI_API_KEY` is the safer
+  default
 
 ## Output Layout
 
@@ -260,15 +295,15 @@ The tool uses `datasets` for:
   larger requests
 - `datasets rehydrate` after a dehydrated batch download
 
-GTDB release resolution and GTDB taxonomy loading remain local. Runtime release
-selection does not contact GTDB over the network.
+GTDB release resolution and GTDB taxonomy loading remain local. Runtime
+release selection does not contact GTDB over the network.
 
 `unzip` is required because `datasets` produces zip archives that
 `gtdb-genomes` extracts before reorganising the final output tree.
 
 Tool requirements are resolved after GTDB release loading and taxonomy
-selection. Missing external tools therefore affect only the supported execution
-paths that actually need them.
+selection. Missing external tools therefore affect only the execution paths
+that actually need them.
 
 ## Retry Policy
 
@@ -284,8 +319,8 @@ This applies to:
 
 Local unzip, local file parsing, and manifest writing are not retried.
 
-Direct-mode layout resolution adds one more workflow-level retry loop on top of
-the command retry budget. One supported direct request starts with
+Direct-mode layout resolution adds one more workflow-level retry loop on top
+of the command retry budget. A supported direct request starts with
 `direct_batch_1` and may continue through `direct_batch_4`, keeping partial
 successes and retrying only unresolved request accessions. Rows that still map
 from a preferred `GCA_*` request may then enter `direct_fallback_batch_1` to
@@ -337,8 +372,8 @@ Fixed column lists for all summary and manifest TSVs live under
 
 ## Bundled GTDB Taxonomy
 
-GTDB taxonomy tables are consumed at runtime as compressed `.tsv.gz` files and
-are decompressed transparently at read time. Runtime release resolution stays
+GTDB taxonomy tables are stored as compressed `.tsv.gz` files and are
+decompressed transparently at read time. Runtime release resolution stays
 local and does not fetch from GTDB.
 
 Source checkout layout:
@@ -353,8 +388,8 @@ inspect and validate. It now carries both the runtime release mapping columns
 and build-only UQ mirror metadata used by the bootstrap flow.
 
 Fresh source checkouts do not track the generated `<resolved_release>/`
-payload directories in Git. Before GTDB-dependent maintainer or source-checkout
-runs, build the local runtime payload with:
+payload directories in Git. Before GTDB-dependent maintainer or source-
+checkout runs, build the local runtime payload with:
 
 ```bash
 uv run python -m gtdb_genomes.bootstrap_taxonomy
@@ -376,21 +411,21 @@ rows with:
 uv run python -m gtdb_genomes.refresh_taxonomy_manifest
 ```
 
-Built wheels, sdists, and Conda packages already include the generated taxonomy
-payload, so installed package runtimes remain offline and do not need a
+Built wheels, sdists, and Conda packages already include the generated
+taxonomy payload, so installed runtimes stay offline and do not need a
 post-install bootstrap step. Missing taxonomy for a requested release is
 treated as a local bootstrap or packaging error. Packaged runtime integrity is
 validated locally from the bundled SHA-256 and expected row counts recorded in
 `releases.tsv`. Internal callers that need an explicit release gate should use
-`resolve_and_validate_release()`, which now performs that full bundled-payload
-validation before runtime taxonomy loading.
+`resolve_and_validate_release()`, which now performs that full
+bundled-payload validation before runtime taxonomy loading.
 
 Built wheels and sdists also advertise `Requires-External` hints for
 `ncbi-datasets-cli (>=18.4.0,<18.22.0)` and `unzip (>=6.0,<7.0)`. Those
 metadata hints do not replace the CLI preflight, which remains the
 authoritative runtime check.
 
-Contributor setup lives in [CONTRIBUTING.md](../CONTRIBUTING.md). The pytest matrix runs on Linux, macOS, and Windows, while clean packaged-runtime and real-data validation currently run on Linux. Bioconda recipe-template notes live in [packaging/bioconda/README.md](../packaging/bioconda/README.md).
+Contributor setup lives in [CONTRIBUTING.md](../CONTRIBUTING.md). The pytest matrix runs on Linux, macOS, and Windows. Clean packaged-runtime and real-data validation currently run on Linux. Bioconda recipe-template notes live in [packaging/bioconda/README.md](../packaging/bioconda/README.md).
 
 Published distribution archives include MIT-licensed project code plus bundled
 GTDB taxonomy data under CC BY-SA 4.0. The bundled taxonomy payload is shipped

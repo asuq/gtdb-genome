@@ -14,26 +14,27 @@
 It uses bundled GTDB taxonomy tables and
 [NCBI datasets CLI](https://www.ncbi.nlm.nih.gov/datasets/docs/v2/getting_started/).
 
-The detailed [Runtime Contract](docs/usage-details.md#runtime-contract),
+For the detailed behaviour, see
+[Runtime Contract](docs/usage-details.md#runtime-contract),
 [Output Layout](docs/usage-details.md#output-layout),
 [Retry Policy](docs/usage-details.md#retry-policy), and
-[Bundled GTDB Taxonomy](docs/usage-details.md#bundled-gtdb-taxonomy) notes
-live in the detailed guide.
+[Bundled GTDB Taxonomy](docs/usage-details.md#bundled-gtdb-taxonomy) in the
+detailed guide.
 
 
 ## Installation
 
-The first public Bioconda release is pending a tagged source release and
-verified source archive. The checked-in recipe remains a draft template and is
-not yet a public installation path.
+The first public Bioconda release still depends on a tagged source archive and
+its verified checksum. The checked-in recipe is therefore a draft, not a
+published installation path.
 
-The packaged runtime is validated against:
+The packaged runtime is currently validated against:
 
 - `polars >=1.31.0,<2.0.0`
 - `ncbi-datasets-cli >=18.4.0,<18.22.0`
 - `unzip >=6.0,<7.0`
 
-For packaging-boundary and redistribution notes, see
+For packaging and redistribution details, see
 [Bundled GTDB Taxonomy](docs/usage-details.md#bundled-gtdb-taxonomy).
 
 
@@ -46,8 +47,7 @@ gtdb-genomes --gtdb-taxon g__Escherichia --outdir results
 
 ## Command options
 
-See [Options](docs/usage-details.md#options) for the full CLI contract.
-In short:
+The short version:
 
 - `--gtdb-taxon`: exact GTDB taxon token(s)
 - `--outdir`: must be empty or absent
@@ -56,12 +56,11 @@ In short:
 - `--include`: locally supported values are `genome`, `gff3`, and `protein`
 - `--threads`, `--dry-run`, `--ncbi-api-key`, and `--debug` are also available
 
-See [Options](docs/usage-details.md#options),
+For the full option behaviour, see [Options](docs/usage-details.md#options),
 [API Key Handling](docs/usage-details.md#api-key-handling),
 [Retry Policy](docs/usage-details.md#retry-policy),
 [Runtime Contract](docs/usage-details.md#runtime-contract), and
-[Summary Files](docs/usage-details.md#summary-files) for exact matching rules,
-retry behaviour, API-key handling, exit codes, and output-file definitions.
+[Summary Files](docs/usage-details.md#summary-files).
 
 ## Examples
 
@@ -125,21 +124,20 @@ OUTPUT/
         `-- GCA_000005845.2/
 ```
 
-Run-level manifests are written at the top level, and each requested taxon gets
-its own directory under `OUTPUT/taxa/`. For exact column definitions, retry
-provenance, and output rules, see
+Each run writes top-level manifests and one directory per requested taxon under
+`OUTPUT/taxa/`. For the detailed layout rules and summary-file definitions, see
 [Output Layout](docs/usage-details.md#output-layout) and
 [Summary Files](docs/usage-details.md#summary-files).
 
 ## Contribution
 
-Contributor setup, source-checkout bootstrap, and local test entry points live
-in [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributor setup and source-checkout notes live in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
-For the full runtime and packaging boundary, see
+For runtime and packaging boundaries, see
 [Runtime Contract](docs/usage-details.md#runtime-contract) and
 [Bundled GTDB Taxonomy](docs/usage-details.md#bundled-gtdb-taxonomy). For
-Bioconda recipe-template
+Bioconda template
 notes, see [packaging/bioconda/README.md](packaging/bioconda/README.md).
 
 ## Licence
