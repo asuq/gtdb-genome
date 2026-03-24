@@ -21,7 +21,7 @@ runtime contract.
 ## Command Form
 
 ```text
-usage: gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] -o OUTDIR [-h] [-r GTDB_RELEASE] [--prefer-genbank] [--version-latest] [-j THREADS] [--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] [--debug] [--keep-tmp] [-d]
+usage: gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] [-o OUTDIR] [-h] [-r GTDB_RELEASE] [--prefer-genbank] [--version-latest] [-j THREADS] [--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] [--debug] [--keep-tmp] [-d]
 
 Download NCBI genomes by GTDB taxon and GTDB release
 
@@ -32,7 +32,8 @@ mandatory options:
                         names with spaces, for example "s__Altiarchaeum
                         hamiconexum"
   -o OUTDIR, --outdir OUTDIR
-                        Output directory for the run
+                        Output directory for the run; default: current working
+                        directory
 
 optional options:
   -h, --help            show this help message and exit
@@ -81,9 +82,14 @@ successfully.
   `--gtdb-taxon g__Escherichia "s__Escherichia coli"`. Unquoted input such as
   `--gtdb-taxon s__Altiarchaeum hamiconexum` is invalid.
 
-- `-o`, `--outdir`: The output directory must not exist or must already be
-  empty.
-  The tool does not merge into or overwrite a populated output tree.
+### Output directory
+
+- `-o`, `--outdir`: Defaults to the current working directory when omitted.
+  Existing unrelated files are allowed. The tool aborts if it detects leftover
+  GTDB-genomes artefacts from a previous run in the target root. The reserved
+  artefacts are `.gtdb_genomes_work/`, `taxa/`, `run_summary.log`,
+  `taxon_summary.tsv`, `accession_map.tsv`, `download_failures.tsv`,
+  `duplicated_genomes.tsv`, and `debug.log`.
 
 ### Release and accession choice
 

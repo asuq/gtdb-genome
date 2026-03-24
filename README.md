@@ -52,7 +52,7 @@ gtdb-genomes -t g__Escherichia -o results
 Short version:
 
 - `-t, --gtdb-taxon`: exact GTDB taxon name(s)
-- `-o, --outdir`: must be empty or absent
+- `-o, --outdir`: defaults to the current working directory; aborts if leftover GTDB-genomes run artefacts are detected there
 - `-r, --gtdb-release`: defaults to `latest`
 - `--prefer-genbank` and `--version-latest`: live NCBI metadata modes
 - `--include`: locally supported values are `genome`, `gff3`, and `protein`
@@ -123,6 +123,13 @@ gtdb-genomes \
 > 10% progress milestones for download and rehydrate stages. These progress
 > messages are best-effort hints from upstream output, not a guaranteed signal
 > on every run or platform.
+
+> [!NOTE]
+> The software aborts when the output root already contains leftover
+> GTDB-genomes artefacts from a previous run. Existing unrelated files are
+> allowed, but reserved run artefacts such as `taxa/`, `run_summary.log`, or
+> `.gtdb_genomes_work/` block a new run until they are removed or a different
+> output directory is chosen.
 
 > [!NOTE]
 > Some legacy GTDB releases include genome accessions starting with `UBA`.
