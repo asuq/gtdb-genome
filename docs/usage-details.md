@@ -218,7 +218,8 @@ Known limitation:
 OUTPUT/
 |-- accession_map.tsv
 |-- download_failures.tsv
-|-- run_summary.tsv
+|-- duplicated_genomes.tsv
+|-- run_summary.log
 |-- taxon_summary.tsv
 |-- debug.log                  # only when --debug is used
 `-- taxa/
@@ -252,41 +253,38 @@ otherwise collide.
 
 ## Summary Files
 
-- `run_summary.tsv`
-  - one row per run
+- `run_summary.log`
+  - one human-readable summary per run
   - records requested and resolved release, chosen method, actual concurrency,
-    worker usage, counts, output path, and exit code
-  - fixed columns: [run_summary.tsv](summary-files/run_summary.tsv.txt)
+    worker usage, counts, output path, and exit code as labelled lines
+  - fixed keys: [run_summary.log](summary-files/run_summary.log.txt)
 - `taxon_summary.tsv`
   - one row per requested taxon
-  - records matched rows, accession counts, duplicate-copy count, and output
-    directory
+  - records accession counts, duplicate-copy count, and output directory
   - fixed columns: [taxon_summary.tsv](summary-files/taxon_summary.tsv.txt)
 - `accession_map.tsv`
-  - one row per taxon-accession mapping
-  - records lineage, original GTDB accession, final accession, conversion
-    status, final method used, output path, and download status
-  - `download_batch` records the batch pass that produced the row, for example
-    `direct_batch_1`, `direct_fallback_batch_1`, or `dehydrated_batch`
-  - unsupported legacy `UBA*` rows leave `download_method_used` and
-    `download_batch` blank because no download step ran
+  - one row per unique accession outcome
+  - records the realised accession first, then the grouped requested taxa,
+    grouped GTDB accessions, grouped selected and requested accession tokens,
+    conversion status, grouped output paths, and download status
   - fixed columns: [accession_map.tsv](summary-files/accession_map.tsv.txt)
 - `download_failures.tsv`
-  - one row per recorded failed attempt
-  - records collapsed taxon context, the attempted accession or accession set,
-    the final accession or accession set when the failed step has a known final
-    outcome, stage, retry counters, redacted error message, and final failure
-    status
+  - one row per terminal failed accession
+  - records the accession identifier, grouped taxa, grouped GTDB accessions,
+    whether the accession was suppressed, failure stage, error type, redacted
+    reason, and terminal status
   - fixed columns: [download_failures.tsv](summary-files/download_failures.tsv.txt)
+- `duplicated_genomes.tsv`
+  - one row per realised accession that appears in more than one requested
+    taxon
+  - records the accession, grouped requested taxa, taxon count, and grouped
+    output paths
+  - fixed columns: [duplicated_genomes.tsv](summary-files/duplicated_genomes.tsv.txt)
 - `OUTPUT/taxa/<taxon_slug>/taxon_accessions.tsv`
   - one row per accession assigned to that taxon
   - records lineage, accession mapping, output path, and whether the accession
     is duplicated across taxa
   - fixed columns: [taxon_accessions.tsv](summary-files/taxon_accessions.tsv.txt)
-
-When a failure comes from one shared metadata, batch download, or rehydrate
-command, the affected taxa and accessions are collapsed into semicolon-joined
-values instead of being repeated once per accession.
 
 ## NCBI datasets CLI
 
@@ -370,12 +368,12 @@ Status values:
   - `fallback_download`
   - `layout`
   - `rehydrate`
-- `download_failures.tsv.final_status`
+- `download_failures.tsv.status`
   - `retry_scheduled`
   - `retry_exhausted`
   - `unsupported_input`
 
-Fixed column lists for all summary and manifest TSVs live under
+Fixed key and column references for all summary files live under
 [Summary Files](#summary-files) and the linked per-file references.
 
 ## Bundled GTDB Taxonomy
@@ -450,7 +448,7 @@ accessions are warned about, skipped, and recorded as failed in manifests for
 non-dry runs.
 
 When `--prefer-genbank` or `--version-latest` is enabled, reproducibility is
-limited by current NCBI metadata. Use `run_summary.tsv` timestamps,
+limited by current NCBI metadata. Use `run_summary.log` timestamps,
 `accession_decision_sha256`, `selected_accession`,
 `download_request_accession`, and `final_accession`
 from the accession manifests as the audit trail for those live decisions.

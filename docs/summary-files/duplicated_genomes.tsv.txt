@@ -1,0 +1,13 @@
+duplicated_genomes.tsv
+
+Output path: OUTPUT/duplicated_genomes.tsv
+
+Fixed columns:
+final_accession
+requested_taxa
+taxa_count
+output_relpaths
+
+Notes:
+One row is written for each realised accession that appears in more than one
+requested taxon output directory.

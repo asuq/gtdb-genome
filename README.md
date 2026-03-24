@@ -126,7 +126,8 @@ gtdb-genomes \
 OUTPUT/
 |-- accession_map.tsv
 |-- download_failures.tsv
-|-- run_summary.tsv
+|-- duplicated_genomes.tsv
+|-- run_summary.log
 |-- taxon_summary.tsv
 |-- debug.log                  # only when --debug is used
 `-- taxa/

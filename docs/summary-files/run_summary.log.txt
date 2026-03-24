@@ -1,8 +1,8 @@
-run_summary.tsv
+run_summary.log
 
-Output path: OUTPUT/run_summary.tsv
+Output path: OUTPUT/run_summary.log
 
-Fixed columns:
+Fixed keys:
 run_id
 accession_decision_sha256
 started_at
@@ -28,11 +28,11 @@ debug_enabled
 requested_taxa_count
 matched_rows
 unique_gtdb_accessions
-final_accessions
 successful_accessions
 failed_accessions
 output_dir
 exit_code
 
 Notes:
+The file is a human-readable log grouped into short sections.
 download_method_requested is an internal provenance field and is always auto.

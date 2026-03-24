@@ -214,7 +214,7 @@ the installed payload is exercised, not just the manifest header. In workflow
 terms, that check resolves `latest` and then calls `load_release_taxonomy()`.
 
 When `--prefer-genbank` or `--version-latest` is enabled during validation,
-use the generated `run_summary.tsv` timestamps,
+use the generated `run_summary.log` timestamps,
 `accession_decision_sha256`, `selected_accession`,
 `download_request_accession`, and `final_accession` as the audit trail for
 live NCBI-driven identity decisions.
@@ -376,7 +376,7 @@ Then compare:
 
 - `_evidence/C1/debug.log` when present
 - `_evidence/C1/stderr.log`
-- copied `run_summary.tsv`
+- copied `run_summary.log`
 
 ### Expected results
 
@@ -398,7 +398,7 @@ Review these paths under the selected `REMOTE_TEST_ROOT`:
 - per-case `stderr.log`
 - per-case `combined.log`
 - per-case `debug.log` when `REAL_DATA_DEBUG_SAFE=1` is enabled for a real run
-- copied `run_summary.tsv`
+- copied `run_summary.log`
 - copied `download_failures.tsv`
 - copied `taxa-find.txt`
 
@@ -441,9 +441,8 @@ Acceptance highlights:
 - `B4`: exit `6` and `unsupported_input` in `download_failures.tsv`
 - `B5`: exit `7`, manifests present, no payload directories
 - `B3`: duplicate rows show `duplicate_across_taxa=true`
-- successful direct cases may still record retry-history rows in
-  `download_failures.tsv`; treat `failed_accessions=0` in `run_summary.tsv` as
-  the success gate instead of requiring a header-only failure TSV
+- successful direct cases leave `download_failures.tsv` empty; treat
+  `failed_accessions=0` in `run_summary.log` as the success gate
 
 ### Remote packaged-runtime runs
 
@@ -464,9 +463,8 @@ Acceptance highlights:
   `dehydrate` or `dehydrate_fallback_direct`
 - `C6`: exit `0`, no output tree
 - `C7`: run only with large free disk and a long window
-- successful direct cases may still retain retry-history rows in
-  `download_failures.tsv`; prioritise the shell exit code and
-  `run_summary.tsv.failed_accessions`
+- successful direct cases leave `download_failures.tsv` empty; prioritise the
+  shell exit code and `run_summary.log` `failed_accessions`
 
 ## Evidence Layout
 
@@ -485,7 +483,7 @@ For a root such as `/tmp/gtdb-realtests/local-YYYYMMDD`:
         |-- stderr.log
         |-- combined.log
         |-- summary.txt
-        |-- run_summary.tsv
+        |-- run_summary.log
         |-- taxon_summary.tsv
         |-- accession_map.tsv
         |-- download_failures.tsv
@@ -497,7 +495,7 @@ For a root such as `/tmp/gtdb-realtests/local-YYYYMMDD`:
 If a case fails, review in this order:
 
 1. shell exit code
-2. `run_summary.tsv`
+2. `run_summary.log`
 3. `download_failures.tsv`
 4. one affected `taxon_accessions.tsv`
 5. stderr and debug output

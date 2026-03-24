@@ -3,17 +3,18 @@ download_failures.tsv
 Output path: OUTPUT/download_failures.tsv
 
 Fixed columns:
-requested_taxon
-taxon_slug
-gtdb_accession
-attempted_accession
-final_accession
+accession
+requested_taxa
+gtdb_accessions
+suppressed
 stage
-attempt_index
-max_attempts
 error_type
-error_message_redacted
-final_status
+reason
+status
 
 Notes:
-attempted_accession records the exact value or semicolon-joined accession set passed to datasets, including earlier preferred-accession attempts before fallback.
+One row is written for each terminal failed accession, not for every retry
+attempt.
+accession records the realised accession when known, otherwise the terminal
+attempted or requested accession token used for that failed genome.
+reason is redacted before it is written.
