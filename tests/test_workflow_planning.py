@@ -16,6 +16,8 @@ from gtdb_genomes.metadata import (
 )
 from gtdb_genomes.workflow_execution import SharedFailureContext
 from gtdb_genomes.workflow_planning import (
+    SuppressedAccessionNote,
+    build_accession_plans,
     build_explicit_pairing_conflict_warning,
     build_suppressed_accession_notes,
     prepare_planning_inputs,
@@ -66,6 +68,37 @@ def test_resolve_supported_accession_preferences_skips_metadata_by_default(
             "conversion_status": "unchanged_original",
         },
     ]
+
+
+def test_build_accession_plans_marks_suppressed_download_targets() -> None:
+    """Suppressed planning notes should become execution-facing plan flags."""
+
+    mapped_frame = pl.DataFrame(
+        {
+            "ncbi_accession": ["GCF_000001.1", "GCF_000002.1"],
+            "final_accession": ["GCF_000001.1", "GCF_000002.1"],
+            "conversion_status": ["unchanged_original", "unchanged_original"],
+        },
+    )
+
+    accession_plans = build_accession_plans(
+        mapped_frame,
+        prefer_genbank=False,
+        version_latest=False,
+        suppressed_notes={
+            "GCF_000002.1": SuppressedAccessionNote(
+                original_accession="GCF_000002.1",
+                selected_accession="GCF_000002.1",
+                suppression_reason="removed by submitter",
+            ),
+        },
+    )
+
+    assert [plan.original_accession for plan in accession_plans] == [
+        "GCF_000001.1",
+        "GCF_000002.1",
+    ]
+    assert [plan.is_suppressed for plan in accession_plans] == [False, True]
 
 
 def test_resolve_supported_accession_preferences_falls_back_when_primary_metadata_lookup_errors(

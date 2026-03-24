@@ -452,7 +452,12 @@ def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
     ) -> tuple[ResolvedPayloadDirectory, ...]:
         """Keep the preferred batch unresolved, then resolve the fallback batch."""
 
-        if extraction_root.name == "direct_batch_1":
+        if extraction_root.name in {
+            "direct_batch_1",
+            "direct_batch_2",
+            "direct_batch_3",
+            "direct_batch_4",
+        }:
             return ()
         if extraction_root.name == "direct_fallback_batch_1":
             return (
@@ -497,6 +502,9 @@ def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
 
     assert download_calls == [
         ("preferred_download", "GCA_001881595"),
+        ("preferred_download", "GCA_001881595"),
+        ("preferred_download", "GCA_001881595"),
+        ("preferred_download", "GCA_001881595"),
         ("fallback_download", "GCF_001881595.2"),
     ]
     assert result.executions["GCF_001881595.2"].final_accession == "GCF_001881595.2"
@@ -511,17 +519,26 @@ def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
     )
     assert [failure.attempted_accession for failure in result.executions["GCF_001881595.2"].failures] == [
         "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
     ]
     assert result.executions["GCA_001881595.3"].final_accession is None
     assert result.executions["GCA_001881595.3"].download_status == "failed"
-    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_1"
+    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_4"
     assert result.executions["GCA_001881595.3"].request_accession_used == (
         "GCA_001881595"
     )
     assert [failure.attempted_accession for failure in result.executions["GCA_001881595.3"].failures] == [
         "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
     ]
     assert [failure.final_status for failure in result.executions["GCA_001881595.3"].failures] == [
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
         "retry_exhausted",
     ]
 
@@ -708,7 +725,7 @@ def test_direct_mode_preserves_retry_history_when_extraction_fails(
     )
 
     assert result.executions["GCF_000001.1"].download_status == "failed"
-    assert len(result.shared_failures) == 2
+    assert len(result.shared_failures) == 8
     assert [
         failure.final_status for failure in result.shared_failures[0].failures
     ] == ["retry_scheduled"]
@@ -717,8 +734,11 @@ def test_direct_mode_preserves_retry_history_when_extraction_fails(
         for failure in result.shared_failures[0].failures
     ] == ["GCF_000001.1"]
     assert [
-        failure.error_type for failure in result.shared_failures[1].failures
+        failure.error_type for failure in result.shared_failures[-1].failures
     ] == ["LayoutError"]
+    assert [
+        failure.final_status for failure in result.shared_failures[-1].failures
+    ] == ["retry_exhausted"]
 
 
 def test_direct_fallback_preserves_shared_retry_failures_after_success(
@@ -745,7 +765,7 @@ def test_direct_fallback_preserves_shared_retry_failures_after_success(
         del command, final_failure_status, environment, sleep_func, runner
         nonlocal call_count
         call_count += 1
-        if call_count == 1:
+        if call_count <= 4:
             assert stage == "preferred_download"
             assert attempted_accession == "GCA_001881595"
             return RetryableCommandResult(
@@ -754,7 +774,7 @@ def test_direct_fallback_preserves_shared_retry_failures_after_success(
                 stderr="",
                 failures=(),
             )
-        assert call_count == 2
+        assert call_count == 5
         assert stage == "fallback_download"
         assert attempted_accession == "GCF_001881595.2"
         return RetryableCommandResult(
@@ -787,7 +807,12 @@ def test_direct_fallback_preserves_shared_retry_failures_after_success(
     ) -> tuple[ResolvedPayloadDirectory, ...]:
         """Leave the preferred batch unresolved and resolve the fallback batch."""
 
-        if extraction_root.name == "direct_batch_1":
+        if extraction_root.name in {
+            "direct_batch_1",
+            "direct_batch_2",
+            "direct_batch_3",
+            "direct_batch_4",
+        }:
             return ()
         if extraction_root.name == "direct_fallback_batch_1":
             return (
@@ -922,36 +947,56 @@ def test_direct_mode_records_failed_fallback_after_layout_exhaustion(
     )
 
     assert result.executions["GCF_001881595.2"].final_accession is None
-    assert result.executions["GCF_001881595.2"].download_batch == "direct_fallback_batch_1"
+    assert result.executions["GCF_001881595.2"].download_batch == "direct_fallback_batch_4"
     assert result.executions["GCF_001881595.2"].request_accession_used == (
         "GCF_001881595.2"
     )
     assert [failure.attempted_accession for failure in result.executions["GCF_001881595.2"].failures] == [
         "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCF_001881595.2",
+        "GCF_001881595.2",
+        "GCF_001881595.2",
         "GCF_001881595.2",
     ]
     assert [failure.final_status for failure in result.executions["GCF_001881595.2"].failures] == [
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
         "retry_exhausted",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
         "retry_exhausted",
     ]
     assert result.executions["GCA_001881595.3"].final_accession is None
-    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_1"
+    assert result.executions["GCA_001881595.3"].download_batch == "direct_batch_4"
     assert result.executions["GCA_001881595.3"].request_accession_used == (
         "GCA_001881595"
     )
     assert [failure.attempted_accession for failure in result.executions["GCA_001881595.3"].failures] == [
         "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
     ]
 
 
-def test_direct_mode_decomposes_failed_batches_before_final_failure(
+def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failed mixed batch should isolate the bad request before final failure."""
+    """Failed sibling batches should wait for the whole wave before splitting."""
 
-    payload_directory = tmp_path / "payload-good"
-    payload_directory.mkdir()
+    payload_one = tmp_path / "payload-one"
+    payload_three = tmp_path / "payload-three"
+    payload_four = tmp_path / "payload-four"
+    payload_one.mkdir()
+    payload_three.mkdir()
+    payload_four.mkdir()
     download_calls: list[str] = []
 
     def fake_run_retryable_command(
@@ -963,12 +1008,14 @@ def test_direct_mode_decomposes_failed_batches_before_final_failure(
         sleep_func=None,
         runner=None,
     ) -> RetryableCommandResult:
-        """Fail the mixed batch and the bad singleton, but not the good one."""
+        """Fail two mixed batches before isolating one bad singleton."""
 
         del command, final_failure_status, environment, sleep_func, runner
         assert stage == "preferred_download"
         download_calls.append(attempted_accession or "")
-        if attempted_accession == "GCF_000001.1;GCF_000002.1":
+        if attempted_accession == (
+            "GCF_000001.1;GCF_000002.1;GCF_000003.1;GCF_000004.1"
+        ):
             return RetryableCommandResult(
                 succeeded=False,
                 stdout="",
@@ -983,6 +1030,29 @@ def test_direct_mode_decomposes_failed_batches_before_final_failure(
                         final_status="retry_exhausted",
                     ),
                 ),
+            )
+        if attempted_accession == "GCF_000001.1;GCF_000002.1":
+            return RetryableCommandResult(
+                succeeded=False,
+                stdout="",
+                stderr="left-half failed",
+                failures=(
+                    CommandFailureRecord(
+                        stage="preferred_download",
+                        attempt_index=4,
+                        max_attempts=4,
+                        error_type="subprocess",
+                        error_message="left-half failed",
+                        final_status="retry_exhausted",
+                    ),
+                ),
+            )
+        if attempted_accession == "GCF_000003.1;GCF_000004.1":
+            return RetryableCommandResult(
+                succeeded=True,
+                stdout="",
+                stderr="",
+                failures=(),
             )
         if attempted_accession == "GCF_000001.1":
             return RetryableCommandResult(
@@ -1012,7 +1082,7 @@ def test_direct_mode_decomposes_failed_batches_before_final_failure(
         archive_path: Path,
         extraction_root: Path,
     ) -> None:
-        """Create the extraction root for the successful singleton only."""
+        """Create extraction roots for successful batches only."""
 
         del archive_path
         extraction_root.mkdir(parents=True, exist_ok=True)
@@ -1020,13 +1090,24 @@ def test_direct_mode_decomposes_failed_batches_before_final_failure(
     def fake_collect_payload_directories(
         extraction_root: Path,
     ) -> tuple[ResolvedPayloadDirectory, ...]:
-        """Resolve only the good singleton batch after decomposition."""
+        """Resolve the right-half batch before the next-wave singleton retry."""
 
-        if extraction_root.name == "direct_batch_2":
+        if extraction_root.name == "direct_batch_3":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000003.1",
+                    directory=payload_three,
+                ),
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000004.1",
+                    directory=payload_four,
+                ),
+            )
+        if extraction_root.name == "direct_batch_4":
             return (
                 ResolvedPayloadDirectory(
                     final_accession="GCF_000001.1",
-                    directory=payload_directory,
+                    directory=payload_one,
                 ),
             )
         return ()
@@ -1045,44 +1126,76 @@ def test_direct_mode_decomposes_failed_batches_before_final_failure(
     )
 
     run_directories = initialise_run_directories(tmp_path / "direct-batch-decompose")
-    result = execute_direct_accession_plans(
-        (
-            AccessionPlan(
-                original_accession="GCF_000001.1",
-                download_request_accession="GCF_000001.1",
-                conversion_status="unchanged_original",
+    with caplog.at_level(logging.INFO):
+        result = execute_direct_accession_plans(
+            (
+                AccessionPlan(
+                    original_accession="GCF_000001.1",
+                    download_request_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                ),
+                AccessionPlan(
+                    original_accession="GCF_000002.1",
+                    download_request_accession="GCF_000002.1",
+                    conversion_status="unchanged_original",
+                ),
+                AccessionPlan(
+                    original_accession="GCF_000003.1",
+                    download_request_accession="GCF_000003.1",
+                    conversion_status="unchanged_original",
+                ),
+                AccessionPlan(
+                    original_accession="GCF_000004.1",
+                    download_request_accession="GCF_000004.1",
+                    conversion_status="unchanged_original",
+                ),
             ),
-            AccessionPlan(
-                original_accession="GCF_000002.1",
-                download_request_accession="GCF_000002.1",
-                conversion_status="unchanged_original",
-            ),
-        ),
-        build_cli_args(tmp_path / "out"),
-        run_directories,
-        logging.getLogger("test-direct-batch-decompose"),
-    )
+            build_cli_args(tmp_path / "out"),
+            run_directories,
+            logging.getLogger("test-direct-batch-decompose"),
+        )
 
     assert download_calls == [
+        "GCF_000001.1;GCF_000002.1;GCF_000003.1;GCF_000004.1",
         "GCF_000001.1;GCF_000002.1",
+        "GCF_000003.1;GCF_000004.1",
         "GCF_000001.1",
+        "GCF_000002.1",
         "GCF_000002.1",
     ]
     assert result.executions["GCF_000001.1"].download_status == "downloaded"
-    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_2"
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_4"
     assert result.executions["GCF_000002.1"].download_status == "failed"
-    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_3"
-    assert len(result.shared_failures) == 2
+    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_6"
+    assert result.executions["GCF_000003.1"].download_batch == "direct_batch_3"
+    assert result.executions["GCF_000004.1"].download_batch == "direct_batch_3"
+    assert len(result.shared_failures) == 4
+    assert (
+        "preferred_download wave 2: starting 2 batch(es) covering 4 request accession(s)"
+        in caplog.text
+    )
+    assert (
+        "preferred_download wave 3: starting 2 batch(es) covering 2 request accession(s)"
+        in caplog.text
+    )
 
 
-def test_direct_mode_decomposes_layout_failures_to_the_bad_request(
+def test_direct_mode_waits_for_wave_completion_before_retrying_partial_batches(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A layout-only failure should not strand unrelated direct requests."""
+    """Partial direct results should not retry before sibling batches finish."""
 
-    payload_directory = tmp_path / "payload-good-layout"
-    payload_directory.mkdir()
+    payload_one = tmp_path / "payload-good-layout-1"
+    payload_two = tmp_path / "payload-good-layout-2"
+    payload_three = tmp_path / "payload-good-layout-3"
+    payload_four = tmp_path / "payload-good-layout-4"
+    payload_one.mkdir()
+    payload_two.mkdir()
+    payload_three.mkdir()
+    payload_four.mkdir()
+    download_calls: list[str] = []
 
     def fake_run_retryable_command(
         command: list[str],
@@ -1093,10 +1206,11 @@ def test_direct_mode_decomposes_layout_failures_to_the_bad_request(
         sleep_func=None,
         runner=None,
     ) -> RetryableCommandResult:
-        """Succeed all downloads so only layout decomposition decides the result."""
+        """Succeed all downloads so the wave scheduler decides the retry order."""
 
         del command, final_failure_status, environment, sleep_func, runner
         assert stage == "preferred_download"
+        download_calls.append(attempted_accession or "")
         return RetryableCommandResult(
             succeeded=True,
             stdout="",
@@ -1116,13 +1230,31 @@ def test_direct_mode_decomposes_layout_failures_to_the_bad_request(
     def fake_collect_payload_directories(
         extraction_root: Path,
     ) -> tuple[ResolvedPayloadDirectory, ...]:
-        """Resolve only the good singleton batch after layout decomposition."""
+        """Resolve one left-half payload, then the right-half batch, then the retry."""
 
         if extraction_root.name == "direct_batch_2":
             return (
                 ResolvedPayloadDirectory(
                     final_accession="GCF_000001.1",
-                    directory=payload_directory,
+                    directory=payload_one,
+                ),
+            )
+        if extraction_root.name == "direct_batch_3":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000003.1",
+                    directory=payload_three,
+                ),
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000004.1",
+                    directory=payload_four,
+                ),
+            )
+        if extraction_root.name == "direct_batch_4":
+            return (
+                ResolvedPayloadDirectory(
+                    final_accession="GCF_000002.1",
+                    directory=payload_two,
                 ),
             )
         return ()
@@ -1141,31 +1273,322 @@ def test_direct_mode_decomposes_layout_failures_to_the_bad_request(
     )
 
     run_directories = initialise_run_directories(tmp_path / "direct-layout-decompose")
+    with caplog.at_level(logging.INFO):
+        result = execute_direct_accession_plans(
+            (
+                AccessionPlan(
+                    original_accession="GCF_000001.1",
+                    download_request_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                ),
+                AccessionPlan(
+                    original_accession="GCF_000002.1",
+                    download_request_accession="GCF_000002.1",
+                    conversion_status="unchanged_original",
+                ),
+                AccessionPlan(
+                    original_accession="GCF_000003.1",
+                    download_request_accession="GCF_000003.1",
+                    conversion_status="unchanged_original",
+                ),
+                AccessionPlan(
+                    original_accession="GCF_000004.1",
+                    download_request_accession="GCF_000004.1",
+                    conversion_status="unchanged_original",
+                ),
+            ),
+            build_cli_args(tmp_path / "out"),
+            run_directories,
+            logging.getLogger("test-direct-layout-decompose"),
+        )
+
+    assert result.executions["GCF_000001.1"].download_status == "downloaded"
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_2"
+    assert result.executions["GCF_000002.1"].download_status == "downloaded"
+    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_4"
+    assert [failure.attempted_accession for failure in result.executions["GCF_000002.1"].failures] == [
+        "GCF_000002.1",
+        "GCF_000002.1",
+    ]
+    assert result.executions["GCF_000003.1"].download_batch == "direct_batch_3"
+    assert result.executions["GCF_000004.1"].download_batch == "direct_batch_3"
+    assert download_calls == [
+        "GCF_000001.1;GCF_000002.1;GCF_000003.1;GCF_000004.1",
+        "GCF_000001.1;GCF_000002.1",
+        "GCF_000003.1;GCF_000004.1",
+        "GCF_000002.1",
+    ]
+    assert (
+        "preferred_download wave 2: starting 2 batch(es) covering 4 request accession(s)"
+        in caplog.text
+    )
+
+
+def test_direct_mode_retries_suppressed_groups_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Suppressed-only direct groups should stop after two total waves."""
+
+    download_calls: list[str] = []
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        environment: dict[str, str] | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Succeed both suppressed direct downloads before layout resolution."""
+
+        del command, final_failure_status, environment, sleep_func, runner
+        assert stage == "preferred_download"
+        download_calls.append(attempted_accession or "")
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create extraction roots for both suppressed waves."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Keep the suppressed request unresolved in both waves."""
+
+        del extraction_root
+        return ()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
     result = execute_direct_accession_plans(
         (
             AccessionPlan(
                 original_accession="GCF_000001.1",
                 download_request_accession="GCF_000001.1",
                 conversion_status="unchanged_original",
+                is_suppressed=True,
+            ),
+        ),
+        build_cli_args(tmp_path / "out"),
+        initialise_run_directories(tmp_path / "suppressed-direct-budget"),
+        logging.getLogger("test-suppressed-direct-budget"),
+    )
+
+    assert download_calls == ["GCF_000001.1", "GCF_000001.1"]
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_2"
+    assert [failure.max_attempts for failure in result.executions["GCF_000001.1"].failures] == [
+        2,
+        2,
+    ]
+    assert [failure.final_status for failure in result.executions["GCF_000001.1"].failures] == [
+        "retry_scheduled",
+        "retry_exhausted",
+    ]
+
+
+def test_direct_mode_keeps_normal_retry_budget_for_mixed_groups(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Mixed suppressed and normal request groups should use the normal budget."""
+
+    download_calls: list[str] = []
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        environment: dict[str, str] | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Succeed all mixed-group downloads before layout resolution."""
+
+        del command, final_failure_status, environment, sleep_func, runner
+        assert stage == "preferred_download"
+        download_calls.append(attempted_accession or "")
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create extraction roots for the mixed-group retries."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Keep the mixed request unresolved in every wave."""
+
+        del extraction_root
+        return ()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_000001.1",
+                download_request_accession="GCA_000001",
+                conversion_status="unchanged_original",
+                is_suppressed=True,
             ),
             AccessionPlan(
-                original_accession="GCF_000002.1",
-                download_request_accession="GCF_000002.1",
+                original_accession="GCA_000001.3",
+                download_request_accession="GCA_000001",
                 conversion_status="unchanged_original",
             ),
         ),
         build_cli_args(tmp_path / "out"),
-        run_directories,
-        logging.getLogger("test-direct-layout-decompose"),
+        initialise_run_directories(tmp_path / "mixed-direct-budget"),
+        logging.getLogger("test-mixed-direct-budget"),
     )
 
-    assert result.executions["GCF_000001.1"].download_status == "downloaded"
-    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_2"
-    assert result.executions["GCF_000002.1"].download_status == "failed"
-    assert result.executions["GCF_000002.1"].download_batch == "direct_batch_3"
-    assert [failure.attempted_accession for failure in result.executions["GCF_000002.1"].failures] == [
-        "GCF_000002.1",
-        "GCF_000002.1",
+    assert download_calls == [
+        "GCA_000001",
+        "GCA_000001",
+        "GCA_000001",
+        "GCA_000001",
+    ]
+    assert result.executions["GCF_000001.1"].download_batch == "direct_batch_4"
+    assert result.executions["GCA_000001.3"].download_batch == "direct_batch_4"
+    assert [failure.max_attempts for failure in result.executions["GCA_000001.3"].failures] == [
+        4,
+        4,
+        4,
+        4,
+    ]
+
+
+def test_direct_fallback_retries_suppressed_groups_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Suppressed fallback groups should use the reduced workflow budget."""
+
+    download_calls: list[tuple[str, str]] = []
+
+    def fake_run_retryable_command(
+        command: list[str],
+        stage: str,
+        final_failure_status: str = "retry_exhausted",
+        attempted_accession: str | None = None,
+        environment: dict[str, str] | None = None,
+        sleep_func=None,
+        runner=None,
+    ) -> RetryableCommandResult:
+        """Succeed preferred and fallback downloads before layout resolution."""
+
+        del command, final_failure_status, environment, sleep_func, runner
+        download_calls.append((stage, attempted_accession or ""))
+        return RetryableCommandResult(
+            succeeded=True,
+            stdout="",
+            stderr="",
+            failures=(),
+        )
+
+    def fake_extract_archive(
+        archive_path: Path,
+        extraction_root: Path,
+    ) -> None:
+        """Create extraction roots for preferred and fallback waves."""
+
+        del archive_path
+        extraction_root.mkdir(parents=True, exist_ok=True)
+
+    def fake_collect_payload_directories(
+        extraction_root: Path,
+    ) -> tuple[ResolvedPayloadDirectory, ...]:
+        """Keep both preferred and fallback phases unresolved."""
+
+        del extraction_root
+        return ()
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.run_retryable_command",
+        fake_run_retryable_command,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_direct.extract_archive",
+        fake_extract_archive,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution_payloads.collect_payload_directories",
+        fake_collect_payload_directories,
+    )
+
+    result = execute_direct_accession_plans(
+        (
+            AccessionPlan(
+                original_accession="GCF_001881595.2",
+                download_request_accession="GCA_001881595",
+                conversion_status="paired_to_gca",
+                is_suppressed=True,
+            ),
+        ),
+        build_cli_args(tmp_path / "out"),
+        initialise_run_directories(tmp_path / "suppressed-fallback-budget"),
+        logging.getLogger("test-suppressed-fallback-budget"),
+    )
+
+    assert download_calls == [
+        ("preferred_download", "GCA_001881595"),
+        ("preferred_download", "GCA_001881595"),
+        ("fallback_download", "GCF_001881595.2"),
+        ("fallback_download", "GCF_001881595.2"),
+    ]
+    assert result.executions["GCF_001881595.2"].download_batch == (
+        "direct_fallback_batch_2"
+    )
+    assert [failure.max_attempts for failure in result.executions["GCF_001881595.2"].failures] == [
+        2,
+        2,
+        2,
+        2,
     ]
 
 
