@@ -599,6 +599,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "(https://img.shields.io/badge/CITATION-cff-blue.svg)]"
                 "(https://github.com/asuq/gtdb-genomes/blob/main/CITATION.cff)"
             ),
+            (
+                "[![DOI](https://zenodo.org/badge/1186361447.svg)]"
+                "(https://doi.org/10.5281/zenodo.19198946)"
+            ),
             "--version-latest",
             "--prefer-genbank",
             "--threads",
