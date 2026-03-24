@@ -600,6 +600,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "(https://github.com/asuq/gtdb-genomes/blob/main/CITATION.cff)"
             ),
             (
+                "[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19206058.svg)]"
+                "(https://doi.org/10.5281/zenodo.19206058)"
+            ),
+            (
                 "[Genome Taxonomy Database (GTDB)]"
                 "(https://gtdb.ecogenomic.org/)"
             ),
@@ -995,6 +999,9 @@ def test_citation_file_uses_canonical_release_metadata() -> None:
             'given-names: "Akito"',
             "orcid: 'https://orcid.org/0000-0002-7092-7720'",
             "abstract: CLI to download genomes by GTDB taxon and GTDB release",
+            "identifiers:",
+            "  - type: doi",
+            "    value: 10.5281/zenodo.19206058",
         ),
     )
 
