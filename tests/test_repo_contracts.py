@@ -515,6 +515,11 @@ def test_module_entrypoint_help_runs() -> None:
     )
 
     assert result.returncode == 0
+    assert "-r GTDB_RELEASE, --gtdb-release GTDB_RELEASE" in result.stdout
+    assert "-t GTDB_TAXON" in result.stdout
+    assert "-o OUTDIR, --outdir OUTDIR" in result.stdout
+    assert "-j THREADS, --threads THREADS" in result.stdout
+    assert "-d, --dry-run" in result.stdout
     assert "--gtdb-release" in result.stdout
     assert "--gtdb-taxon" in result.stdout
     assert "--outdir" in result.stdout
@@ -536,6 +541,9 @@ def test_module_entrypoint_without_arguments_shows_help() -> None:
 
     assert result.returncode == 0
     assert result.stderr == ""
+    assert "-r GTDB_RELEASE, --gtdb-release GTDB_RELEASE" in result.stdout
+    assert "-t GTDB_TAXON" in result.stdout
+    assert "-o OUTDIR, --outdir OUTDIR" in result.stdout
     assert "--gtdb-release" in result.stdout
     assert "--gtdb-taxon" in result.stdout
     assert "--outdir" in result.stdout
@@ -555,6 +563,9 @@ def test_source_checkout_cli_module_help_runs() -> None:
     )
 
     assert result.returncode == 0
+    assert "-r GTDB_RELEASE, --gtdb-release GTDB_RELEASE" in result.stdout
+    assert "-j THREADS, --threads THREADS" in result.stdout
+    assert "-d, --dry-run" in result.stdout
     assert "--gtdb-release" in result.stdout
     assert "--version-latest" in result.stdout
     assert "--version-fixed" not in result.stdout
@@ -574,6 +585,9 @@ def test_source_checkout_cli_module_without_arguments_shows_help() -> None:
 
     assert result.returncode == 0
     assert result.stderr == ""
+    assert "-r GTDB_RELEASE, --gtdb-release GTDB_RELEASE" in result.stdout
+    assert "-t GTDB_TAXON" in result.stdout
+    assert "-o OUTDIR, --outdir OUTDIR" in result.stdout
     assert "--gtdb-release" in result.stdout
     assert "--gtdb-taxon" in result.stdout
     assert "--outdir" in result.stdout
@@ -647,6 +661,11 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "[Genome Taxonomy Database (GTDB)]"
                 "(https://gtdb.ecogenomic.org/)"
             ),
+            "-t, --gtdb-taxon",
+            "-o, --outdir",
+            "-r, --gtdb-release",
+            "-j, --threads",
+            "-d, --dry-run",
             "--version-latest",
             "--prefer-genbank",
             "--threads",
@@ -777,6 +796,11 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Download NCBI genomes by GTDB taxon and GTDB release",
             "mandatory options:",
             "optional options:",
+            "-r GTDB_RELEASE, --gtdb-release GTDB_RELEASE",
+            "-t GTDB_TAXON",
+            "-o OUTDIR, --outdir OUTDIR",
+            "-j THREADS, --threads THREADS",
+            "-d, --dry-run",
             "--gtdb-release",
             "--gtdb-taxon",
             "--outdir",
@@ -815,6 +839,8 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "../packaging/bioconda/README.md",
             "Download a genome data package",
             "https://www.ncbi.nlm.nih.gov/datasets/docs/v2/how-tos/genomes/download-genome/",
+            "HH:MM:SS",
+            "colourise level labels on interactive terminals",
             "pytest matrix runs on Linux, macOS, and Windows",
             "Clean packaged-runtime and",
             "real-data validation currently run on Linux",

@@ -42,7 +42,7 @@ For packaging and redistribution details, see
 ## Quick Start
 
 ```bash
-gtdb-genomes --gtdb-taxon g__Escherichia --outdir results
+gtdb-genomes -t g__Escherichia -o results
 ```
 
 
@@ -50,12 +50,12 @@ gtdb-genomes --gtdb-taxon g__Escherichia --outdir results
 
 Short version:
 
-- `--gtdb-taxon`: exact GTDB taxon name(s)
-- `--outdir`: must be empty or absent
-- `--gtdb-release`: defaults to `latest`
+- `-t, --gtdb-taxon`: exact GTDB taxon name(s)
+- `-o, --outdir`: must be empty or absent
+- `-r, --gtdb-release`: defaults to `latest`
 - `--prefer-genbank` and `--version-latest`: live NCBI metadata modes
 - `--include`: locally supported values are `genome`, `gff3`, and `protein`
-- `--threads`, `--dry-run`, `--keep-tmp`, `--ncbi-api-key`, and `--debug` are also available
+- `-j, --threads` and `-d, --dry-run` are also available, alongside `--keep-tmp`, `--ncbi-api-key`, and `--debug`
 
 For full option behaviour, see [Options](docs/usage-details.md#options),
 [API Key Handling](docs/usage-details.md#api-key-handling),

@@ -21,21 +21,22 @@ runtime contract.
 ## Command Form
 
 ```text
-usage: gtdb-genomes --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...] --outdir OUTDIR [-h] [--gtdb-release GTDB_RELEASE] [--prefer-genbank] [--version-latest] [--threads THREADS] [--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] [--debug] [--keep-tmp] [--dry-run]
+usage: gtdb-genomes -t GTDB_TAXON [GTDB_TAXON ...] -o OUTDIR [-h] [-r GTDB_RELEASE] [--prefer-genbank] [--version-latest] [-j THREADS] [--ncbi-api-key NCBI_API_KEY] [--include INCLUDE] [--debug] [--keep-tmp] [-d]
 
 Download NCBI genomes by GTDB taxon and GTDB release
 
 mandatory options:
-  --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...]
+  -t GTDB_TAXON [GTDB_TAXON ...], --gtdb-taxon GTDB_TAXON [GTDB_TAXON ...]
                         Exact GTDB taxon. You can give one or more values
                         after the flag and repeat it as needed. Quote species
                         names with spaces, for example "s__Altiarchaeum
                         hamiconexum"
-  --outdir OUTDIR       Output directory for the run
+  -o OUTDIR, --outdir OUTDIR
+                        Output directory for the run
 
 optional options:
   -h, --help            show this help message and exit
-  --gtdb-release GTDB_RELEASE
+  -r GTDB_RELEASE, --gtdb-release GTDB_RELEASE
                         GTDB release alias or included release identifier;
                         default: latest
   --prefer-genbank      Prefer paired GenBank accessions discovered from
@@ -45,7 +46,8 @@ optional options:
                         paired GenBank family when explicit pairing is
                         available, otherwise in the selected accession family
                         from current NCBI metadata; requires --prefer-genbank
-  --threads THREADS     Choose the worker count used by compatible workflow
+  -j THREADS, --threads THREADS
+                        Choose the worker count used by compatible workflow
                         steps; direct downloads remain serial; default: 8
   --ncbi-api-key NCBI_API_KEY
                         NCBI API key used only for datasets commands;
@@ -56,7 +58,7 @@ optional options:
   --debug               Enable debug logging; cannot be used while an NCBI API
                         key is active
   --keep-tmp            Keep intermediate working files
-  --dry-run             Resolve inputs without downloading genome payloads;
+  -d, --dry-run         Resolve inputs without downloading genome payloads;
                         still preflights unzip so real-run archive
                         requirements fail fast
 ```
@@ -68,7 +70,7 @@ successfully.
 
 ### Required options
 
-- `--gtdb-taxon`: Give one complete GTDB taxon per value. You can pass
+- `-t`, `--gtdb-taxon`: Give one complete GTDB taxon per value. You can pass
   several values after one flag and repeat the flag as needed. A row is
   selected only when its GTDB lineage contains the requested taxon exactly
   after trimming surrounding whitespace. Matching is case-sensitive, internal
@@ -79,12 +81,13 @@ successfully.
   `--gtdb-taxon g__Escherichia "s__Escherichia coli"`. Unquoted input such as
   `--gtdb-taxon s__Altiarchaeum hamiconexum` is invalid.
 
-- `--outdir`: The output directory must not exist or must already be empty.
+- `-o`, `--outdir`: The output directory must not exist or must already be
+  empty.
   The tool does not merge into or overwrite a populated output tree.
 
 ### Release and accession choice
 
-- `--gtdb-release`: Defaults to `latest`. Accepted local aliases include
+- `-r`, `--gtdb-release`: Defaults to `latest`. Accepted local aliases include
   `latest`, `80`, `95`, `214`, `226`, `220.0`, and `release220/220.0`.
 
   The `latest` alias is resolved from the local manifest row marked with
@@ -139,7 +142,8 @@ successfully.
     batch rehydrate fails, the tool falls back to batch direct downloads and
     records `dehydrate_fallback_direct` as the final method used
 
-- `--threads`: Sets the worker count for the steps that can use it. Default:
+- `-j`, `--threads`: Sets the worker count for the steps that can use it.
+  Default:
   8. Direct downloads remain serial in the current workflow.
 
 - `--keep-tmp`: Keeps intermediate working files instead of cleaning them up
@@ -170,13 +174,15 @@ successfully.
   - `genome,gff3,protein`
 
 - `--debug`: Enables debug-level logging, prints redacted command traces, and
-  writes a redacted `OUTPUT/debug.log` for real runs. It cannot be combined
-  with an effective NCBI API key because upstream `datasets` debug output may
-  expose the API key header. `--debug --dry-run` is allowed when no effective
-  NCBI API key is active, but dry runs keep debug output on the console and do
-  not create `OUTPUT/debug.log`.
+  writes a redacted `OUTPUT/debug.log` for real runs. Console logs prefix each
+  record with `HH:MM:SS` and colourise level labels on interactive terminals,
+  while `debug.log` stays plain text. It cannot be combined with an effective
+  NCBI API key because upstream `datasets` debug output may expose the API key
+  header. `--debug --dry-run` is allowed when no effective NCBI API key is
+  active, but dry runs keep debug output on the console and do not create
+  `OUTPUT/debug.log`.
 
-- `--dry-run`: Resolves inputs without creating the final output tree or
+- `-d`, `--dry-run`: Resolves inputs without creating the final output tree or
   downloading genome payloads. It may resolve the local GTDB release, read
   the included GTDB taxonomy TSVs and the local release manifest, preflight
   `unzip` so the runtime contract matches real runs, and perform NCBI metadata
