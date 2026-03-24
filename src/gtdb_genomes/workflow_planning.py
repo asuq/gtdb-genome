@@ -85,11 +85,17 @@ def build_accession_plans(
     *,
     prefer_genbank: bool,
     version_latest: bool,
+    suppressed_notes: dict[str, SuppressedAccessionNote] | None = None,
 ) -> tuple[AccessionPlan, ...]:
     """Build one unique download plan per original NCBI accession."""
 
     if mapped_frame.is_empty():
         return ()
+    suppressed_accessions = (
+        frozenset()
+        if suppressed_notes is None
+        else frozenset(suppressed_notes)
+    )
     unique_rows = mapped_frame.unique(
         subset=["ncbi_accession"],
         keep="first",
@@ -104,6 +110,7 @@ def build_accession_plans(
                 version_latest=version_latest,
             ),
             conversion_status=row["conversion_status"],
+            is_suppressed=row["ncbi_accession"] in suppressed_accessions,
         )
         for row in unique_rows
     )
@@ -479,6 +486,7 @@ def resolve_supported_accession_preferences(
 def plan_supported_downloads(
     supported_mapped_frame: pl.DataFrame,
     args: CliArgs,
+    suppressed_notes: dict[str, SuppressedAccessionNote] | None = None,
 ) -> tuple[tuple[AccessionPlan, ...], str]:
     """Build supported-accession plans and resolve the effective method."""
 
@@ -486,6 +494,7 @@ def plan_supported_downloads(
         supported_mapped_frame,
         prefer_genbank=args.prefer_genbank,
         version_latest=args.version_latest,
+        suppressed_notes=suppressed_notes,
     )
     if not accession_plans:
         return (), DEFAULT_REQUESTED_DOWNLOAD_METHOD
@@ -537,6 +546,7 @@ def prepare_planning_inputs(
     accession_plans, decision_method = plan_supported_downloads(
         supported_mapped_frame,
         args,
+        suppressed_notes,
     )
     logger.info(
         "Automatic planning selected %s for %d supported accession(s)",

@@ -15,6 +15,7 @@ class AccessionPlan:
     original_accession: str
     download_request_accession: str
     conversion_status: str
+    is_suppressed: bool = False
 
 
 @dataclass(slots=True)
