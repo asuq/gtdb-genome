@@ -89,6 +89,65 @@ def build_shared_preferred_summary_lookup_result() -> SummaryLookupResult:
     )
 
 
+def build_shared_and_unique_two_taxa_frame() -> pl.DataFrame:
+    """Return one taxonomy frame with shared and unique genus rows."""
+
+    return pl.DataFrame(
+        {
+            "gtdb_accession": [
+                "RS_GCF_000001.1",
+                "RS_GCF_000002.1",
+            ],
+            "lineage": [
+                (
+                    "d__Bacteria;p__Proteobacteria;g__Escherichia;"
+                    "s__Escherichia coli"
+                ),
+                "d__Bacteria;p__Proteobacteria;g__Escherichia",
+            ],
+            "ncbi_accession": [
+                "GCF_000001.1",
+                "GCF_000002.1",
+            ],
+            "taxonomy_file": [
+                "bac120_taxonomy_r95.tsv",
+                "bac120_taxonomy_r95.tsv",
+            ],
+        },
+    )
+
+
+def build_two_shared_taxa_frame() -> pl.DataFrame:
+    """Return one taxonomy frame with two accessions shared across two taxa."""
+
+    return pl.DataFrame(
+        {
+            "gtdb_accession": [
+                "RS_GCF_000001.1",
+                "RS_GCF_000002.1",
+            ],
+            "lineage": [
+                (
+                    "d__Bacteria;p__Proteobacteria;g__Escherichia;"
+                    "s__Escherichia coli"
+                ),
+                (
+                    "d__Bacteria;p__Proteobacteria;g__Escherichia;"
+                    "s__Escherichia coli"
+                ),
+            ],
+            "ncbi_accession": [
+                "GCF_000001.1",
+                "GCF_000002.1",
+            ],
+            "taxonomy_file": [
+                "bac120_taxonomy_r95.tsv",
+                "bac120_taxonomy_r95.tsv",
+            ],
+        },
+    )
+
+
 def test_auto_planning_uses_count_based_selection_in_dry_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -475,11 +534,495 @@ def test_mixed_real_run_writes_zero_match_taxon_outputs(
     assert manifest_rows == []
 
 
+def test_real_run_moves_unique_outputs_and_copies_shared_outputs_first(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Real runs should copy shared payloads first and move unique payloads."""
+
+    shared_payload_directory = tmp_path / "shared-payload"
+    shared_payload_directory.mkdir()
+    (shared_payload_directory / "genome.fna").write_text(
+        ">shared\nACGT\n",
+        encoding="ascii",
+    )
+    unique_payload_directory = tmp_path / "unique-payload"
+    unique_payload_directory.mkdir()
+    (unique_payload_directory / "genome.fna").write_text(
+        ">unique\nTGCA\n",
+        encoding="ascii",
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_shared_and_unique_two_taxa_frame(),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(),
+    )
+
+    def fake_execute_accession_plans(
+        plans,
+        args,
+        decision_method: str,
+        run_directories,
+        logger,
+        secrets,
+    ) -> DownloadExecutionResult:
+        """Return one shared and one unique successful execution."""
+
+        del args, run_directories, logger, secrets
+        assert decision_method == "direct"
+        assert {plan.original_accession for plan in plans} == {
+            "GCF_000001.1",
+            "GCF_000002.1",
+        }
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=shared_payload_directory,
+                    failures=(),
+                ),
+                "GCF_000002.1": AccessionExecution(
+                    original_accession="GCF_000002.1",
+                    final_accession="GCF_000002.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=unique_payload_directory,
+                    failures=(),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "shared-and-unique-real"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--gtdb-taxon",
+            "s__Escherichia coli",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 0
+    assert not shared_payload_directory.exists()
+    assert not unique_payload_directory.exists()
+    assert (
+        output_dir / "taxa" / "g__Escherichia" / "GCF_000001.1" / "genome.fna"
+    ).read_text(encoding="ascii") == ">shared\nACGT\n"
+    assert (
+        output_dir / "taxa" / "s__Escherichia_coli" / "GCF_000001.1" / "genome.fna"
+    ).read_text(encoding="ascii") == ">shared\nACGT\n"
+    assert (
+        output_dir / "taxa" / "g__Escherichia" / "GCF_000002.1" / "genome.fna"
+    ).read_text(encoding="ascii") == ">unique\nTGCA\n"
+
+
+def test_real_run_keep_tmp_forces_copy_only_output_materialisation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keeping temporary files should preserve the source payload directories."""
+
+    shared_payload_directory = tmp_path / "shared-payload"
+    shared_payload_directory.mkdir()
+    (shared_payload_directory / "genome.fna").write_text(
+        ">shared\nACGT\n",
+        encoding="ascii",
+    )
+    unique_payload_directory = tmp_path / "unique-payload"
+    unique_payload_directory.mkdir()
+    (unique_payload_directory / "genome.fna").write_text(
+        ">unique\nTGCA\n",
+        encoding="ascii",
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_shared_and_unique_two_taxa_frame(),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(),
+    )
+
+    def fake_execute_accession_plans(
+        *args,
+        **kwargs,
+    ) -> DownloadExecutionResult:
+        """Return one shared and one unique successful execution."""
+
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=shared_payload_directory,
+                    failures=(),
+                ),
+                "GCF_000002.1": AccessionExecution(
+                    original_accession="GCF_000002.1",
+                    final_accession="GCF_000002.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=unique_payload_directory,
+                    failures=(),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "keep-tmp-copy-only"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--gtdb-taxon",
+            "s__Escherichia coli",
+            "--outdir",
+            str(output_dir),
+            "--keep-tmp",
+        ],
+    )
+
+    assert exit_code == 0
+    assert shared_payload_directory.exists()
+    assert unique_payload_directory.exists()
+    assert (
+        output_dir / "taxa" / "g__Escherichia" / "GCF_000001.1" / "genome.fna"
+    ).read_text(encoding="ascii") == ">shared\nACGT\n"
+    assert (
+        output_dir / "taxa" / "s__Escherichia_coli" / "GCF_000001.1" / "genome.fna"
+    ).read_text(encoding="ascii") == ">shared\nACGT\n"
+    assert (
+        output_dir / "taxa" / "g__Escherichia" / "GCF_000002.1" / "genome.fna"
+    ).read_text(encoding="ascii") == ">unique\nTGCA\n"
+
+
+def test_real_run_logs_sorted_duplicate_copies_at_debug_level(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Duplicate-copy logs should be sorted and emitted at debug level only."""
+
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
+    log_stream = install_capture_logger(monkeypatch)
+    first_payload_directory = tmp_path / "payload-1"
+    first_payload_directory.mkdir()
+    (first_payload_directory / "genome.fna").write_text(
+        ">one\nACGT\n",
+        encoding="ascii",
+    )
+    second_payload_directory = tmp_path / "payload-2"
+    second_payload_directory.mkdir()
+    (second_payload_directory / "genome.fna").write_text(
+        ">two\nTGCA\n",
+        encoding="ascii",
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_two_shared_taxa_frame(),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(),
+    )
+
+    def fake_execute_accession_plans(
+        *args,
+        **kwargs,
+    ) -> DownloadExecutionResult:
+        """Return two shared successful executions."""
+
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=first_payload_directory,
+                    failures=(),
+                ),
+                "GCF_000002.1": AccessionExecution(
+                    original_accession="GCF_000002.1",
+                    final_accession="GCF_000002.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=second_payload_directory,
+                    failures=(),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "sorted-duplicate-logs"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--gtdb-taxon",
+            "s__Escherichia coli",
+            "--outdir",
+            str(output_dir),
+            "--debug",
+        ],
+    )
+
+    assert exit_code == 0
+    log_text = log_stream.getvalue()
+    assert "INFO Copied duplicate genome" not in log_text
+    first_message = "DEBUG Copied duplicate genome GCF_000001.1 into taxon g__Escherichia"
+    second_message = "DEBUG Copied duplicate genome GCF_000002.1 into taxon g__Escherichia"
+    assert first_message in log_text
+    assert second_message in log_text
+    assert log_text.index(first_message) < log_text.index(second_message)
+
+
+def test_real_run_emits_progress_with_taxon_accession_counts_and_percentage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Real-run output materialisation should emit tqdm progress details."""
+
+    install_capture_logger(monkeypatch)
+    shared_payload_directory = tmp_path / "shared-payload"
+    shared_payload_directory.mkdir()
+    (shared_payload_directory / "genome.fna").write_text(
+        ">shared\nACGT\n",
+        encoding="ascii",
+    )
+    unique_payload_directory = tmp_path / "unique-payload"
+    unique_payload_directory.mkdir()
+    (unique_payload_directory / "genome.fna").write_text(
+        ">unique\nTGCA\n",
+        encoding="ascii",
+    )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_shared_and_unique_two_taxa_frame(),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(),
+    )
+
+    def fake_execute_accession_plans(
+        *args,
+        **kwargs,
+    ) -> DownloadExecutionResult:
+        """Return one shared and one unique successful execution."""
+
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=shared_payload_directory,
+                    failures=(),
+                ),
+                "GCF_000002.1": AccessionExecution(
+                    original_accession="GCF_000002.1",
+                    final_accession="GCF_000002.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=unique_payload_directory,
+                    failures=(),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "progress-output"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--gtdb-taxon",
+            "s__Escherichia coli",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 0
+    progress_text = capsys.readouterr().err
+    assert "taxa 1/2 g__Escherichia" in progress_text
+    assert "taxa 2/2 s__Escherichia_coli" in progress_text
+    assert "finished=GCF_000001.1 action=copy" in progress_text
+    assert "finished=GCF_000001.1 action=move" in progress_text
+    assert "finished=GCF_000002.1 action=move" in progress_text
+    assert "2/2" in progress_text
+    assert "1/1" in progress_text
+    assert "%|" in progress_text
+
+
 def test_real_run_output_copy_failure_returns_exit_code_eight(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Local output-copy failures should return a stable workflow exit code."""
+    """Duplicate-copy failures should return a stable workflow exit code."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    payload_directory = tmp_path / "payload"
+    payload_directory.mkdir()
+    (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia;s__Escherichia coli",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_outputs.copy_accession_payload",
+        lambda source_directory, destination_directory: (_ for _ in ()).throw(
+            PermissionError("disk full"),
+        ),
+    )
+
+    def fake_execute_accession_plans(
+        plans,
+        args,
+        decision_method: str,
+        run_directories,
+        logger,
+        secrets,
+    ) -> DownloadExecutionResult:
+        """Return one shared successful execution before copy failure."""
+
+        del args, run_directories, logger, secrets
+        assert decision_method == "direct"
+        assert [plan.original_accession for plan in plans] == ["GCF_000001.1"]
+        return DownloadExecutionResult(
+            executions={
+                "GCF_000001.1": AccessionExecution(
+                    original_accession="GCF_000001.1",
+                    final_accession="GCF_000001.1",
+                    conversion_status="unchanged_original",
+                    download_status="downloaded",
+                    download_batch="direct_batch_1",
+                    payload_directory=payload_directory,
+                    failures=(),
+                ),
+            },
+            method_used="direct",
+            download_concurrency_used=1,
+            rehydrate_workers_used=0,
+        )
+
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        fake_execute_accession_plans,
+    )
+
+    output_dir = tmp_path / "output-copy-failure"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--gtdb-taxon",
+            "s__Escherichia coli",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 8
+    assert "Real-run output materialisation failed: disk full" in log_stream.getvalue()
+    assert not (output_dir / "run_summary.tsv").exists()
+
+
+def test_real_run_output_move_failure_returns_exit_code_eight(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Move failures should return a stable workflow exit code."""
 
     log_stream = install_capture_logger(monkeypatch)
     payload_directory = tmp_path / "payload"
@@ -501,7 +1044,7 @@ def test_real_run_output_copy_failure_returns_exit_code_eight(
         lambda *args, **kwargs: SummaryLookupResult(),
     )
     monkeypatch.setattr(
-        "gtdb_genomes.workflow_outputs.copy_accession_payload",
+        "gtdb_genomes.workflow_outputs.move_accession_payload",
         lambda source_directory, destination_directory: (_ for _ in ()).throw(
             PermissionError("disk full"),
         ),
@@ -542,7 +1085,7 @@ def test_real_run_output_copy_failure_returns_exit_code_eight(
         fake_execute_accession_plans,
     )
 
-    output_dir = tmp_path / "output-copy-failure"
+    output_dir = tmp_path / "output-move-failure"
     exit_code = main(
         [
             "--gtdb-release",
@@ -695,6 +1238,8 @@ def test_real_run_records_provenance_and_download_request_accessions(
             "GCF_001881595.2",
             "GCA_001881595.3",
         }
+        payload_directory.mkdir(parents=True, exist_ok=True)
+        (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
         request_accession = (
             "GCA_001881595" if args.version_latest else "GCA_001881595.2"
         )

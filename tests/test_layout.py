@@ -20,6 +20,7 @@ from gtdb_genomes.layout import (
     extract_archive,
     get_duplicate_accessions,
     initialise_run_directories,
+    move_accession_payload,
     write_root_manifests,
     write_zero_match_outputs,
 )
@@ -212,18 +213,34 @@ def test_write_root_manifests_and_zero_match_outputs(tmp_path: Path) -> None:
     assert taxon_lines == ["\t".join(TAXON_ACCESSION_COLUMNS)]
 
 
-def test_copy_accession_payload_and_duplicate_detection(tmp_path: Path) -> None:
-    """Payload copying and duplicate detection should follow taxon semantics."""
+def test_copy_and_move_accession_payload_and_duplicate_detection(
+    tmp_path: Path,
+) -> None:
+    """Payload transfer helpers and duplicate detection should follow taxon semantics."""
 
     source_directory = tmp_path / "source"
     source_directory.mkdir()
     (source_directory / "genome.fna").write_text(">seq\nACGT\n")
 
-    destination_directory = tmp_path / "dest"
-    copied = copy_accession_payload(source_directory, destination_directory)
+    copied_directory = tmp_path / "copied"
+    copied = copy_accession_payload(source_directory, copied_directory)
 
-    assert copied == destination_directory
-    assert (destination_directory / "genome.fna").read_text() == ">seq\nACGT\n"
+    assert copied == copied_directory
+    assert (copied_directory / "genome.fna").read_text() == ">seq\nACGT\n"
+    assert (source_directory / "genome.fna").read_text() == ">seq\nACGT\n"
+
+    moved_source_directory = tmp_path / "move-source"
+    moved_source_directory.mkdir()
+    (moved_source_directory / "genome.fna").write_text(">seq\nTGCA\n")
+    moved_directory = tmp_path / "moved"
+    moved_directory.mkdir()
+    (moved_directory / "stale.txt").write_text("stale\n")
+    moved = move_accession_payload(moved_source_directory, moved_directory)
+
+    assert moved == moved_directory
+    assert not moved_source_directory.exists()
+    assert not (moved_directory / "stale.txt").exists()
+    assert (moved_directory / "genome.fna").read_text() == ">seq\nTGCA\n"
     assert get_duplicate_accessions(
         [
             {"taxon_slug": "g__Escherichia", "final_accession": "GCA_1"},
