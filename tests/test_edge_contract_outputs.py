@@ -2239,30 +2239,6 @@ def test_failure_manifest_ignores_shared_metadata_attempts_without_terminal_fail
             failures=(),
         ),
     }
-    metadata_shared_failures = (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.1", "GCF_000002.1"),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="temporary failure",
-                    final_status="retry_scheduled",
-                ),
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=2,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="temporary failure",
-                    final_status="retry_exhausted",
-                ),
-            ),
-        ),
-    )
-
     failure_rows = build_failure_rows(
         enriched_rows,
         executions,
@@ -2275,22 +2251,6 @@ def test_failure_manifest_ignores_shared_metadata_attempts_without_terminal_fail
 def test_failure_manifest_ignores_metadata_candidate_accession_set() -> None:
     """Metadata-only candidate failures should not populate the final failure file."""
 
-    metadata_shared_failures = (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.1",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="partial paired-GCA metadata",
-                    final_status="retry_exhausted",
-                    attempted_accession="GCA_000001.2;GCA_000001.3",
-                ),
-            ),
-        ),
-    )
     enriched_rows = [
         {
             "requested_taxon": "g__Escherichia",
@@ -2359,23 +2319,6 @@ def test_failure_manifest_scopes_candidate_metadata_failures_to_affected_rows() 
             failures=(),
         ),
     }
-    metadata_shared_failures = (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.1",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="candidate lookup failed",
-                    final_status="retry_scheduled",
-                    attempted_accession="GCA_000001.2",
-                ),
-            ),
-        ),
-    )
-
     failure_rows = build_failure_rows(
         enriched_rows,
         executions,

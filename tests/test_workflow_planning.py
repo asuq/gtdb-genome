@@ -14,7 +14,6 @@ from gtdb_genomes.metadata import (
     MetadataLookupError,
     SummaryLookupResult,
 )
-from gtdb_genomes.workflow_execution import SharedFailureContext
 from gtdb_genomes.workflow_planning import (
     SuppressedAccessionNote,
     build_accession_plans,
@@ -49,7 +48,7 @@ def test_resolve_supported_accession_preferences_skips_metadata_by_default(
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output", prefer_genbank=False),
@@ -57,7 +56,6 @@ def test_resolve_supported_accession_preferences_skips_metadata_by_default(
         )
     )
 
-    assert metadata_shared_failures == ()
     assert suppressed_notes == {}
     assert mapped_frame.select(
         "final_accession",
@@ -137,7 +135,7 @@ def test_resolve_supported_accession_preferences_falls_back_when_primary_metadat
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
@@ -145,22 +143,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_primary_metadat
         )
     )
 
-    assert metadata_shared_failures == (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.1",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=4,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="metadata lookup failed",
-                    final_status="retry_exhausted",
-                    attempted_accession="GCF_000001.1",
-                ),
-            ),
-        ),
-    )
     assert suppressed_notes == {}
     assert mapped_frame.select("final_accession", "conversion_status").rows(
         named=True,
@@ -246,7 +228,7 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_metad
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
@@ -256,12 +238,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_metad
 
     assert lookup_calls[0] == ("GCF_000001.2",)
     assert lookup_calls[1] == ("GCA_000001.2",)
-    assert metadata_shared_failures[0].affected_original_accessions == (
-        "GCF_000001.2",
-    )
-    assert metadata_shared_failures[0].failures[0].attempted_accession == (
-        "GCA_000001.2"
-    )
     assert suppressed_notes == {}
     assert mapped_frame.select("final_accession", "conversion_status").rows(
         named=True,
@@ -335,7 +311,7 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
@@ -345,7 +321,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
 
     assert lookup_calls[0] == ("GCF_000001.2",)
     assert lookup_calls[1] == ("GCA_000001.2",)
-    assert metadata_shared_failures == ()
     assert suppressed_notes == {}
     assert mapped_frame.select("final_accession", "conversion_status").rows(
         named=True,
@@ -427,7 +402,7 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
@@ -439,22 +414,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
         ("GCF_000001.2",),
         ("GCA_000001.2",),
     ]
-    assert metadata_shared_failures == (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.2",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="candidate lookup failed",
-                    final_status="retry_scheduled",
-                    attempted_accession="GCA_000001.2",
-                ),
-            ),
-        ),
-    )
     assert suppressed_notes == {}
     assert mapped_frame.select("final_accession", "conversion_status").rows(
         named=True,
@@ -536,7 +495,7 @@ def test_resolve_supported_accession_preferences_keeps_complete_explicit_pair_wh
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
@@ -548,22 +507,6 @@ def test_resolve_supported_accession_preferences_keeps_complete_explicit_pair_wh
         ("GCF_000001.2",),
         ("GCA_000001.2",),
     ]
-    assert metadata_shared_failures == (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.2",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="candidate lookup failed",
-                    final_status="retry_scheduled",
-                    attempted_accession="GCA_000001.2",
-                ),
-            ),
-        ),
-    )
     assert suppressed_notes == {}
     assert mapped_frame.select("final_accession", "conversion_status").rows(
         named=True,
@@ -655,7 +598,7 @@ def test_resolve_supported_accession_preferences_latest_mode_looks_up_explicit_p
     args = build_cli_args(tmp_path / "output")
     args.version_latest = True
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             args,
@@ -665,7 +608,6 @@ def test_resolve_supported_accession_preferences_latest_mode_looks_up_explicit_p
 
     assert lookup_calls[0] == ("GCF_000001.1",)
     assert set(lookup_calls[1]) == {"GCA_000001.2", "GCA_000001.3"}
-    assert metadata_shared_failures == ()
     assert suppressed_notes == {}
     assert mapped_frame.select("final_accession", "conversion_status").rows(
         named=True,
@@ -777,7 +719,7 @@ def test_resolve_supported_accession_preferences_scopes_candidate_lookup_failure
         },
     )
 
-    mapped_frame, metadata_shared_failures, suppressed_notes = (
+    mapped_frame, suppressed_notes = (
         resolve_supported_accession_preferences(
             supported_selected_frame,
             build_cli_args(tmp_path / "output"),
@@ -789,22 +731,6 @@ def test_resolve_supported_accession_preferences_scopes_candidate_lookup_failure
         ("GCF_000001.2", "GCF_000002.1"),
         ("GCA_000001.2",),
     ]
-    assert metadata_shared_failures == (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.2",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="candidate lookup failed",
-                    final_status="retry_scheduled",
-                    attempted_accession="GCA_000001.2",
-                ),
-            ),
-        ),
-    )
     assert suppressed_notes == {}
     assert mapped_frame.select(
         "ncbi_accession",
@@ -857,11 +783,11 @@ def test_build_suppressed_accession_notes_prefers_selected_accession_status() ->
     assert notes["GCF_000001.1"].suppression_reason == "removed by submitter"
 
 
-def test_prepare_planning_inputs_preserves_metadata_failures(
+def test_prepare_planning_inputs_uses_resolved_preferences(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Planning should preserve metadata shared failures."""
+    """Planning should keep the resolved mapping and suppressed notes."""
 
     supported_selected_frame = pl.DataFrame(
         {
@@ -879,29 +805,9 @@ def test_prepare_planning_inputs_preserves_metadata_failures(
         pl.lit("GCF").alias("accession_type_final"),
         pl.lit("unchanged_original").alias("conversion_status"),
     )
-    metadata_shared_failures = (
-        SharedFailureContext(
-            affected_original_accessions=("GCF_000001.1",),
-            failures=(
-                CommandFailureRecord(
-                    stage="metadata_lookup",
-                    attempt_index=1,
-                    max_attempts=4,
-                    error_type="metadata_lookup",
-                    error_message="temporary metadata failure",
-                    final_status="retry_scheduled",
-                    attempted_accession="GCF_000001.1",
-                ),
-            ),
-        ),
-    )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.resolve_supported_accession_preferences",
-        lambda *args, **kwargs: (
-            mapped_frame,
-            metadata_shared_failures,
-            {},
-        ),
+        lambda *args, **kwargs: (mapped_frame, {}),
     )
     monkeypatch.setattr(
         "gtdb_genomes.workflow_planning.plan_supported_downloads",

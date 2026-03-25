@@ -604,7 +604,11 @@ def build_transfer_batches(
         )[-1]
         for accession, taxon_slugs in taxon_slugs_by_accession.items()
     }
-    duplicate_accessions = get_duplicate_accessions(enriched_rows)
+    duplicate_accessions = {
+        row["final_accession"]
+        for row in enriched_rows
+        if row["duplicate_across_taxa"] and row["final_accession"]
+    }
     duplicate_counts: dict[str, int] = defaultdict(int)
     transfer_batches: list[TaxonTransferBatch] = []
 

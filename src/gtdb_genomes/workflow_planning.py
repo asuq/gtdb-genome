@@ -29,11 +29,7 @@ from gtdb_genomes.metadata import (
     is_suppressed_status,
     run_summary_lookup_with_retries,
 )
-from gtdb_genomes.workflow_execution import (
-    AccessionPlan,
-    SharedFailureContext,
-    build_shared_failure_context,
-)
+from gtdb_genomes.workflow_execution import AccessionPlan
 from gtdb_genomes.workflow_selection import build_unsupported_accession_frame
 
 if TYPE_CHECKING:
@@ -114,14 +110,6 @@ def build_accession_plans(
         )
         for row in unique_rows
     )
-
-
-def build_original_accession_scope(
-    accessions: tuple[str, ...],
-) -> tuple[str, ...]:
-    """Return a deterministic original-accession scope for shared failures."""
-
-    return get_ordered_unique_accessions(accessions)
 
 
 def build_candidate_accession_scope(
@@ -331,11 +319,7 @@ def resolve_supported_accession_preferences(
     supported_selected_frame: pl.DataFrame,
     args: CliArgs,
     logger: logging.Logger,
-) -> tuple[
-    pl.DataFrame,
-    tuple[SharedFailureContext, ...],
-    dict[str, SuppressedAccessionNote],
-]:
+) -> tuple[pl.DataFrame, dict[str, SuppressedAccessionNote]]:
     """Resolve preferred accessions for supported selected rows."""
 
     if supported_selected_frame.is_empty():
@@ -347,7 +331,6 @@ def resolve_supported_accession_preferences(
                 prefer_genbank=args.prefer_genbank,
                 version_latest=args.version_latest,
             ),
-            (),
             {},
         )
     if not args.prefer_genbank:
@@ -360,13 +343,11 @@ def resolve_supported_accession_preferences(
                 prefer_genbank=False,
                 version_latest=args.version_latest,
             ),
-            (),
             {},
         )
 
     summary_map: dict[str, set[str]] = {}
     status_map: dict[str, AssemblyStatusInfo] = {}
-    metadata_shared_failures: list[SharedFailureContext] = []
     supported_accessions = get_ordered_unique_accessions(
         supported_selected_frame.get_column("ncbi_accession").to_list(),
     )
@@ -391,25 +372,9 @@ def resolve_supported_accession_preferences(
                 "keeping original accessions",
                 len(supported_accessions),
             )
-            if error.failures:
-                metadata_shared_failures.append(
-                    build_shared_failure_context(
-                        build_original_accession_scope(supported_accessions),
-                        error.failures,
-                        ";".join(supported_accessions),
-                    ),
-                )
         else:
             summary_map = summary_lookup.summary_map
             status_map = summary_lookup.status_map
-            if summary_lookup.failures:
-                metadata_shared_failures.append(
-                    build_shared_failure_context(
-                        build_original_accession_scope(supported_accessions),
-                        summary_lookup.failures,
-                        ";".join(supported_accessions),
-                    ),
-                )
             logger.info(
                 "Metadata lookup finished with %d preferred mapping(s)",
                 len(summary_map),
@@ -447,22 +412,7 @@ def resolve_supported_accession_preferences(
                         "accession(s); falling back to original accessions",
                         len(candidate_accessions),
                     )
-                    metadata_shared_failures.append(
-                        build_shared_failure_context(
-                            candidate_original_accessions,
-                            error.failures,
-                            ";".join(candidate_accessions),
-                        ),
-                    )
                 else:
-                    if candidate_lookup.failures:
-                        metadata_shared_failures.append(
-                            build_shared_failure_context(
-                                candidate_original_accessions,
-                                candidate_lookup.failures,
-                                ";".join(candidate_accessions),
-                            ),
-                        )
                     status_map = {
                         **status_map,
                         **candidate_lookup.status_map,
@@ -474,11 +424,7 @@ def resolve_supported_accession_preferences(
         prefer_genbank=args.prefer_genbank,
         version_latest=args.version_latest,
     )
-    return (
-        mapped_frame,
-        tuple(metadata_shared_failures),
-        build_suppressed_accession_notes(mapped_frame, status_map),
-    )
+    return mapped_frame, build_suppressed_accession_notes(mapped_frame, status_map)
 
 # Automatic method planning.
 
@@ -522,11 +468,7 @@ def prepare_planning_inputs(
 ]:
     """Resolve accession preferences and plan the supported download strategy."""
 
-    (
-        supported_mapped_frame,
-        _metadata_shared_failures,
-        suppressed_notes,
-    ) = resolve_supported_accession_preferences(
+    supported_mapped_frame, suppressed_notes = resolve_supported_accession_preferences(
         supported_selected_frame,
         args,
         logger,
