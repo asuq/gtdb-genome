@@ -176,6 +176,16 @@ See [NOTICE](NOTICE) and
 [licenses/CC-BY-SA-4.0.txt](licenses/CC-BY-SA-4.0.txt) for attribution and
 licence details.
 
+## Citation
+
+You can copy and paste this citation:
+
+```text
+Shima, A. (2026). gtdb-genomes (Version 0.1.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19198946
+```
+
+Machine-readable citation metadata is also available in [CITATION.cff](CITATION.cff).
+
 ## Additional Documents
 
 - [Usage details](docs/usage-details.md)

@@ -597,6 +597,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         readme_text,
         "Contribution",
     )
+    citation_text = markdown_level_two_section(
+        readme_text,
+        "Citation",
+    )
     assert_contains_all(
         readme_text,
         (
@@ -659,12 +663,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "UBA",
             "Metadata-confirmed suppressed genomes may no longer be downloadable",
             "older GTDB releases",
-            "parseable percentages",
-            "10% progress milestones",
-            "best-effort hints from upstream output",
             "PRJNA417962",
             "Output Layout",
             "Contribution",
+            "Citation",
             "CONTRIBUTING.md",
             "packaging/bioconda/meta.yaml.template",
             '--gtdb-taxon "p__Pseudomonadota" "c__Alphaproteobacteria"',
@@ -711,6 +713,19 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "taxon_summary.tsv",
             "[Output Layout](docs/usage-details.md#output-layout)",
             "[Summary Files](docs/usage-details.md#summary-files)",
+        ),
+    )
+    assert_contains_all(
+        citation_text,
+        (
+            "You can copy and paste this citation:",
+            (
+                "Shima, A. (2026). gtdb-genomes (Version 0.1.0) "
+                "[Computer software]. Zenodo. "
+                "https://doi.org/10.5281/zenodo.19198946"
+            ),
+            "10.5281/zenodo.19198946",
+            "[CITATION.cff](CITATION.cff)",
         ),
     )
     assert_contains_all(
