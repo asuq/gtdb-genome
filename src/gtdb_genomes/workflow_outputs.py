@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
+import re
 import sys
 from typing import TYPE_CHECKING, Any, TextIO, TypedDict
 
@@ -205,6 +206,46 @@ def configure_output_logger(
 
 
 # Manifest row builders.
+
+
+DATASETS_HELP_FOOTER = (
+    "Use datasets download genome accession <command> --help "
+    "for detailed help about a command."
+)
+DATASETS_NO_MATCH_MESSAGE = (
+    "Error: There are no genome assemblies that match your query. "
+    "Please try again using different search criteria."
+)
+WHITESPACE_RUN_PATTERN = re.compile(r"\s+")
+
+
+def normalise_failure_manifest_reason(reason: str) -> str:
+    """Return one compact single-line manifest reason string."""
+
+    normalised_reason = WHITESPACE_RUN_PATTERN.sub(" ", reason.strip())
+    if normalised_reason.endswith(DATASETS_HELP_FOOTER):
+        normalised_reason = normalised_reason.removesuffix(
+            DATASETS_HELP_FOOTER,
+        ).rstrip()
+    return normalised_reason
+
+
+def build_failure_manifest_reason(
+    *,
+    error_message: str,
+    error_type: str,
+    suppressed: bool,
+) -> str:
+    """Return one manifest-friendly terminal failure reason."""
+
+    reason = normalise_failure_manifest_reason(error_message)
+    if suppressed:
+        if error_type == "subprocess" and reason == DATASETS_NO_MATCH_MESSAGE:
+            return SUPPRESSED_ASSEMBLY_NOTE
+        if reason:
+            return f"{reason} {SUPPRESSED_ASSEMBLY_NOTE}"
+        return SUPPRESSED_ASSEMBLY_NOTE
+    return reason
 
 
 def build_taxon_summary_rows(
@@ -478,10 +519,12 @@ def build_failure_rows(
         if execution.download_status != "failed" or not execution.failures:
             continue
         failure = execution.failures[-1]
-        reason = failure.error_message
         suppressed = accession in suppressed_accessions
-        if suppressed:
-            reason = f"{reason} {SUPPRESSED_ASSEMBLY_NOTE}"
+        reason = build_failure_manifest_reason(
+            error_message=failure.error_message,
+            error_type=failure.error_type,
+            suppressed=suppressed,
+        )
         failure_rows.append(
             {
                 "accession": (

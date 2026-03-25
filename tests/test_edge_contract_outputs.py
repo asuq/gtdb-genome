@@ -29,6 +29,7 @@ from gtdb_genomes.workflow_execution import (
     DownloadExecutionResult,
     SharedFailureContext,
 )
+from gtdb_genomes.workflow_planning import SuppressedAccessionNote
 from gtdb_genomes.workflow_outputs import (
     build_enriched_output_rows,
     build_failure_rows,
@@ -2326,3 +2327,156 @@ def test_failure_manifest_scopes_candidate_metadata_failures_to_affected_rows() 
     )
 
     assert failure_rows == []
+
+
+def test_failure_manifest_canonicalises_suppressed_datasets_no_match_message() -> None:
+    """Suppressed stock datasets no-match output should reduce to the note."""
+
+    enriched_rows = [
+        {
+            "requested_taxon": "o__Cytophagales",
+            "taxon_slug": "o__Cytophagales",
+            "gtdb_accession": "GB_GCA_946478915.1",
+            "ncbi_accession": "GCA_946478915",
+            "final_accession": "GCA_946478915",
+        },
+    ]
+    executions = {
+        "GCA_946478915": AccessionExecution(
+            original_accession="GCA_946478915",
+            final_accession=None,
+            conversion_status="failed_no_usable_accession",
+            download_status="failed",
+            download_batch="direct_batch_1",
+            payload_directory=None,
+            failures=(
+                CommandFailureRecord(
+                    stage="preferred_download",
+                    attempt_index=4,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message=(
+                        "Error: There are no genome assemblies that match "
+                        "your query.\n"
+                        "Please try again using different search criteria.\n\n\n"
+                        "Use datasets download genome accession <command> "
+                        "--help for detailed help about a command."
+                    ),
+                    final_status="retry_exhausted",
+                    attempted_accession="GCA_946478915",
+                ),
+            ),
+        ),
+    }
+
+    failure_rows = build_failure_rows(
+        enriched_rows,
+        executions,
+        (),
+        suppressed_notes={
+            "GCA_946478915": SuppressedAccessionNote(
+                original_accession="GCA_946478915",
+                selected_accession="GCA_946478915",
+                suppression_reason="removed at submitter request",
+            ),
+        },
+    )
+
+    assert [row["reason"] for row in failure_rows] == [SUPPRESSED_ASSEMBLY_NOTE]
+
+
+def test_failure_manifest_condenses_non_stock_suppressed_reason_to_one_line() -> None:
+    """Suppressed manifest rows should keep non-stock detail on one line."""
+
+    enriched_rows = [
+        {
+            "requested_taxon": "g__Escherichia",
+            "taxon_slug": "g__Escherichia",
+            "gtdb_accession": "RS_GCF_000001.1",
+            "ncbi_accession": "GCF_000001.1",
+            "final_accession": "GCF_000001.1",
+        },
+    ]
+    executions = {
+        "GCF_000001.1": AccessionExecution(
+            original_accession="GCF_000001.1",
+            final_accession=None,
+            conversion_status="failed_no_usable_accession",
+            download_status="failed",
+            download_batch="direct_batch_1",
+            payload_directory=None,
+            failures=(
+                CommandFailureRecord(
+                    stage="preferred_download",
+                    attempt_index=4,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="temporary outage\n\nplease retry later\r\n",
+                    final_status="retry_exhausted",
+                    attempted_accession="GCF_000001.1",
+                ),
+            ),
+        ),
+    }
+
+    failure_rows = build_failure_rows(
+        enriched_rows,
+        executions,
+        (),
+        suppressed_notes={
+            "GCF_000001.1": SuppressedAccessionNote(
+                original_accession="GCF_000001.1",
+                selected_accession="GCF_000001.1",
+                suppression_reason="temporary outage",
+            ),
+        },
+    )
+
+    assert [row["reason"] for row in failure_rows] == [
+        f"temporary outage please retry later {SUPPRESSED_ASSEMBLY_NOTE}",
+    ]
+
+
+def test_failure_manifest_condenses_non_suppressed_multiline_reason_to_one_line() -> None:
+    """Non-suppressed manifest rows should strip embedded line breaks."""
+
+    enriched_rows = [
+        {
+            "requested_taxon": "g__Escherichia",
+            "taxon_slug": "g__Escherichia",
+            "gtdb_accession": "RS_GCF_000001.1",
+            "ncbi_accession": "GCF_000001.1",
+            "final_accession": "GCF_000001.1",
+        },
+    ]
+    executions = {
+        "GCF_000001.1": AccessionExecution(
+            original_accession="GCF_000001.1",
+            final_accession=None,
+            conversion_status="failed_no_usable_accession",
+            download_status="failed",
+            download_batch="direct_batch_1",
+            payload_directory=None,
+            failures=(
+                CommandFailureRecord(
+                    stage="preferred_download",
+                    attempt_index=4,
+                    max_attempts=4,
+                    error_type="subprocess",
+                    error_message="temporary outage\n\nplease retry later\r\n",
+                    final_status="retry_exhausted",
+                    attempted_accession="GCF_000001.1",
+                ),
+            ),
+        ),
+    }
+
+    failure_rows = build_failure_rows(
+        enriched_rows,
+        executions,
+        (),
+    )
+
+    assert [row["reason"] for row in failure_rows] == [
+        "temporary outage please retry later",
+    ]

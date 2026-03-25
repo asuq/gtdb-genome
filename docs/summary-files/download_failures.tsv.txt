@@ -18,3 +18,7 @@ attempt.
 accession records the realised accession when known, otherwise the terminal
 attempted or requested accession token used for that failed genome.
 reason is redacted before it is written.
+reason is written as a compact single-line summary with embedded line breaks
+collapsed to spaces.
+Suppressed stock `datasets` "no matching genome assemblies" stderr is
+canonicalised to the suppression note instead of being written verbatim.
