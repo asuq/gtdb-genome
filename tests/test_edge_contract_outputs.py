@@ -32,9 +32,11 @@ from gtdb_genomes.workflow_execution import (
 )
 from gtdb_genomes.workflow_planning import SuppressedAccessionNote
 from gtdb_genomes.workflow_outputs import (
+    build_accession_map_rows,
     build_enriched_output_rows,
     build_failure_rows,
     render_run_summary_log,
+    sort_per_taxon_output_rows,
 )
 from tests.workflow_contract_helpers import (
     build_multi_accession_taxonomy_frame,
@@ -2529,3 +2531,151 @@ def test_render_run_summary_log_abbreviates_digest_fields() -> None:
     assert "run_id: aaaaaaaaaaaa..." in rendered
     assert "accession_decision_sha256: bbbbbbbbbbbb..." in rendered
     assert "release_manifest_sha256: 0000000000000000000000000000000000000000000000000000000000000000" in rendered
+
+
+def test_accession_map_rows_sort_failed_rows_first_then_final_accession() -> None:
+    """Accession-map rows should place failures first then sort by final accession."""
+
+    accession_rows = build_accession_map_rows(
+        [
+            {
+                "requested_taxon": "g__Example",
+                "taxon_slug": "g__Example",
+                "resolved_release": "226.0",
+                "taxonomy_file": "bac120.tsv",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000002.1",
+                "ncbi_accession": "GCF_000002.1",
+                "selected_accession": "GCF_000002.1",
+                "download_request_accession": "GCF_000002.1",
+                "final_accession": "GCF_000002.1",
+                "conversion_status": "unchanged_original",
+                "output_relpath": "taxa/g__Example/GCF_000002.1",
+                "download_status": "downloaded",
+                "duplicate_across_taxa": False,
+            },
+            {
+                "requested_taxon": "g__Example",
+                "taxon_slug": "g__Example",
+                "resolved_release": "226.0",
+                "taxonomy_file": "bac120.tsv",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000003.1",
+                "ncbi_accession": "GCF_000003.1",
+                "selected_accession": "GCF_000003.1",
+                "download_request_accession": "GCF_000003.1",
+                "final_accession": "",
+                "conversion_status": "failed_no_usable_accession",
+                "output_relpath": "",
+                "download_status": "failed",
+                "duplicate_across_taxa": False,
+            },
+            {
+                "requested_taxon": "g__Example",
+                "taxon_slug": "g__Example",
+                "resolved_release": "226.0",
+                "taxonomy_file": "bac120.tsv",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000001.1",
+                "ncbi_accession": "GCF_000001.1",
+                "selected_accession": "GCF_000001.1",
+                "download_request_accession": "GCF_000001.1",
+                "final_accession": "GCF_000001.1",
+                "conversion_status": "unchanged_original",
+                "output_relpath": "taxa/g__Example/GCF_000001.1",
+                "download_status": "downloaded",
+                "duplicate_across_taxa": False,
+            },
+            {
+                "requested_taxon": "g__Example",
+                "taxon_slug": "g__Example",
+                "resolved_release": "226.0",
+                "taxonomy_file": "bac120.tsv",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000004.1",
+                "ncbi_accession": "GCF_000004.1",
+                "selected_accession": "GCF_000004.1",
+                "download_request_accession": "GCF_000004.1",
+                "final_accession": "",
+                "conversion_status": "failed_no_usable_accession",
+                "output_relpath": "",
+                "download_status": "failed",
+                "duplicate_across_taxa": False,
+            },
+        ],
+    )
+
+    assert [row["gtdb_accessions"] for row in accession_rows] == [
+        "RS_GCF_000003.1",
+        "RS_GCF_000004.1",
+        "RS_GCF_000001.1",
+        "RS_GCF_000002.1",
+    ]
+
+
+def test_sort_per_taxon_output_rows_places_failed_rows_first_then_final_accession() -> None:
+    """Per-taxon manifests should place failures first then sort by final accession."""
+
+    per_taxon_rows = sort_per_taxon_output_rows(
+        [
+            {
+                "final_accession": "GCF_000002.1",
+                "requested_taxon": "g__Example",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000002.1",
+                "ncbi_accession": "GCF_000002.1",
+                "selected_accession": "GCF_000002.1",
+                "download_request_accession": "GCF_000002.1",
+                "conversion_status": "unchanged_original",
+                "output_relpath": "taxa/g__Example/GCF_000002.1",
+                "download_status": "downloaded",
+                "duplicate_across_taxa": "false",
+            },
+            {
+                "final_accession": "",
+                "requested_taxon": "g__Example",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000004.1",
+                "ncbi_accession": "GCF_000004.1",
+                "selected_accession": "GCF_000004.1",
+                "download_request_accession": "GCF_000004.1",
+                "conversion_status": "failed_no_usable_accession",
+                "output_relpath": "",
+                "download_status": "failed",
+                "duplicate_across_taxa": "false",
+            },
+            {
+                "final_accession": "GCF_000001.1",
+                "requested_taxon": "g__Example",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000001.1",
+                "ncbi_accession": "GCF_000001.1",
+                "selected_accession": "GCF_000001.1",
+                "download_request_accession": "GCF_000001.1",
+                "conversion_status": "unchanged_original",
+                "output_relpath": "taxa/g__Example/GCF_000001.1",
+                "download_status": "downloaded",
+                "duplicate_across_taxa": "false",
+            },
+            {
+                "final_accession": "",
+                "requested_taxon": "g__Example",
+                "lineage": "d__Bacteria;g__Example",
+                "gtdb_accession": "RS_GCF_000003.1",
+                "ncbi_accession": "GCF_000003.1",
+                "selected_accession": "GCF_000003.1",
+                "download_request_accession": "GCF_000003.1",
+                "conversion_status": "failed_no_usable_accession",
+                "output_relpath": "",
+                "download_status": "failed",
+                "duplicate_across_taxa": "false",
+            },
+        ],
+    )
+
+    assert [row["gtdb_accession"] for row in per_taxon_rows] == [
+        "RS_GCF_000003.1",
+        "RS_GCF_000004.1",
+        "RS_GCF_000001.1",
+        "RS_GCF_000002.1",
+    ]

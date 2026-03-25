@@ -454,6 +454,59 @@ def join_unique_row_values(
     )
 
 
+def build_manifest_row_sort_key(
+    *,
+    download_status: str,
+    final_accession: str,
+    tie_break_values: tuple[str, ...],
+) -> tuple[bool, str, tuple[str, ...]]:
+    """Return one stable manifest row sort key with failed rows first."""
+
+    return (
+        download_status != "failed",
+        final_accession,
+        tie_break_values,
+    )
+
+
+def sort_accession_map_rows(
+    rows: list[AccessionMapRow],
+) -> list[AccessionMapRow]:
+    """Return accession-map rows sorted with failures first and outputs stable."""
+
+    return sorted(
+        rows,
+        key=lambda row: build_manifest_row_sort_key(
+            download_status=row["download_status"],
+            final_accession=row["final_accession"],
+            tie_break_values=(
+                row["selected_accessions"],
+                row["download_request_accessions"],
+                row["gtdb_accessions"],
+            ),
+        ),
+    )
+
+
+def sort_per_taxon_output_rows(
+    rows: list[PerTaxonOutputRow],
+) -> list[PerTaxonOutputRow]:
+    """Return per-taxon rows sorted with failures first and outputs stable."""
+
+    return sorted(
+        rows,
+        key=lambda row: build_manifest_row_sort_key(
+            download_status=row["download_status"],
+            final_accession=row["final_accession"],
+            tie_break_values=(
+                row["selected_accession"],
+                row["ncbi_accession"],
+                row["gtdb_accession"],
+            ),
+        ),
+    )
+
+
 def build_accession_map_rows(
     enriched_rows: list[EnrichedOutputRow],
 ) -> list[AccessionMapRow]:
@@ -485,7 +538,7 @@ def build_accession_map_rows(
                 ).lower(),
             },
         )
-    return accession_rows
+    return sort_accession_map_rows(accession_rows)
 
 
 def build_duplicated_genome_rows(
@@ -829,6 +882,8 @@ def execute_transfer_batches(
                 "duplicate_across_taxa": str(row["duplicate_across_taxa"]).lower(),
             },
         )
+    for taxon_slug, rows in per_taxon_rows.items():
+        per_taxon_rows[taxon_slug] = sort_per_taxon_output_rows(rows)
     return per_taxon_rows, output_relpaths
 
 

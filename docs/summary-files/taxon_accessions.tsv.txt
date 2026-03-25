@@ -14,3 +14,7 @@ conversion_status
 output_relpath
 download_status
 duplicate_across_taxa
+
+Notes:
+Rows are ordered with failed records first, then successful records by
+`final_accession`.

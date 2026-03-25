@@ -15,6 +15,8 @@ duplicate_across_taxa
 
 Notes:
 The file is condensed to one row per unique accession outcome.
+Rows are ordered with failed records first, then successful records by
+`final_accession`.
 download_request_accessions records the terminal exact accession token or tokens
 used for the grouped row.
 final_accession records the realised versioned accession from the extracted
