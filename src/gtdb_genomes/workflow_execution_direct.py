@@ -46,6 +46,46 @@ NORMAL_DIRECT_BATCH_MAX_ATTEMPTS = 4
 SUPPRESSED_DIRECT_BATCH_MAX_ATTEMPTS = 2
 
 
+def append_shared_failures(
+    original_accessions: tuple[str, ...],
+    failures: tuple[CommandFailureRecord, ...],
+    attempted_accession: str,
+    *,
+    shared_failures: list[SharedFailureContext],
+) -> None:
+    """Record one shared batch failure for later audit and failure propagation."""
+
+    shared_failures.append(
+        build_shared_failure_context(
+            original_accessions,
+            failures,
+            attempted_accession,
+        ),
+    )
+
+
+def propagate_shared_failures_to_failed_plans(
+    plans: tuple[AccessionPlan, ...],
+    shared_failure_contexts: tuple[SharedFailureContext, ...],
+    *,
+    failure_history: dict[str, list[CommandFailureRecord]],
+) -> None:
+    """Copy shared batch failures into failed plans before final execution build."""
+
+    failed_accessions = {
+        plan.original_accession
+        for plan in plans
+    }
+    if not failed_accessions:
+        return
+    for shared_failure_context in shared_failure_contexts:
+        for original_accession in shared_failure_context.affected_original_accessions:
+            if original_accession in failed_accessions:
+                failure_history[original_accession].extend(
+                    shared_failure_context.failures,
+                )
+
+
 def get_direct_group_max_attempts(
     plan_groups: RequestPlanGroups,
 ) -> int:
@@ -147,12 +187,11 @@ def run_direct_batch_phase(
             batch_label,
             batch_stage,
         )
-        shared_failures.append(
-            build_shared_failure_context(
-                affected_original_accessions,
-                batch_result.failures,
-                batch_attempted_accessions,
-            ),
+        append_shared_failures(
+            affected_original_accessions,
+            batch_result.failures,
+            batch_attempted_accessions,
+            shared_failures=shared_failures,
         )
         return DirectBatchPhaseResult(
             executions=executions,
@@ -161,12 +200,11 @@ def run_direct_batch_phase(
         )
 
     if batch_result.failures:
-        shared_failures.append(
-            build_shared_failure_context(
-                affected_original_accessions,
-                batch_result.failures,
-                batch_attempted_accessions,
-            ),
+        append_shared_failures(
+            affected_original_accessions,
+            batch_result.failures,
+            batch_attempted_accessions,
+            shared_failures=shared_failures,
         )
 
     extraction_root = run_directories.extracted_root / batch_label
@@ -178,20 +216,19 @@ def run_direct_batch_phase(
             batch_label,
             batch_stage,
         )
-        shared_failures.append(
-            build_shared_failure_context(
-                affected_original_accessions,
-                (
-                    build_direct_layout_failure(
-                        str(error),
-                        batch_attempted_accessions,
-                        attempt_index,
-                        max_attempts,
-                        final_status,
-                    ),
+        append_shared_failures(
+            affected_original_accessions,
+            (
+                build_direct_layout_failure(
+                    str(error),
+                    batch_attempted_accessions,
+                    attempt_index,
+                    max_attempts,
+                    final_status,
                 ),
-                batch_attempted_accessions,
             ),
+            batch_attempted_accessions,
+            shared_failures=shared_failures,
         )
         return DirectBatchPhaseResult(
             executions=executions,
@@ -387,6 +424,11 @@ def execute_direct_accession_plans(
         for plan in preferred_unresolved_plans
         if plan.conversion_status != "paired_to_gca"
     )
+    propagate_shared_failures_to_failed_plans(
+        failed_after_preferred,
+        preferred_phase.shared_failures,
+        failure_history=failure_history,
+    )
     executions.update(
         build_phase_failed_executions(
             failed_after_preferred,
@@ -417,6 +459,11 @@ def execute_direct_accession_plans(
             plan
             for _, grouped_plans in fallback_phase.unresolved_groups
             for plan in grouped_plans
+        )
+        propagate_shared_failures_to_failed_plans(
+            unresolved_fallback_plans,
+            preferred_phase.shared_failures + fallback_phase.shared_failures,
+            failure_history=failure_history,
         )
         executions.update(
             build_phase_failed_executions(

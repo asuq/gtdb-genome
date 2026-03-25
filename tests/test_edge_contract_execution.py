@@ -773,6 +773,18 @@ def test_direct_mode_preserves_retry_history_when_extraction_fails(
     )
 
     assert result.executions["GCF_000001.1"].download_status == "failed"
+    assert [
+        failure.final_status for failure in result.executions["GCF_000001.1"].failures
+    ] == [
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_exhausted",
+    ]
     assert len(result.shared_failures) == 8
     assert [
         failure.final_status for failure in result.shared_failures[0].failures
@@ -907,6 +919,24 @@ def test_direct_fallback_preserves_shared_retry_failures_after_success(
     assert result.executions["GCF_001881595.2"].download_status == (
         "downloaded_after_fallback"
     )
+    assert [
+        failure.final_status
+        for failure in result.executions["GCF_001881595.2"].failures
+    ] == [
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_scheduled",
+        "retry_exhausted",
+    ]
+    assert [
+        failure.attempted_accession
+        for failure in result.executions["GCF_001881595.2"].failures
+    ] == [
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+        "GCA_001881595",
+    ]
     assert len(result.shared_failures) == 1
     assert result.shared_failures[0].affected_original_accessions == (
         "GCF_001881595.2",
@@ -1227,6 +1257,23 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
     assert result.executions["GCF_000001.1"].download_batch == "direct_batch_4"
     assert result.executions["GCF_000002.1"].download_status == "failed"
     assert result.executions["GCF_000002.1"].download_batch == "direct_batch_6"
+    assert [
+        failure.error_message for failure in result.executions["GCF_000002.1"].failures
+    ] == [
+        "batch failed",
+        "left-half failed",
+        "single failed",
+        "single failed",
+    ]
+    assert [
+        failure.attempted_accession
+        for failure in result.executions["GCF_000002.1"].failures
+    ] == [
+        "GCF_000001.1;GCF_000002.1;GCF_000003.1;GCF_000004.1",
+        "GCF_000001.1;GCF_000002.1",
+        "GCF_000002.1",
+        "GCF_000002.1",
+    ]
     assert result.executions["GCF_000003.1"].download_batch == "direct_batch_3"
     assert result.executions["GCF_000004.1"].download_batch == "direct_batch_3"
     assert len(result.shared_failures) == 4

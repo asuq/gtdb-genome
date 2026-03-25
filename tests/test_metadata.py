@@ -138,7 +138,8 @@ def test_run_summary_lookup_with_retries_marks_silent_omissions_incomplete(
     assert result.summary_map == {
         "GCA_000001.1": {"GCA_000001.1"},
     }
-    assert result.incomplete_accessions == ("GCA_000002.1",)
+    assert set(result.status_map) == {"GCA_000001.1"}
+    assert "GCA_000002.1" not in result.status_map
 
 
 def test_run_summary_lookup_with_retries_raises_on_command_failure(

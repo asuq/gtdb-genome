@@ -516,7 +516,6 @@ def prepare_planning_inputs(
     logger: logging.Logger,
 ) -> tuple[
     pl.DataFrame,
-    tuple[SharedFailureContext, ...],
     dict[str, SuppressedAccessionNote],
     tuple[AccessionPlan, ...],
     str,
@@ -525,7 +524,7 @@ def prepare_planning_inputs(
 
     (
         supported_mapped_frame,
-        metadata_shared_failures,
+        _metadata_shared_failures,
         suppressed_notes,
     ) = resolve_supported_accession_preferences(
         supported_selected_frame,
@@ -555,7 +554,6 @@ def prepare_planning_inputs(
     )
     return (
         mapped_frame,
-        metadata_shared_failures,
         suppressed_notes,
         accession_plans,
         decision_method,

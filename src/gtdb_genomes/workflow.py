@@ -155,7 +155,6 @@ def run_workflow(args: CliArgs) -> int:
         workflow_selection.run_supported_preflight(args, supported_selected_frame)
         (
             mapped_frame,
-            planning_shared_failures,
             suppressed_notes,
             accession_plans,
             decision_method,

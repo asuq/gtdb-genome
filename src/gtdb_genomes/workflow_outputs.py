@@ -474,7 +474,7 @@ def build_failure_rows(
         rows_by_accession[row["ncbi_accession"]].append(row)
 
     for accession, rows in sorted(rows_by_accession.items()):
-        execution = executions[accession]
+        execution = require_execution_record(executions, accession)
         if execution.download_status != "failed" or not execution.failures:
             continue
         failure = execution.failures[-1]
@@ -505,27 +505,30 @@ def build_failure_rows(
 # Output materialisation and exit handling.
 
 
+def require_execution_record(
+    executions: dict[str, AccessionExecution],
+    accession: str,
+) -> AccessionExecution:
+    """Return one execution record or raise a clear internal-contract error."""
+
+    execution = executions.get(accession)
+    if execution is not None:
+        return execution
+    raise RuntimeError(
+        f"Internal error: missing execution record for accession {accession}",
+    )
+
+
 def build_enriched_output_rows(
     resolved_release: str,
     mapped_frame: pl.DataFrame,
-    execution_result: DownloadExecutionResult,
-    unsupported_executions: dict[str, AccessionExecution],
-    _run_directories: RunDirectories,
-    _logger: logging.Logger,
-) -> tuple[
-    list[EnrichedOutputRow],
-    dict[str, list[PerTaxonOutputRow]],
-    dict[str, int],
-]:
+    executions: dict[str, AccessionExecution],
+) -> list[EnrichedOutputRow]:
     """Build enriched manifest rows without materialising any payloads."""
 
-    executions = {
-        **execution_result.executions,
-        **unsupported_executions,
-    }
     enriched_rows: list[EnrichedOutputRow] = []
     for row in mapped_frame.rows(named=True):
-        execution = executions[row["ncbi_accession"]]
+        execution = require_execution_record(executions, row["ncbi_accession"])
         selected_accession = row["final_accession"]
         final_accession = execution.final_accession or ""
         enriched_rows.append(
@@ -551,25 +554,7 @@ def build_enriched_output_rows(
     for row in enriched_rows:
         row["duplicate_across_taxa"] = row["final_accession"] in duplicate_accessions
 
-    per_taxon_rows: dict[str, list[PerTaxonOutputRow]] = defaultdict(list)
-    for row in enriched_rows:
-        per_taxon_rows[row["taxon_slug"]].append(
-            {
-                "final_accession": row["final_accession"],
-                "requested_taxon": row["requested_taxon"],
-                "lineage": row["lineage"],
-                "gtdb_accession": row["gtdb_accession"],
-                "ncbi_accession": row["ncbi_accession"],
-                "selected_accession": row["selected_accession"],
-                "download_request_accession": row["download_request_accession"],
-                "conversion_status": row["conversion_status"],
-                "output_relpath": row["output_relpath"],
-                "download_status": row["download_status"],
-                "duplicate_across_taxa": str(row["duplicate_across_taxa"]).lower(),
-            },
-        )
-
-    return enriched_rows, per_taxon_rows, {}
+    return enriched_rows
 
 
 def build_transfer_batches(
@@ -597,7 +582,10 @@ def build_transfer_batches(
         if row["download_status"] == "failed" or not row["final_accession"]:
             continue
         accessions_by_taxon[row["taxon_slug"]].add(row["final_accession"])
-        payload_directory = executions[row["ncbi_accession"]].payload_directory
+        payload_directory = require_execution_record(
+            executions,
+            row["ncbi_accession"],
+        ).payload_directory
         if payload_directory is None:
             raise RuntimeError(
                 "Internal error: successful accessions must have payloads",
@@ -828,13 +816,10 @@ def materialise_real_run_outputs(
         **unsupported_executions,
     }
     logger.info("Writing output manifests to %s", run_directories.output_root)
-    enriched_rows, _, _ = build_enriched_output_rows(
+    enriched_rows = build_enriched_output_rows(
         resolution.resolved_release,
         mapped_frame,
-        execution_result,
-        unsupported_executions,
-        run_directories,
-        logger,
+        executions,
     )
     transfer_batches, duplicate_counts = build_transfer_batches(
         enriched_rows,

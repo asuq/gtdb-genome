@@ -291,6 +291,38 @@ def test_run_streamed_command_skips_logs_without_parseable_percentages(
     assert "progress" not in caplog.text
 
 
+def test_run_streamed_command_tracks_progress_across_chunk_boundaries(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chunked stream reads should still emit progress milestones."""
+
+    logger = logging.getLogger("test-streamed-progress-chunks")
+    caplog.set_level(logging.INFO, logger=logger.name)
+    monkeypatch.setattr("gtdb_genomes.download.STREAM_READ_CHUNK_SIZE", 2)
+
+    result = run_streamed_command(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "sys.stdout.write('9%\\r10%\\r19%\\r20%\\n'); "
+                "sys.stdout.flush()"
+            ),
+        ],
+        environment=None,
+        timeout_seconds=10,
+        logger=logger,
+        progress_label="direct_batch_9: preferred_download",
+        progress_step=10,
+    )
+
+    assert result.returncode == 0
+    assert "direct_batch_9: preferred_download progress 10%" in caplog.text
+    assert "direct_batch_9: preferred_download progress 20%" in caplog.text
+
+
 def test_run_retryable_command_uses_stage_message_for_silent_failures() -> None:
     """Silent subprocess failures should still leave a useful error message."""
 

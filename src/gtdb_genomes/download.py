@@ -27,6 +27,7 @@ REHYDRATE_WORKER_CAP = 30
 RETRY_DELAYS_SECONDS = (5, 15, 45)
 DEFAULT_REQUESTED_DOWNLOAD_METHOD = "auto"
 SUPPORTED_INCLUDE_TOKENS = frozenset({"genome", "gff3", "protein"})
+STREAM_READ_CHUNK_SIZE = 4096
 
 
 @dataclass(slots=True)
@@ -227,7 +228,7 @@ def _drain_stream_text(
     if stream is None:
         return
     while True:
-        chunk = stream.read(1)
+        chunk = stream.read(STREAM_READ_CHUNK_SIZE)
         if chunk == "":
             break
         collector.append(chunk)

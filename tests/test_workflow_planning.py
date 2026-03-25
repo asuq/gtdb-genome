@@ -316,7 +316,6 @@ def test_resolve_supported_accession_preferences_falls_back_when_candidate_looku
         return SummaryLookupResult(
             summary_map={},
             status_map={},
-            incomplete_accessions=("GCA_000001.2",),
             failures=(),
         )
 
@@ -918,7 +917,6 @@ def test_prepare_planning_inputs_preserves_metadata_failures(
 
     (
         prepared_frame,
-        planning_shared_failures,
         suppressed_notes,
         accession_plans,
         decision_method,
@@ -930,7 +928,6 @@ def test_prepare_planning_inputs_preserves_metadata_failures(
     )
 
     assert prepared_frame.equals(mapped_frame)
-    assert planning_shared_failures == metadata_shared_failures
     assert suppressed_notes == {}
     assert accession_plans == ()
     assert decision_method == "direct"

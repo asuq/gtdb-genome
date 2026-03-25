@@ -67,7 +67,6 @@ class SummaryLookupResult:
 
     summary_map: dict[str, set[str]] = field(default_factory=dict)
     status_map: dict[str, AssemblyStatusInfo] = field(default_factory=dict)
-    incomplete_accessions: tuple[str, ...] = ()
     failures: tuple[CommandFailureRecord, ...] = ()
 
 
@@ -77,7 +76,6 @@ class ParsedSummaryOutput:
 
     summary_map: dict[str, set[str]]
     status_map: dict[str, AssemblyStatusInfo]
-    incomplete_accessions: tuple[str, ...]
 
 
 def normalise_field_name(field_name: str) -> str:
@@ -298,16 +296,9 @@ def parse_summary_output(
                 f"{primary_accession}",
             )
         statuses[primary_accession] = status_info
-    incomplete_accessions = tuple(
-        accession
-        for accession in ordered_requested_accessions
-        if accession not in summaries
-        or not has_complete_assembly_status_info(statuses.get(accession))
-    )
     return ParsedSummaryOutput(
         summary_map=summaries,
         status_map=statuses,
-        incomplete_accessions=incomplete_accessions,
     )
 
 

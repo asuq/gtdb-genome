@@ -144,7 +144,6 @@ def run_summary_lookup_with_retries(
                     return SummaryLookupResult(
                         summary_map=parsed_summary.summary_map,
                         status_map=parsed_summary.status_map,
-                        incomplete_accessions=parsed_summary.incomplete_accessions,
                         failures=tuple(failures),
                     )
                 except MetadataLookupError as error:

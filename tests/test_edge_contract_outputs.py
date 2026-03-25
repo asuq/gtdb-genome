@@ -1819,7 +1819,6 @@ def test_build_enriched_output_rows_uses_execution_request_accession(
     payload_directory = tmp_path / "payload"
     payload_directory.mkdir()
     (payload_directory / "genome.fna").write_text(">seq\nACGT\n", encoding="ascii")
-    run_directories = initialise_run_directories(tmp_path / "output")
     mapped_frame = pl.DataFrame(
         {
             "requested_taxon": ["g__Bacillus"],
@@ -1833,8 +1832,10 @@ def test_build_enriched_output_rows_uses_execution_request_accession(
             "accession_type_final": ["GenBank"],
         },
     )
-    execution_result = DownloadExecutionResult(
-        executions={
+    enriched_rows = build_enriched_output_rows(
+        "80.0",
+        mapped_frame,
+        {
             "GCF_001881595.2": AccessionExecution(
                 original_accession="GCF_001881595.2",
                 final_accession="GCF_001881595.2",
@@ -1846,26 +1847,35 @@ def test_build_enriched_output_rows_uses_execution_request_accession(
                 request_accession_used="GCF_001881595.2",
             ),
         },
-        method_used="direct",
-        download_concurrency_used=1,
-        rehydrate_workers_used=0,
     )
 
-    enriched_rows, per_taxon_rows, duplicate_counts = (
-        build_enriched_output_rows(
-            "80.0",
-            mapped_frame,
-            execution_result,
-            {},
-            run_directories,
-            logging.getLogger("test-build-enriched-output-rows"),
-        )
-    )
-
-    del per_taxon_rows, duplicate_counts
     assert enriched_rows[0]["selected_accession"] == "GCA_001881595.3"
     assert enriched_rows[0]["download_request_accession"] == "GCF_001881595.2"
     assert enriched_rows[0]["final_accession"] == "GCF_001881595.2"
+
+
+def test_build_enriched_output_rows_requires_execution_record() -> None:
+    """Output enrichment should fail clearly when an execution record is missing."""
+
+    mapped_frame = pl.DataFrame(
+        {
+            "requested_taxon": ["g__Bacillus"],
+            "taxon_slug": ["g__Bacillus"],
+            "taxonomy_file": ["bac120_taxonomy_r80.tsv"],
+            "lineage": ["d__Bacteria;p__Firmicutes;g__Bacillus"],
+            "gtdb_accession": ["RS_GCF_001881595.2"],
+            "ncbi_accession": ["GCF_001881595.2"],
+            "final_accession": ["GCA_001881595.3"],
+            "accession_type_original": ["RefSeq"],
+            "accession_type_final": ["GenBank"],
+        },
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="missing execution record for accession GCF_001881595.2",
+    ):
+        build_enriched_output_rows("80.0", mapped_frame, {})
 
 
 def test_direct_success_manifest_preserves_shared_retry_failures(
