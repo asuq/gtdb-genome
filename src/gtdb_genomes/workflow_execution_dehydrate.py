@@ -15,7 +15,10 @@ from gtdb_genomes.download import (
 )
 from gtdb_genomes.layout import LayoutError, RunDirectories, extract_archive
 from gtdb_genomes.logging_utils import redact_command
-from gtdb_genomes.subprocess_utils import build_datasets_subprocess_environment
+from gtdb_genomes.subprocess_utils import (
+    build_datasets_subprocess_environment,
+    get_stage_display_name,
+)
 from gtdb_genomes.workflow_execution_direct import execute_direct_accession_plans
 from gtdb_genomes.workflow_execution_models import (
     AccessionExecution,
@@ -35,6 +38,9 @@ from gtdb_genomes.workflow_execution_payloads import (
 
 if TYPE_CHECKING:
     from gtdb_genomes.cli import CliArgs
+
+
+DEHYDRATED_DOWNLOAD_STAGE = "dehydrated_download"
 
 
 def build_dehydrate_fallback_warning(
@@ -197,8 +203,10 @@ def execute_batch_dehydrate_plans(
         plan.download_request_accession for plan in plans
     )
     batch_attempted_accessions = ";".join(requested_accessions)
+    download_stage_display = get_stage_display_name(DEHYDRATED_DOWNLOAD_STAGE)
     logger.info(
-        "dehydrated_batch: starting preferred_download for %d request accession(s)",
+        "dehydrated_batch: starting %s for %d request accession(s)",
+        download_stage_display,
         len(requested_accessions),
     )
     affected_original_accessions = tuple(
@@ -218,11 +226,11 @@ def execute_batch_dehydrate_plans(
     logger.debug("Running %s", redact_command(download_command, secrets))
     batch_download = run_retryable_command(
         download_command,
-        stage="preferred_download",
+        stage=DEHYDRATED_DOWNLOAD_STAGE,
         attempted_accession=batch_attempted_accessions,
         environment=environment,
         logger=logger,
-        progress_label="dehydrated_batch: preferred_download",
+        progress_label=f"dehydrated_batch: {download_stage_display}",
     )
     if not batch_download.succeeded:
         return fallback_batch_to_direct(

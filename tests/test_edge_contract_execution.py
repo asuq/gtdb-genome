@@ -141,7 +141,7 @@ def test_direct_mode_downloads_shared_preferred_accession_once(
     )
 
     assert result.download_concurrency_used == 1
-    assert download_calls == [("preferred_download", "GCA_001881595")]
+    assert download_calls == [("download", "GCA_001881595")]
     assert extraction_calls == [
         (
             run_directories.downloads_root / "direct_batch_1.zip",
@@ -187,13 +187,13 @@ def test_direct_mode_passes_api_key_via_child_environment(
         """Return one successful direct batch command."""
 
         del final_failure_status, sleep_func, runner, stream_runner
-        assert stage == "preferred_download"
+        assert stage == "download"
         assert attempted_accession == "GCF_000001.1"
         assert "--api-key" not in command
         assert environment is not None
         assert environment[NCBI_API_KEY_ENV_VAR] == "secret"
         assert logger is not None
-        assert progress_label == "direct_batch_1: preferred_download"
+        assert progress_label == "direct_batch_1: download"
         assert progress_step == 10
         return RetryableCommandResult(
             succeeded=True,
@@ -396,8 +396,8 @@ def test_direct_mode_retries_unresolved_accessions_in_later_batches(
 
     assert result.download_concurrency_used == 1
     assert download_calls == [
-        ("preferred_download", "GCF_000001.1;GCF_000002.1"),
-        ("preferred_download", "GCF_000002.1"),
+        ("download", "GCF_000001.1;GCF_000002.1"),
+        ("download", "GCF_000002.1"),
     ]
     assert extraction_calls == [
         (
@@ -522,29 +522,29 @@ def test_direct_mode_falls_back_to_original_accession_after_preferred_phase(
 
     assert download_calls == [
         (
-            "preferred_download",
+            "download",
             "GCA_001881595",
-            "direct_batch_1: preferred_download",
+            "direct_batch_1: download",
         ),
         (
-            "preferred_download",
+            "download",
             "GCA_001881595",
-            "direct_batch_2: preferred_download",
+            "direct_batch_2: download",
         ),
         (
-            "preferred_download",
+            "download",
             "GCA_001881595",
-            "direct_batch_3: preferred_download",
+            "direct_batch_3: download",
         ),
         (
-            "preferred_download",
+            "download",
             "GCA_001881595",
-            "direct_batch_4: preferred_download",
+            "direct_batch_4: download",
         ),
         (
             "fallback_download",
             "GCF_001881595.2",
-            "direct_fallback_batch_1: fallback_download",
+            "direct_fallback_batch_1: fallback download",
         ),
     ]
     assert result.executions["GCF_001881595.2"].final_accession == "GCF_001881595.2"
@@ -612,7 +612,7 @@ def test_direct_mode_preserves_shared_retry_failures_after_success(
         nonlocal call_count
         call_count += 1
         assert call_count == 1
-        assert stage == "preferred_download"
+        assert stage == "download"
         assert attempted_accession == "GCF_000001.1"
         return RetryableCommandResult(
             succeeded=True,
@@ -620,7 +620,7 @@ def test_direct_mode_preserves_shared_retry_failures_after_success(
             stderr="",
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=1,
                     max_attempts=4,
                     error_type="subprocess",
@@ -718,7 +718,7 @@ def test_direct_mode_preserves_retry_history_when_extraction_fails(
         """Return one successful batch with preserved retry history."""
 
         del command, final_failure_status, environment, sleep_func, runner
-        assert stage == "preferred_download"
+        assert stage == "download"
         assert attempted_accession == "GCF_000001.1"
         return RetryableCommandResult(
             succeeded=True,
@@ -726,7 +726,7 @@ def test_direct_mode_preserves_retry_history_when_extraction_fails(
             stderr="",
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=1,
                     max_attempts=4,
                     error_type="subprocess",
@@ -830,7 +830,7 @@ def test_direct_fallback_preserves_shared_retry_failures_after_success(
         nonlocal call_count
         call_count += 1
         if call_count <= 4:
-            assert stage == "preferred_download"
+            assert stage == "download"
             assert attempted_accession == "GCA_001881595"
             return RetryableCommandResult(
                 succeeded=True,
@@ -1101,7 +1101,7 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
         """Fail two mixed batches before isolating one bad singleton."""
 
         del command, final_failure_status, environment, sleep_func, runner
-        assert stage == "preferred_download"
+        assert stage == "download"
         download_calls.append(attempted_accession or "")
         if attempted_accession == (
             "GCF_000001.1;GCF_000002.1;GCF_000003.1;GCF_000004.1"
@@ -1112,7 +1112,7 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
                 stderr="batch failed",
                 failures=(
                     CommandFailureRecord(
-                        stage="preferred_download",
+                        stage="download",
                         attempt_index=4,
                         max_attempts=4,
                         error_type="subprocess",
@@ -1128,7 +1128,7 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
                 stderr="left-half failed",
                 failures=(
                     CommandFailureRecord(
-                        stage="preferred_download",
+                        stage="download",
                         attempt_index=4,
                         max_attempts=4,
                         error_type="subprocess",
@@ -1158,7 +1158,7 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
             stderr="single failed",
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=4,
                     max_attempts=4,
                     error_type="subprocess",
@@ -1278,11 +1278,11 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_failed_batches(
     assert result.executions["GCF_000004.1"].download_batch == "direct_batch_3"
     assert len(result.shared_failures) == 4
     assert (
-        "preferred_download wave 2: starting 2 batch(es) covering 4 request accession(s)"
+        "download wave 2: starting 2 batch(es) covering 4 request accession(s)"
         in caplog.text
     )
     assert (
-        "preferred_download wave 3: starting 2 batch(es) covering 2 request accession(s)"
+        "download wave 3: starting 2 batch(es) covering 2 request accession(s)"
         in caplog.text
     )
 
@@ -1320,7 +1320,7 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_partial_batches(
         """Succeed all downloads so the wave scheduler decides the retry order."""
 
         del command, final_failure_status, environment, sleep_func, runner
-        assert stage == "preferred_download"
+        assert stage == "download"
         download_calls.append(attempted_accession or "")
         return RetryableCommandResult(
             succeeded=True,
@@ -1430,7 +1430,7 @@ def test_direct_mode_waits_for_wave_completion_before_retrying_partial_batches(
         "GCF_000002.1",
     ]
     assert (
-        "preferred_download wave 2: starting 2 batch(es) covering 4 request accession(s)"
+        "download wave 2: starting 2 batch(es) covering 4 request accession(s)"
         in caplog.text
     )
 
@@ -1459,7 +1459,7 @@ def test_direct_mode_retries_suppressed_groups_once(
         """Succeed both suppressed direct downloads before layout resolution."""
 
         del command, final_failure_status, environment, sleep_func, runner
-        assert stage == "preferred_download"
+        assert stage == "download"
         download_calls.append(attempted_accession or "")
         return RetryableCommandResult(
             succeeded=True,
@@ -1548,7 +1548,7 @@ def test_direct_mode_keeps_normal_retry_budget_for_mixed_groups(
         """Succeed all mixed-group downloads before layout resolution."""
 
         del command, final_failure_status, environment, sleep_func, runner
-        assert stage == "preferred_download"
+        assert stage == "download"
         download_calls.append(attempted_accession or "")
         return RetryableCommandResult(
             succeeded=True,
@@ -1699,8 +1699,8 @@ def test_direct_fallback_retries_suppressed_groups_once(
     )
 
     assert download_calls == [
-        ("preferred_download", "GCA_001881595"),
-        ("preferred_download", "GCA_001881595"),
+        ("download", "GCA_001881595"),
+        ("download", "GCA_001881595"),
         ("fallback_download", "GCF_001881595.2"),
         ("fallback_download", "GCF_001881595.2"),
     ]
@@ -1757,7 +1757,7 @@ def test_batch_dehydrate_failure_falls_back_to_direct(
             stderr="batch failed",
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=4,
                     max_attempts=4,
                     error_type="subprocess",
@@ -1861,7 +1861,7 @@ def test_batch_dehydrate_preserves_partial_success_before_direct_fallback(
         """Succeed the batch download but fail rehydrate after extraction."""
 
         del command, final_failure_status, environment, sleep_func, runner, attempted_accession
-        if stage == "preferred_download":
+        if stage == "dehydrated_download":
             return RetryableCommandResult(
                 succeeded=True,
                 stdout="",
@@ -2074,7 +2074,7 @@ def test_batch_dehydrate_passes_api_key_via_child_environment(
     )
 
     assert [stage for stage, _, _ in observed_calls] == [
-        "preferred_download",
+        "dehydrated_download",
         "rehydrate",
     ]
     assert [
@@ -2085,7 +2085,7 @@ def test_batch_dehydrate_passes_api_key_via_child_environment(
         "secret",
     ]
     assert [progress_label for _, _, progress_label in observed_calls] == [
-        "dehydrated_batch: preferred_download",
+        "dehydrated_batch: dehydrated download",
         "dehydrated_batch: rehydrate",
     ]
     assert result.method_used == "dehydrate"

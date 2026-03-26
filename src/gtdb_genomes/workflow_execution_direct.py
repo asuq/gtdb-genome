@@ -14,7 +14,10 @@ from gtdb_genomes.download import (
 )
 from gtdb_genomes.layout import LayoutError, RunDirectories, extract_archive
 from gtdb_genomes.logging_utils import redact_command
-from gtdb_genomes.subprocess_utils import build_datasets_subprocess_environment
+from gtdb_genomes.subprocess_utils import (
+    build_datasets_subprocess_environment,
+    get_stage_display_name,
+)
 from gtdb_genomes.workflow_execution_batches import (
     RequestPlanGroups,
     build_next_wave_batches,
@@ -44,6 +47,8 @@ if TYPE_CHECKING:
 
 NORMAL_DIRECT_BATCH_MAX_ATTEMPTS = 4
 SUPPRESSED_DIRECT_BATCH_MAX_ATTEMPTS = 2
+DIRECT_DOWNLOAD_STAGE = "download"
+FALLBACK_DOWNLOAD_STAGE = "fallback_download"
 
 
 def append_shared_failures(
@@ -127,6 +132,7 @@ def run_direct_batch_phase(
 
     secrets = tuple(secret for secret in (args.ncbi_api_key,) if secret)
     environment = build_datasets_subprocess_environment(args.ncbi_api_key)
+    batch_stage_display = get_stage_display_name(batch_stage)
     max_attempts = get_direct_group_max_attempts(plan_groups)
     can_retry = attempt_index < max_attempts
     final_status = "retry_scheduled" if can_retry else "retry_exhausted"
@@ -141,7 +147,7 @@ def run_direct_batch_phase(
     logger.info(
         "%s: starting %s for %d request accession(s)",
         batch_label,
-        batch_stage,
+        batch_stage_display,
         len(pending_request_accessions),
     )
     affected_original_accessions = tuple(
@@ -179,13 +185,13 @@ def run_direct_batch_phase(
         attempted_accession=batch_attempted_accessions,
         environment=environment,
         logger=logger,
-        progress_label=f"{batch_label}: {batch_stage}",
+        progress_label=f"{batch_label}: {batch_stage_display}",
     )
     if not batch_result.succeeded:
         logger.warning(
             "%s: %s failed before payload extraction",
             batch_label,
-            batch_stage,
+            batch_stage_display,
         )
         append_shared_failures(
             affected_original_accessions,
@@ -214,7 +220,7 @@ def run_direct_batch_phase(
         logger.warning(
             "%s: extraction failed after %s",
             batch_label,
-            batch_stage,
+            batch_stage_display,
         )
         append_shared_failures(
             affected_original_accessions,
@@ -310,11 +316,12 @@ def execute_direct_wave_phase(
     shared_failures: list[SharedFailureContext] = []
     unresolved_groups: list[tuple[str, tuple[AccessionPlan, ...]]] = []
     wave_index = 1
+    batch_stage_display = get_stage_display_name(batch_stage)
 
     while current_wave_batches:
         logger.info(
             "%s wave %d: starting %d batch(es) covering %d request accession(s)",
-            batch_stage,
+            batch_stage_display,
             wave_index,
             len(current_wave_batches),
             count_batch_request_accessions(current_wave_batches),
@@ -352,7 +359,7 @@ def execute_direct_wave_phase(
 
         logger.info(
             "%s wave %d: completed with %d next-wave batch(es) covering %d unresolved request accession(s)",
-            batch_stage,
+            batch_stage_display,
             wave_index,
             len(next_wave_batches),
             next_wave_unresolved_count,
@@ -393,45 +400,43 @@ def execute_direct_accession_plans(
     last_request_accessions: dict[str, str] = {
         plan.original_accession: plan.download_request_accession for plan in plans
     }
-    preferred_batch_counter = [0]
+    direct_batch_counter = [0]
 
-    preferred_phase = execute_direct_wave_phase(
+    direct_phase = execute_direct_wave_phase(
         plan_groups,
         args,
         run_directories,
         logger,
-        batch_stage="preferred_download",
+        batch_stage=DIRECT_DOWNLOAD_STAGE,
         batch_prefix="direct_batch",
         success_status="downloaded",
         failure_history=failure_history,
         last_download_batches=last_download_batches,
         last_request_accessions=last_request_accessions,
-        batch_label_counter=preferred_batch_counter,
+        batch_label_counter=direct_batch_counter,
     )
-    executions.update(preferred_phase.executions)
-    shared_failures.extend(preferred_phase.shared_failures)
+    executions.update(direct_phase.executions)
+    shared_failures.extend(direct_phase.shared_failures)
 
-    preferred_unresolved_plans: list[AccessionPlan] = []
+    direct_unresolved_plans: list[AccessionPlan] = []
     fallback_groups: list[tuple[str, tuple[AccessionPlan, ...]]] = []
 
-    for _, grouped_plans in preferred_phase.unresolved_groups:
+    for _, grouped_plans in direct_phase.unresolved_groups:
         for plan in grouped_plans:
-            preferred_unresolved_plans.append(plan)
+            direct_unresolved_plans.append(plan)
             if plan.conversion_status == "paired_to_gca":
                 fallback_groups.append((plan.original_accession, (plan,)))
-    failed_after_preferred = tuple(
-        plan
-        for plan in preferred_unresolved_plans
-        if plan.conversion_status != "paired_to_gca"
+    failed_after_direct = tuple(
+        plan for plan in direct_unresolved_plans if plan.conversion_status != "paired_to_gca"
     )
     propagate_shared_failures_to_failed_plans(
-        failed_after_preferred,
-        preferred_phase.shared_failures,
+        failed_after_direct,
+        direct_phase.shared_failures,
         failure_history=failure_history,
     )
     executions.update(
         build_phase_failed_executions(
-            failed_after_preferred,
+            failed_after_direct,
             failure_history,
             last_download_batches,
             last_request_accessions,
@@ -445,7 +450,7 @@ def execute_direct_accession_plans(
             args,
             run_directories,
             logger,
-            batch_stage="fallback_download",
+            batch_stage=FALLBACK_DOWNLOAD_STAGE,
             batch_prefix="direct_fallback_batch",
             success_status="downloaded_after_fallback",
             failure_history=failure_history,
@@ -462,7 +467,7 @@ def execute_direct_accession_plans(
         )
         propagate_shared_failures_to_failed_plans(
             unresolved_fallback_plans,
-            preferred_phase.shared_failures + fallback_phase.shared_failures,
+            direct_phase.shared_failures + fallback_phase.shared_failures,
             failure_history=failure_history,
         )
         executions.update(

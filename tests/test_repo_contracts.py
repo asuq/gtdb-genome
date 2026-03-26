@@ -830,6 +830,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "planning or runtime failure with no successful genomes",
             "local final-output materialisation failure",
             "unexpected internal failure",
+            "user interrupted the run",
             "MD5SUM",
             "--threads",
             "processes through the child environment",
@@ -865,9 +866,15 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     )
     assert_not_contains_any(
         usage_details_text,
-        ("--download-method", "--no-prefer-genbank", "--keep-temp"),
+        (
+            "--download-method",
+            "--no-prefer-genbank",
+            "--keep-temp",
+            "preferred_download",
+        ),
     )
     assert "Fixed TSV columns:" not in usage_details_text
+    assert "`dehydrated_download`" in usage_details_text
 
     assert_contains_all(
         run_summary_text,

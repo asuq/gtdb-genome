@@ -1430,7 +1430,7 @@ def test_direct_fallback_manifest_uses_execution_request_accession(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",
@@ -1537,7 +1537,7 @@ def test_latest_fallback_manifest_uses_original_fallback_request_accession(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",
@@ -1772,7 +1772,7 @@ def test_dehydrate_fallback_manifest_uses_direct_execution_request_accession(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",
@@ -1940,7 +1940,7 @@ def test_direct_success_manifest_preserves_shared_retry_failures(
                     affected_original_accessions=("GCF_000001.1",),
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=1,
                             max_attempts=4,
                             error_type="subprocess",
@@ -2167,7 +2167,7 @@ def test_failure_manifest_collapses_shared_accession_taxa(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",
@@ -2360,7 +2360,7 @@ def test_failure_manifest_canonicalises_suppressed_datasets_no_match_message() -
             payload_directory=None,
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=4,
                     max_attempts=4,
                     error_type="subprocess",
@@ -2416,7 +2416,7 @@ def test_failure_manifest_condenses_non_stock_suppressed_reason_to_one_line() ->
             payload_directory=None,
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=4,
                     max_attempts=4,
                     error_type="subprocess",
@@ -2468,7 +2468,7 @@ def test_failure_manifest_condenses_non_suppressed_multiline_reason_to_one_line(
             payload_directory=None,
             failures=(
                 CommandFailureRecord(
-                    stage="preferred_download",
+                    stage="download",
                     attempt_index=4,
                     max_attempts=4,
                     error_type="subprocess",

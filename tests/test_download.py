@@ -190,7 +190,7 @@ def test_run_retryable_command_records_retries_before_success() -> None:
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         environment={NCBI_API_KEY_ENV_VAR: "secret"},
         sleep_func=sleep_calls.append,
         runner=runner,
@@ -246,18 +246,18 @@ def test_run_streamed_command_logs_progress_milestones(
         environment=None,
         timeout_seconds=10,
         logger=logger,
-        progress_label="direct_batch_3: preferred_download",
+        progress_label="direct_batch_3: download",
         progress_step=10,
     )
 
     assert result.returncode == 0
     assert result.stdout == "5%\n15%\n20%\n"
     assert result.stderr == "45%\n"
-    assert "direct_batch_3: preferred_download progress 10%" in caplog.text
-    assert "direct_batch_3: preferred_download progress 20%" in caplog.text
-    assert "direct_batch_3: preferred_download progress 30%" in caplog.text
-    assert "direct_batch_3: preferred_download progress 40%" in caplog.text
-    assert "direct_batch_3: preferred_download progress 50%" not in caplog.text
+    assert "direct_batch_3: download progress 10%" in caplog.text
+    assert "direct_batch_3: download progress 20%" in caplog.text
+    assert "direct_batch_3: download progress 30%" in caplog.text
+    assert "direct_batch_3: download progress 40%" in caplog.text
+    assert "direct_batch_3: download progress 50%" not in caplog.text
 
 
 def test_run_streamed_command_skips_logs_without_parseable_percentages(
@@ -314,13 +314,13 @@ def test_run_streamed_command_tracks_progress_across_chunk_boundaries(
         environment=None,
         timeout_seconds=10,
         logger=logger,
-        progress_label="direct_batch_9: preferred_download",
+        progress_label="direct_batch_9: download",
         progress_step=10,
     )
 
     assert result.returncode == 0
-    assert "direct_batch_9: preferred_download progress 10%" in caplog.text
-    assert "direct_batch_9: preferred_download progress 20%" in caplog.text
+    assert "direct_batch_9: download progress 10%" in caplog.text
+    assert "direct_batch_9: download progress 20%" in caplog.text
 
 
 def test_run_retryable_command_uses_stage_message_for_silent_failures() -> None:
@@ -346,13 +346,13 @@ def test_run_retryable_command_uses_stage_message_for_silent_failures() -> None:
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         sleep_func=lambda delay: None,
         runner=runner,
     )
 
     assert result.succeeded is False
-    assert result.failures[-1].error_message == "preferred download command failed"
+    assert result.failures[-1].error_message == "download command failed"
 
 
 def test_run_retryable_command_streamed_mode_keeps_retry_history_before_success(
@@ -379,7 +379,7 @@ def test_run_retryable_command_streamed_mode_keeps_retry_history_before_success(
         assert environment == {NCBI_API_KEY_ENV_VAR: "secret"}
         assert timeout_seconds > 0
         assert progress_logger is logger
-        assert progress_label == "direct_batch_1: preferred_download"
+        assert progress_label == "direct_batch_1: download"
         assert progress_step == 10
         attempt = next(attempts)
         if attempt == "fail":
@@ -400,11 +400,11 @@ def test_run_retryable_command_streamed_mode_keeps_retry_history_before_success(
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         environment={NCBI_API_KEY_ENV_VAR: "secret"},
         sleep_func=sleep_calls.append,
         logger=logger,
-        progress_label="direct_batch_1: preferred_download",
+        progress_label="direct_batch_1: download",
         stream_runner=stream_runner,
     )
 
@@ -414,8 +414,8 @@ def test_run_retryable_command_streamed_mode_keeps_retry_history_before_success(
     assert [failure.final_status for failure in result.failures] == [
         "retry_scheduled",
     ]
-    assert "direct_batch_1: preferred_download progress 10%" in caplog.text
-    assert "direct_batch_1: preferred_download progress 20%" in caplog.text
+    assert "direct_batch_1: download progress 10%" in caplog.text
+    assert "direct_batch_1: download progress 20%" in caplog.text
 
 
 def test_run_retryable_command_retries_timeouts_before_success() -> None:
@@ -442,7 +442,7 @@ def test_run_retryable_command_retries_timeouts_before_success() -> None:
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         sleep_func=sleep_calls.append,
         runner=runner,
     )
@@ -477,10 +477,10 @@ def test_run_retryable_command_streamed_mode_keeps_partial_timeout_output() -> N
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         sleep_func=sleep_calls.append,
         logger=logging.getLogger("test-streamed-timeout"),
-        progress_label="direct_batch_1: preferred_download",
+        progress_label="direct_batch_1: download",
         stream_runner=stream_runner,
     )
 
@@ -517,7 +517,7 @@ def test_run_retryable_command_keeps_partial_timeout_output() -> None:
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         sleep_func=sleep_calls.append,
         runner=runner,
     )
@@ -548,7 +548,7 @@ def test_run_retryable_command_returns_spawn_failure_without_retry() -> None:
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         sleep_func=lambda delay: None,
         runner=runner,
     )
@@ -557,7 +557,7 @@ def test_run_retryable_command_returns_spawn_failure_without_retry() -> None:
     assert len(result.failures) == 1
     assert result.failures[0].error_type == "spawn_error"
     assert result.failures[0].error_message.startswith(
-        "preferred download command could not start",
+        "download command could not start",
     )
 
 
@@ -580,10 +580,10 @@ def test_run_retryable_command_streamed_mode_returns_spawn_failure_without_retry
 
     result = run_retryable_command(
         ["datasets", "download"],
-        stage="preferred_download",
+        stage="download",
         sleep_func=lambda delay: None,
         logger=logging.getLogger("test-streamed-spawn-error"),
-        progress_label="direct_batch_1: preferred_download",
+        progress_label="direct_batch_1: download",
         stream_runner=stream_runner,
     )
 

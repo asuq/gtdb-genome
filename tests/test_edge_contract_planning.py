@@ -689,7 +689,7 @@ def test_real_run_logs_info_milestones(
     assert "INFO Automatic planning selected direct for 1 supported accession(s)" in (
         log_text
     )
-    assert "INFO direct_batch_1: starting preferred_download for 1 request accession(s)" in (
+    assert "INFO direct_batch_1: starting download for 1 request accession(s)" in (
         log_text
     )
     assert "INFO direct_batch_1: completed with 1 resolved and 0 pending request accession(s)" in (
@@ -846,7 +846,7 @@ def test_total_runtime_failure_leaves_final_accession_blank(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",
@@ -946,7 +946,7 @@ def test_failed_suppressed_accession_repeats_warning_and_failure_note(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",
@@ -1050,7 +1050,7 @@ def test_failed_suppressed_accession_logs_detail_only_with_debug(
                     payload_directory=None,
                     failures=(
                         CommandFailureRecord(
-                            stage="preferred_download",
+                            stage="download",
                             attempt_index=4,
                             max_attempts=4,
                             error_type="subprocess",

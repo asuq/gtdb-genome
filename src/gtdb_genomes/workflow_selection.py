@@ -14,6 +14,7 @@ from gtdb_genomes.download import (
     get_ordered_unique_accessions,
 )
 from gtdb_genomes.layout import (
+    cleanup_interrupted_output_directories,
     cleanup_working_directories,
     initialise_run_directories,
     write_zero_match_outputs,
@@ -275,13 +276,24 @@ def handle_zero_match_exit(
         }
         for requested_taxon in args.gtdb_taxa
     ]
-    write_zero_match_outputs(
-        run_directories,
-        args.gtdb_taxa,
-        taxon_slug_map,
-        run_summary_text,
-        taxon_summary_rows,
-    )
+    try:
+        write_zero_match_outputs(
+            run_directories,
+            args.gtdb_taxa,
+            taxon_slug_map,
+            run_summary_text,
+            taxon_summary_rows,
+        )
+    except KeyboardInterrupt:
+        if not args.keep_temp:
+            cleanup_error = cleanup_interrupted_output_directories(run_directories)
+            if cleanup_error is not None:
+                logger.warning(
+                    "Could not finish interrupted-run cleanup under %s: %s",
+                    run_directories.output_root,
+                    cleanup_error,
+                )
+        raise
     logger.warning("No genomes matched the requested taxa")
     logger.info(
         "Run finished: successful_accessions=0 failed_accessions=0 exit_code=4",

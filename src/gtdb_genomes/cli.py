@@ -296,13 +296,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the gtdb-genomes command-line interface."""
 
-    parser = build_parser()
-    args = parse_args(parser, argv)
-    from gtdb_genomes.workflow import run_workflow
-    from gtdb_genomes.logging_utils import redact_text
-
     try:
+        parser = build_parser()
+        args = parse_args(parser, argv)
+        from gtdb_genomes.workflow import run_workflow
+        from gtdb_genomes.logging_utils import redact_text
+
         return run_workflow(args)
+    except KeyboardInterrupt:
+        print("gtdb-genomes: error: interrupted by user", file=sys.stderr)
+        return 130
     except PreflightError as error:
         print(f"gtdb-genomes: error: {error}", file=sys.stderr)
         return 5

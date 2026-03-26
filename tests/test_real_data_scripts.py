@@ -692,7 +692,7 @@ def test_remote_check_dehydrate_suppressed_partial_result_accepts_suppressed_onl
     )
     (output_root / "download_failures.tsv").write_text(
         "accession\trequested_taxa\tgtdb_accessions\tsuppressed\tstage\terror_type\treason\tstatus\n"
-        "GCF_003670205.1\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tpreferred_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n",
+        "GCF_003670205.1\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tdehydrated_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n",
         encoding="utf-8",
     )
     function_text = extract_bash_function(
@@ -739,8 +739,8 @@ def test_remote_check_dehydrate_suppressed_partial_result_accepts_multiple_faile
     )
     (output_root / "download_failures.tsv").write_text(
         "accession\trequested_taxa\tgtdb_accessions\tsuppressed\tstage\terror_type\treason\tstatus\n"
-        "GCA_003670205\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tpreferred_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n"
-        "GCA_003670206\tg__Bacteroides\tRS_GCF_003670206.1\ttrue\tpreferred_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n",
+        "GCA_003670205\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tdehydrated_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n"
+        "GCA_003670206\tg__Bacteroides\tRS_GCF_003670206.1\ttrue\tdehydrated_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n",
         encoding="utf-8",
     )
     function_text = extract_bash_function(
@@ -787,7 +787,7 @@ def test_remote_check_dehydrate_suppressed_partial_result_accepts_crlf_tsvs(
     (output_root / "download_failures.tsv").write_bytes(
         (
             "accession\trequested_taxa\tgtdb_accessions\tsuppressed\tstage\terror_type\treason\tstatus\r\n"
-            "GCF_003670205.1\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tpreferred_download\tsubprocess\t"
+            "GCF_003670205.1\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tdehydrated_download\tsubprocess\t"
             "NCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\r\n"
         ).encode("ascii")
     )
@@ -849,7 +849,7 @@ def test_remote_check_dehydrate_suppressed_partial_result_requires_exact_downloa
     )
     (output_root / "download_failures.tsv").write_text(
         "accession\trequested_taxa\tgtdb_accessions\tsuppressed\tstage\terror_type\treason\tstatus\n"
-        "GCA_0036702050\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tpreferred_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n",
+        "GCA_0036702050\tg__Bacteroides\tRS_GCF_003670205.1\ttrue\tdehydrated_download\tsubprocess\tNCBI metadata marked this assembly as suppressed; the genome payload may no longer be downloadable.\tretry_exhausted\n",
         encoding="utf-8",
     )
     function_text = extract_bash_function(
@@ -895,7 +895,7 @@ def test_remote_check_dehydrate_suppressed_partial_result_rejects_generic_partia
     )
     (output_root / "download_failures.tsv").write_text(
         "accession\trequested_taxa\tgtdb_accessions\tsuppressed\tstage\terror_type\treason\tstatus\n"
-        "GCF_003670205.1\tg__Bacteroides\tRS_GCF_003670205.1\tfalse\tpreferred_download\tsubprocess\tdownload failed after retries\tretry_exhausted\n",
+        "GCF_003670205.1\tg__Bacteroides\tRS_GCF_003670205.1\tfalse\tdownload\tsubprocess\tdownload failed after retries\tretry_exhausted\n",
         encoding="utf-8",
     )
     function_text = extract_bash_function(
@@ -941,7 +941,7 @@ def test_remote_check_interrupted_direct_failure_accepts_unsuppressed_retry_exha
     )
     (output_root / "download_failures.tsv").write_text(
         "accession\trequested_taxa\tgtdb_accessions\tsuppressed\tstage\terror_type\treason\tstatus\n"
-        "GCF_000016725.1\ts__Thermoflexus hugenholtzii\tRS_GCF_000016725.1\tfalse\tpreferred_download\tsubprocess\tterminated during test interruption\tretry_exhausted\n",
+        "GCF_000016725.1\ts__Thermoflexus hugenholtzii\tRS_GCF_000016725.1\tfalse\tdownload\tsubprocess\tterminated during test interruption\tretry_exhausted\n",
         encoding="utf-8",
     )
     function_text = extract_bash_function(

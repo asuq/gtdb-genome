@@ -7,7 +7,11 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from gtdb_genomes.download import DEFAULT_REQUESTED_DOWNLOAD_METHOD
-from gtdb_genomes.layout import cleanup_working_directories, initialise_run_directories
+from gtdb_genomes.layout import (
+    cleanup_interrupted_output_directories,
+    cleanup_working_directories,
+    initialise_run_directories,
+)
 from gtdb_genomes.logging_utils import close_logger, configure_logging, redact_text
 from gtdb_genomes.metadata import MetadataLookupError
 from gtdb_genomes.release_resolver import BundledDataError
@@ -26,6 +30,7 @@ if TYPE_CHECKING:
 PLANNING_FAILURE_EXIT_CODE = 7
 OUTPUT_MATERIALISATION_FAILURE_EXIT_CODE = 8
 UNEXPECTED_INTERNAL_FAILURE_EXIT_CODE = 9
+USER_INTERRUPT_EXIT_CODE = 130
 
 
 def log_run_start(
@@ -101,6 +106,28 @@ def cleanup_run_directories(
         )
 
 
+def cleanup_interrupted_run_directories(
+    logger: logging.Logger,
+    run_directories: RunDirectories,
+) -> None:
+    """Clean up interrupted real-run directories and log any cleanup failure."""
+
+    cleanup_error = cleanup_interrupted_output_directories(run_directories)
+    if cleanup_error is not None:
+        logger.warning(
+            "Could not finish interrupted-run cleanup under %s: %s",
+            run_directories.output_root,
+            cleanup_error,
+        )
+
+
+def log_user_interrupt(logger: logging.Logger) -> int:
+    """Log one user interrupt and return the conventional exit code."""
+
+    logger.warning("Run interrupted by user")
+    return USER_INTERRUPT_EXIT_CODE
+
+
 def run_workflow(args: CliArgs) -> int:
     """Run the workflow and return the process exit code."""
 
@@ -112,12 +139,17 @@ def run_workflow(args: CliArgs) -> int:
     )
     started_at = datetime.now(UTC).isoformat()
     log_run_start(logger, args)
+    run_directories: RunDirectories | None = None
 
     try:
         resolution, selected_frame, supported_selected_frame, unsupported_selected_frame = (
             workflow_selection.prepare_selection_frames(args, logger)
         )
         workflow_selection.run_early_dry_run_unzip_check(args, logger)
+    except KeyboardInterrupt:
+        exit_code = log_user_interrupt(logger)
+        close_logger(logger)
+        return exit_code
     except BundledDataError as error:
         logger.error("%s", error)
         close_logger(logger)
@@ -135,6 +167,10 @@ def run_workflow(args: CliArgs) -> int:
             selected_frame,
             started_at,
         )
+    except KeyboardInterrupt:
+        exit_code = log_user_interrupt(logger)
+        close_logger(logger)
+        return exit_code
     except (OSError, shutil.Error) as error:
         exit_code = log_output_materialisation_failure(logger, error, secrets)
         close_logger(logger)
@@ -166,6 +202,10 @@ def run_workflow(args: CliArgs) -> int:
                 logger,
             )
         )
+    except KeyboardInterrupt:
+        exit_code = log_user_interrupt(logger)
+        close_logger(logger)
+        return exit_code
     except MetadataLookupError as error:
         logger.error("%s", redact_text(str(error), secrets))
         close_logger(logger)
@@ -206,6 +246,12 @@ def run_workflow(args: CliArgs) -> int:
     try:
         run_directories = initialise_run_directories(args.outdir)
         logger = workflow_outputs.configure_output_logger(args, logger, run_directories)
+    except KeyboardInterrupt:
+        exit_code = log_user_interrupt(logger)
+        if run_directories is not None and not args.keep_temp:
+            cleanup_interrupted_run_directories(logger, run_directories)
+        close_logger(logger)
+        return exit_code
     except (OSError, shutil.Error) as error:
         exit_code = log_output_materialisation_failure(logger, error, secrets)
         close_logger(logger)
@@ -266,6 +312,12 @@ def run_workflow(args: CliArgs) -> int:
                 )
                 if failed_suppressed_debug_detail is not None:
                     logger.debug("%s", failed_suppressed_debug_detail)
+    except KeyboardInterrupt:
+        exit_code = log_user_interrupt(logger)
+        if run_directories is not None and not args.keep_temp:
+            cleanup_interrupted_run_directories(logger, run_directories)
+        close_logger(logger)
+        return exit_code
     except Exception as error:
         exit_code = log_unexpected_internal_failure(logger, error, secrets)
         if not args.keep_temp:

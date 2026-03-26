@@ -374,6 +374,7 @@ Exit codes:
 - `7`: planning or runtime failure with no successful genomes
 - `8`: local final-output materialisation failure
 - `9`: unexpected internal failure
+- `130`: user interrupted the run
 
 Status values:
 
@@ -393,7 +394,8 @@ Status values:
 - `download_failures.tsv.stage`
   - `preflight`
   - `metadata_lookup`
-  - `preferred_download`
+  - `download`
+  - `dehydrated_download`
   - `fallback_download`
   - `layout`
   - `rehydrate`

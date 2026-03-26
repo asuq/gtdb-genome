@@ -480,6 +480,183 @@ def test_unexpected_execution_failure_returns_exit_nine_and_cleans_workdir(
     )
 
 
+def test_keyboard_interrupt_returns_exit_130_and_cleans_real_run_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Real-run interrupts should return 130 and remove empty output scaffolding."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    output_dir = tmp_path / "keyboard-interrupt-cleanup"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 130
+    assert not output_dir.exists()
+    assert "Run interrupted by user" in log_stream.getvalue()
+    assert "Traceback" not in log_stream.getvalue()
+
+
+def test_keyboard_interrupt_returns_exit_130_before_output_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Interrupts before real-run directory setup should still exit 130 cleanly."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.run_supported_preflight",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    output_dir = tmp_path / "keyboard-interrupt-pre-output"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+        ],
+    )
+
+    assert exit_code == 130
+    assert not output_dir.exists()
+    assert "Run interrupted by user" in log_stream.getvalue()
+    assert "Traceback" not in log_stream.getvalue()
+
+
+def test_keyboard_interrupt_keeps_workdir_when_keep_tmp_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Interrupt cleanup should honour `--keep-tmp`."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    output_dir = tmp_path / "keyboard-interrupt-keep-tmp"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+            "--keep-tmp",
+        ],
+    )
+
+    assert exit_code == 130
+    assert output_dir.exists()
+    assert (output_dir / ".gtdb_genomes_work").is_dir()
+    assert "Run interrupted by user" in log_stream.getvalue()
+
+
+def test_keyboard_interrupt_prunes_empty_dirs_but_keeps_debug_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Interrupt cleanup should preserve non-empty outputs such as `debug.log`."""
+
+    log_stream = install_capture_logger(monkeypatch)
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.check_required_tools",
+        lambda required_tools: None,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_selection.load_release_taxonomy",
+        lambda resolution: build_taxonomy_frame(
+            "d__Bacteria;p__Proteobacteria;g__Escherichia",
+        ),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_planning.run_summary_lookup_with_retries",
+        lambda *args, **kwargs: SummaryLookupResult(summary_map={}, failures=()),
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.workflow_execution.execute_accession_plans",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    output_dir = tmp_path / "keyboard-interrupt-debug"
+    exit_code = main(
+        [
+            "--gtdb-release",
+            "95",
+            "--gtdb-taxon",
+            "g__Escherichia",
+            "--outdir",
+            str(output_dir),
+            "--debug",
+        ],
+    )
+
+    assert exit_code == 130
+    assert output_dir.exists()
+    assert (output_dir / "debug.log").is_file()
+    assert not (output_dir / ".gtdb_genomes_work").exists()
+    assert not (output_dir / "taxa").exists()
+    assert "Run interrupted by user" in log_stream.getvalue()
+
+
 def test_planning_staging_failure_returns_exit_seven(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

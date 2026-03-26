@@ -332,6 +332,58 @@ def cleanup_working_directories(
     return None
 
 
+def remove_directory_if_empty(directory: Path) -> OSError | None:
+    """Remove one directory only when it exists and is empty."""
+
+    if not directory.exists() or not directory.is_dir():
+        return None
+    try:
+        if any(directory.iterdir()):
+            return None
+        directory.rmdir()
+    except OSError as error:
+        return error
+    return None
+
+
+def prune_empty_run_output_directories(
+    run_directories: RunDirectories,
+) -> OSError | None:
+    """Prune empty output directories after an interrupted run."""
+
+    if run_directories.taxa_root.exists():
+        try:
+            taxon_directories = sorted(
+                path for path in run_directories.taxa_root.iterdir() if path.is_dir()
+            )
+        except OSError as error:
+            return error
+        for taxon_directory in taxon_directories:
+            prune_error = remove_directory_if_empty(taxon_directory)
+            if prune_error is not None:
+                return prune_error
+    for directory in (
+        run_directories.taxa_root,
+        run_directories.output_root,
+    ):
+        prune_error = remove_directory_if_empty(directory)
+        if prune_error is not None:
+            return prune_error
+    return None
+
+
+def cleanup_interrupted_output_directories(
+    run_directories: RunDirectories,
+) -> OSError | None:
+    """Remove the working tree and prune any empty output directories."""
+
+    working_cleanup_error = cleanup_working_directories(run_directories)
+    prune_error = prune_empty_run_output_directories(run_directories)
+    if working_cleanup_error is not None:
+        return working_cleanup_error
+    return prune_error
+
+
 def get_root_manifest_paths(output_root: Path) -> dict[str, Path]:
     """Return the fixed root manifest paths for one output directory."""
 

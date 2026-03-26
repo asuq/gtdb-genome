@@ -77,6 +77,25 @@ def test_parse_args_with_no_arguments_shows_help(
     assert captured.err == ""
 
 
+def test_main_returns_exit_130_on_keyboard_interrupt_during_cli_setup(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CLI setup interrupts should return 130 without a traceback."""
+
+    monkeypatch.setattr(
+        "gtdb_genomes.cli.parse_args",
+        lambda parser, argv=None: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    exit_code = main([])
+
+    captured = capsys.readouterr()
+    assert exit_code == 130
+    assert captured.out == ""
+    assert captured.err == "gtdb-genomes: error: interrupted by user\n"
+
+
 def test_parse_args_defaults_release_to_latest(tmp_path: Path) -> None:
     """Omitting the release flag should default to the bundled latest alias."""
 
