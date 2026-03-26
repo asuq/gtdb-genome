@@ -289,6 +289,8 @@ def test_real_data_interrupting_datasets_wrapper_terminates_download_after_archi
         f"export PATH={shlex.quote(str(fake_bin_dir))}:\"$PATH\"\n"
         f"wrapper_root=$(real_data_install_interrupting_datasets_wrapper {shlex.quote(str(wrapper_root))})\n"
         'REAL_DATA_INTERRUPT_DATASETS_DOWNLOAD=1 '
+        'REAL_DATA_INTERRUPT_POLL_SECONDS=0.01 '
+        'REAL_DATA_INTERRUPT_FORCE_AFTER_ATTEMPTS=500 '
         f"REAL_DATA_REAL_DATASETS_BIN={shlex.quote(str(fake_datasets))} "
         '"${wrapper_root}/datasets" download genome accession '
         f"--filename {shlex.quote(str(archive_path))}\n"
@@ -296,6 +298,104 @@ def test_real_data_interrupting_datasets_wrapper_terminates_download_after_archi
         "printf 'status=%s\\n' \"${status}\"\n"
         "[ \"${status}\" -ne 0 ]\n"
         f"[ -s {shlex.quote(str(archive_path))} ]\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    assert "status=" in result.stdout
+
+
+def test_real_data_interrupting_datasets_wrapper_terminates_fast_download_before_success_exit(
+    tmp_path: Path,
+) -> None:
+    """The interrupting wrapper should catch fast downloads before they exit cleanly."""
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    fake_datasets = fake_bin_dir / "datasets"
+    fake_datasets.write_text(
+        "#!/usr/bin/env bash\n"
+        "archive_path=''\n"
+        "while [ \"$#\" -gt 0 ]; do\n"
+        "  case \"$1\" in\n"
+        "    --filename)\n"
+        "      archive_path=$2\n"
+        "      shift 2\n"
+        "      ;;\n"
+        "    --filename=*)\n"
+        "      archive_path=${1#--filename=}\n"
+        "      shift\n"
+        "      ;;\n"
+        "    *)\n"
+        "      shift\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        "trap 'exit 143' TERM\n"
+        "mkdir -p \"$(dirname -- \"${archive_path}\")\"\n"
+        "printf 'zip' > \"${archive_path}\"\n"
+        "sleep 0.03\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_datasets.chmod(0o755)
+    wrapper_root = tmp_path / "wrapper"
+    archive_path = tmp_path / "archive.zip"
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        f"export PATH={shlex.quote(str(fake_bin_dir))}:\"$PATH\"\n"
+        f"wrapper_root=$(real_data_install_interrupting_datasets_wrapper {shlex.quote(str(wrapper_root))})\n"
+        'REAL_DATA_INTERRUPT_DATASETS_DOWNLOAD=1 '
+        'REAL_DATA_INTERRUPT_POLL_SECONDS=0.01 '
+        'REAL_DATA_INTERRUPT_FORCE_AFTER_ATTEMPTS=50 '
+        f"REAL_DATA_REAL_DATASETS_BIN={shlex.quote(str(fake_datasets))} "
+        '"${wrapper_root}/datasets" download genome accession '
+        f"--filename {shlex.quote(str(archive_path))}\n"
+        "status=$?\n"
+        "printf 'status=%s\\n' \"${status}\"\n"
+        "[ \"${status}\" -ne 0 ]\n"
+        f"[ -e {shlex.quote(str(archive_path))} ]\n"
+    )
+
+    result = run_bash(script)
+
+    assert result.returncode == 0
+    assert "status=" in result.stdout
+
+
+def test_real_data_interrupting_datasets_wrapper_forces_interrupt_without_archive(
+    tmp_path: Path,
+) -> None:
+    """The interrupting wrapper should fall back to a timed interrupt without an archive."""
+
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    fake_datasets = fake_bin_dir / "datasets"
+    fake_datasets.write_text(
+        "#!/usr/bin/env bash\n"
+        "trap 'exit 143' TERM\n"
+        "sleep 10\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_datasets.chmod(0o755)
+    wrapper_root = tmp_path / "wrapper"
+    archive_path = tmp_path / "archive.zip"
+    script = (
+        f"source {shlex.quote(str(COMMON_HELPERS))}\n"
+        f"export PATH={shlex.quote(str(fake_bin_dir))}:\"$PATH\"\n"
+        f"wrapper_root=$(real_data_install_interrupting_datasets_wrapper {shlex.quote(str(wrapper_root))})\n"
+        'REAL_DATA_INTERRUPT_DATASETS_DOWNLOAD=1 '
+        'REAL_DATA_INTERRUPT_POLL_SECONDS=0.01 '
+        'REAL_DATA_INTERRUPT_FORCE_AFTER_ATTEMPTS=3 '
+        f"REAL_DATA_REAL_DATASETS_BIN={shlex.quote(str(fake_datasets))} "
+        '"${wrapper_root}/datasets" download genome accession '
+        f"--filename {shlex.quote(str(archive_path))}\n"
+        "status=$?\n"
+        "printf 'status=%s\\n' \"${status}\"\n"
+        "[ \"${status}\" -ne 0 ]\n"
+        f"[ ! -e {shlex.quote(str(archive_path))} ]\n"
     )
 
     result = run_bash(script)

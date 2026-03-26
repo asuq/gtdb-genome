@@ -278,6 +278,28 @@ real_data_wrapper_find_archive_path() {
 }
 
 
+real_data_wrapper_should_interrupt() {
+    local archive_path=$1
+    local attempt_count=$2
+    local force_after_attempts=$3
+
+    if [ -e "${archive_path}" ] || [ -s "${archive_path}" ]; then
+        return 0
+    fi
+    if [ "${attempt_count}" -ge "${force_after_attempts}" ]; then
+        return 0
+    fi
+    return 1
+}
+
+
+real_data_wrapper_terminate_child() {
+    local child_pid=$1
+
+    kill -TERM "${child_pid}" 2>/dev/null || true
+}
+
+
 real_datasets_bin="${REAL_DATA_REAL_DATASETS_BIN:-}"
 if [ -z "${real_datasets_bin}" ] || [ ! -x "${real_datasets_bin}" ]; then
     printf 'ERROR: REAL_DATA_REAL_DATASETS_BIN must name an executable datasets binary\n' >&2
@@ -299,12 +321,19 @@ fi
 
 "${real_datasets_bin}" "$@" &
 child_pid=$!
+poll_seconds="${REAL_DATA_INTERRUPT_POLL_SECONDS:-0.01}"
+force_after_attempts="${REAL_DATA_INTERRUPT_FORCE_AFTER_ATTEMPTS:-5}"
+interrupt_attempt_count=0
 while kill -0 "${child_pid}" 2>/dev/null; do
-    if [ -s "${archive_path}" ]; then
-        kill -TERM "${child_pid}" 2>/dev/null || true
+    if real_data_wrapper_should_interrupt \
+        "${archive_path}" \
+        "${interrupt_attempt_count}" \
+        "${force_after_attempts}"; then
+        real_data_wrapper_terminate_child "${child_pid}"
         break
     fi
-    sleep "${REAL_DATA_INTERRUPT_POLL_SECONDS:-0.1}"
+    sleep "${poll_seconds}"
+    interrupt_attempt_count=$((interrupt_attempt_count + 1))
 done
 
 wait_attempts=0
