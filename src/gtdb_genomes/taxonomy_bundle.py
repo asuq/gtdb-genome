@@ -6,6 +6,7 @@ import csv
 import gzip
 import hashlib
 import logging
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ from urllib.parse import urljoin
 from urllib.request import urlopen
 
 from gtdb_genomes.bundled_data_validation import (
+    describe_taxonomy_bytes,
     describe_taxonomy_file,
     normalise_optional_row_count,
     normalise_optional_sha256,
@@ -33,7 +35,7 @@ from gtdb_genomes.manifest_validation import (
 )
 
 
-UQ_RELEASES_ROOT = "https://data.ace.uq.edu.au/public/gtdb/data/releases/"
+GTDB_RELEASES_ROOT = "https://data.gtdb.ecogenomic.org/releases/"
 BOOTSTRAP_COMMAND = "uv run python -m gtdb_genomes.bootstrap_taxonomy"
 BUILD_MANIFEST_FIELDS = (
     "resolved_release",
@@ -60,6 +62,22 @@ REQUIRED_RUNTIME_FIELDS = (
     "is_latest",
 )
 CHECKSUM_CANDIDATE_FILENAMES = ("MD5SUM.txt", "MD5SUM")
+RELEASE_DIRECTORY_PATTERN = re.compile(r"release(?P<release>\d+)/")
+LATEST_VERSION_PATTERN = re.compile(r"\bv(?P<release>\d+)\b")
+BACTERIAL_TAXONOMY_CANDIDATES = (
+    "bac120_taxonomy_r{release}.tsv.gz",
+    "bac120_taxonomy_r{release}.tsv",
+    "bac_taxonomy_r{release}.tsv.gz",
+    "bac_taxonomy_r{release}.tsv",
+)
+ARCHAEAL_TAXONOMY_CANDIDATES = (
+    "ar53_taxonomy_r{release}.tsv.gz",
+    "ar53_taxonomy_r{release}.tsv",
+    "ar122_taxonomy_r{release}.tsv.gz",
+    "ar122_taxonomy_r{release}.tsv",
+    "arc_taxonomy_r{release}.tsv.gz",
+    "arc_taxonomy_r{release}.tsv",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,9 +427,9 @@ def normalise_directory_url(directory_url: str) -> str:
 
 def build_release_source_root_url(
     resolved_release: str,
-    releases_root_url: str = UQ_RELEASES_ROOT,
+    releases_root_url: str = GTDB_RELEASES_ROOT,
 ) -> str:
-    """Build the UQ mirror release directory URL for one release row."""
+    """Build one GTDB release directory URL for one release row."""
 
     release_number = resolved_release.split(".", maxsplit=1)[0]
     return normalise_directory_url(
@@ -504,6 +522,181 @@ def detect_checksum_mapping(
     ) from last_error
 
 
+def parse_release_directory_numbers(index_html: str) -> tuple[int, ...]:
+    """Return sorted release numbers discovered in one releases index page."""
+
+    release_numbers = {
+        int(match.group("release"))
+        for match in RELEASE_DIRECTORY_PATTERN.finditer(index_html)
+    }
+    return tuple(sorted(release_numbers))
+
+
+def discover_release_directory_numbers(
+    releases_root_url: str,
+) -> tuple[int, ...]:
+    """Discover available GTDB release numbers from the upstream index page."""
+
+    index_html = read_url_text(normalise_directory_url(releases_root_url))
+    release_numbers = parse_release_directory_numbers(index_html)
+    if not release_numbers:
+        raise TaxonomyBundleError(
+            f"Could not discover any release directories under {releases_root_url}",
+        )
+    return release_numbers
+
+
+def parse_latest_release_number(version_text: str) -> int:
+    """Return the release number encoded in one GTDB VERSION.txt payload."""
+
+    match = LATEST_VERSION_PATTERN.search(version_text)
+    if match is None:
+        raise TaxonomyBundleError(
+            "Could not parse the latest GTDB release from VERSION.txt",
+        )
+    return int(match.group("release"))
+
+
+def discover_latest_release_number(releases_root_url: str) -> int:
+    """Return the authoritative latest GTDB release number from upstream."""
+
+    version_url = join_directory_url(
+        normalise_directory_url(releases_root_url),
+        "latest/VERSION.txt",
+    )
+    return parse_latest_release_number(read_url_text(version_url))
+
+
+def build_release_aliases(
+    release_number: int,
+    *,
+    is_latest: bool,
+) -> str:
+    """Build the canonical alias string for one manifest release row."""
+
+    resolved_release = f"{release_number}.0"
+    aliases = [
+        str(release_number),
+        resolved_release,
+        f"release{release_number}",
+        f"release{release_number}/{resolved_release}",
+    ]
+    if is_latest:
+        aliases.append("latest")
+    return ",".join(aliases)
+
+
+def build_manifest_target_name(source_name: str) -> str:
+    """Return the local runtime taxonomy filename for one upstream source."""
+
+    if source_name.endswith(".tsv.gz"):
+        return source_name
+    if source_name.endswith(".tsv"):
+        return f"{source_name}.gz"
+    raise TaxonomyBundleError(
+        f"Unsupported taxonomy source format for {source_name}",
+    )
+
+
+def infer_taxonomy_source_name(
+    release_number: int,
+    checksum_mapping: dict[str, tuple[str, ...]],
+    candidate_patterns: tuple[str, ...],
+) -> str | None:
+    """Return the preferred upstream taxonomy filename for one release."""
+
+    for pattern in candidate_patterns:
+        candidate_name = pattern.format(release=release_number)
+        if candidate_name in checksum_mapping:
+            return candidate_name
+    return None
+
+
+def read_verified_source_payload(
+    source_root_url: str,
+    source_name: str,
+    checksum_mapping: dict[str, tuple[str, ...]],
+) -> bytes:
+    """Download one source payload and verify its published MD5 checksum."""
+
+    source_url = join_directory_url(source_root_url, source_name)
+    expected_checksum = get_checksum_for_source(
+        source_name,
+        checksum_mapping,
+        source_root_url,
+    )
+    if expected_checksum is None:
+        raise TaxonomyBundleError(
+            f"Checksum entry for {source_name!r} is missing under "
+            f"{source_root_url}",
+        )
+    data = read_url_bytes(source_url)
+    verify_md5_checksum(data, expected_checksum, source_url)
+    return data
+
+
+def describe_materialised_taxonomy_payload(
+    *,
+    source_root_url: str,
+    source_name: str,
+    target_name: str,
+    checksum_mapping: dict[str, tuple[str, ...]],
+) -> tuple[str, int]:
+    """Return SHA256 and row count for one materialised runtime taxonomy file."""
+
+    source_url = join_directory_url(source_root_url, source_name)
+    source_data = read_verified_source_payload(
+        source_root_url,
+        source_name,
+        checksum_mapping,
+    )
+    if source_name.endswith(".tsv.gz"):
+        materialised_data = source_data
+    elif source_name.endswith(".tsv"):
+        materialised_data = compress_tsv_bytes(source_data)
+    else:
+        raise TaxonomyBundleError(
+            f"Unsupported taxonomy source format for {source_url}",
+        )
+    return describe_taxonomy_bytes(
+        materialised_data,
+        compressed=True,
+        source_label=f"{source_url} -> {target_name}",
+    )
+
+
+def select_supported_release_numbers(
+    current_entries: tuple[TaxonomyBundleEntry, ...],
+    discovered_release_numbers: tuple[int, ...],
+    latest_release_number: int,
+) -> tuple[int, ...]:
+    """Return the curated historical releases plus any newly published ones."""
+
+    if not current_entries:
+        supported_releases = set(discovered_release_numbers)
+    else:
+        supported_releases = {
+            int(entry.resolved_release.split(".", maxsplit=1)[0])
+            for entry in current_entries
+        }
+        highest_supported_release = max(supported_releases)
+        supported_releases.update(
+            release_number
+            for release_number in discovered_release_numbers
+            if release_number > highest_supported_release
+        )
+    supported_releases.add(latest_release_number)
+    available_releases = set(discovered_release_numbers)
+    missing_releases = sorted(supported_releases - available_releases)
+    if missing_releases:
+        missing_text = ", ".join(str(release_number) for release_number in missing_releases)
+        raise TaxonomyBundleError(
+            "Configured releases are missing from the upstream GTDB index: "
+            f"{missing_text}",
+        )
+    return tuple(sorted(supported_releases))
+
+
 def resolve_source_name(
     target_name: str | None,
     available_filenames: dict[str, tuple[str, ...]],
@@ -523,41 +716,91 @@ def resolve_source_name(
     )
 
 
-def refresh_manifest_entries(
-    entries: tuple[TaxonomyBundleEntry, ...],
-    releases_root_url: str = UQ_RELEASES_ROOT,
+def build_discovered_manifest_entries(
+    releases_root_url: str = GTDB_RELEASES_ROOT,
+    current_entries: tuple[TaxonomyBundleEntry, ...] = (),
     logger: logging.Logger | None = None,
 ) -> tuple[TaxonomyBundleEntry, ...]:
-    """Fill build-only source metadata for each configured release row."""
+    """Discover releases and rebuild the taxonomy manifest entries."""
+
+    discovered_release_numbers = discover_release_directory_numbers(
+        releases_root_url,
+    )
+    latest_release_number = discover_latest_release_number(releases_root_url)
+    selected_release_numbers = select_supported_release_numbers(
+        current_entries,
+        discovered_release_numbers,
+        latest_release_number,
+    )
 
     refreshed_entries: list[TaxonomyBundleEntry] = []
-    for entry in entries:
+    for release_number in selected_release_numbers:
+        resolved_release = f"{release_number}.0"
         source_root_url = build_release_source_root_url(
-            entry.resolved_release,
+            resolved_release,
             releases_root_url=releases_root_url,
         )
         checksum_filename, checksum_mapping = detect_checksum_mapping(
             source_root_url,
         )
-        resolve_source_name(entry.bacterial_taxonomy, checksum_mapping)
-        resolve_source_name(entry.archaeal_taxonomy, checksum_mapping)
+        bacterial_source_name = infer_taxonomy_source_name(
+            release_number,
+            checksum_mapping,
+            BACTERIAL_TAXONOMY_CANDIDATES,
+        )
+        if bacterial_source_name is None:
+            raise TaxonomyBundleError(
+                f"Could not find a bacterial taxonomy file under {source_root_url}",
+            )
+        archaeal_source_name = infer_taxonomy_source_name(
+            release_number,
+            checksum_mapping,
+            ARCHAEAL_TAXONOMY_CANDIDATES,
+        )
+        bacterial_target_name = build_manifest_target_name(
+            bacterial_source_name,
+        )
+        archaeal_target_name = (
+            build_manifest_target_name(archaeal_source_name)
+            if archaeal_source_name is not None
+            else None
+        )
+        bacterial_sha256, bacterial_rows = describe_materialised_taxonomy_payload(
+            source_root_url=source_root_url,
+            source_name=bacterial_source_name,
+            target_name=bacterial_target_name,
+            checksum_mapping=checksum_mapping,
+        )
+        archaeal_sha256: str | None = None
+        archaeal_rows: int | None = None
+        if archaeal_source_name is not None and archaeal_target_name is not None:
+            archaeal_sha256, archaeal_rows = describe_materialised_taxonomy_payload(
+                source_root_url=source_root_url,
+                source_name=archaeal_source_name,
+                target_name=archaeal_target_name,
+                checksum_mapping=checksum_mapping,
+            )
+        is_latest = release_number == latest_release_number
         if logger is not None:
             logger.info(
                 "Refreshed release %s from %s",
-                entry.resolved_release,
+                resolved_release,
                 source_root_url,
             )
         refreshed_entries.append(
             TaxonomyBundleEntry(
-                resolved_release=entry.resolved_release,
-                aliases=entry.aliases,
-                bacterial_taxonomy=entry.bacterial_taxonomy,
-                archaeal_taxonomy=entry.archaeal_taxonomy,
-                bacterial_taxonomy_sha256=entry.bacterial_taxonomy_sha256,
-                archaeal_taxonomy_sha256=entry.archaeal_taxonomy_sha256,
-                bacterial_taxonomy_rows=entry.bacterial_taxonomy_rows,
-                archaeal_taxonomy_rows=entry.archaeal_taxonomy_rows,
-                is_latest=entry.is_latest,
+                resolved_release=resolved_release,
+                aliases=build_release_aliases(
+                    release_number,
+                    is_latest=is_latest,
+                ),
+                bacterial_taxonomy=bacterial_target_name,
+                archaeal_taxonomy=archaeal_target_name,
+                bacterial_taxonomy_sha256=bacterial_sha256,
+                archaeal_taxonomy_sha256=archaeal_sha256,
+                bacterial_taxonomy_rows=bacterial_rows,
+                archaeal_taxonomy_rows=archaeal_rows,
+                is_latest="true" if is_latest else "false",
                 source_root_url=source_root_url,
                 checksum_filename=checksum_filename,
             ),
@@ -567,14 +810,19 @@ def refresh_manifest_entries(
 
 def refresh_taxonomy_bundle_manifest(
     manifest_path: Path,
-    releases_root_url: str = UQ_RELEASES_ROOT,
+    releases_root_url: str = GTDB_RELEASES_ROOT,
     logger: logging.Logger | None = None,
 ) -> tuple[TaxonomyBundleEntry, ...]:
-    """Refresh build-only source metadata in ``releases.tsv``."""
+    """Refresh and extend ``releases.tsv`` from the upstream GTDB releases index."""
 
-    refreshed_entries = refresh_manifest_entries(
-        load_taxonomy_bundle_manifest(manifest_path),
+    current_entries = (
+        load_taxonomy_bundle_manifest(manifest_path)
+        if manifest_path.exists()
+        else ()
+    )
+    refreshed_entries = build_discovered_manifest_entries(
         releases_root_url=releases_root_url,
+        current_entries=current_entries,
         logger=logger,
     )
     write_taxonomy_bundle_manifest(manifest_path, refreshed_entries)
@@ -638,18 +886,11 @@ def materialise_taxonomy_file(
         return
     source_name = resolve_source_name(target_name, checksum_mapping)
     source_url = join_directory_url(source_root_url, source_name)
-    expected_checksum = get_checksum_for_source(
+    data = read_verified_source_payload(
+        source_root_url,
         source_name,
         checksum_mapping,
-        source_root_url,
     )
-    if expected_checksum is None:
-        raise TaxonomyBundleError(
-            f"Checksum entry for {source_name!r} is missing under "
-            f"{source_root_url}",
-        )
-    data = read_url_bytes(source_url)
-    verify_md5_checksum(data, expected_checksum, source_url)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if source_name.endswith(".tsv.gz"):
         target_path.write_bytes(data)

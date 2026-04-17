@@ -215,7 +215,7 @@ run_local_case() {
             real_data_run_case \
                 "${LOCAL_TEST_ROOT}" "${case_id}" 0 absent "" "" \
                 "${LOCAL_LAUNCHER[@]}" \
-                --gtdb-release 226 \
+                --gtdb-release 232 \
                 --gtdb-taxon g__Methanobrevibacter \
                 --dry-run
             ;;

@@ -19,7 +19,10 @@ from gtdb_genomes.taxonomy_bundle import (
     bootstrap_manifest_entries,
     bootstrap_taxonomy_bundle,
     compress_tsv_bytes,
+    infer_taxonomy_source_name,
     load_taxonomy_bundle_manifest,
+    parse_latest_release_number,
+    parse_release_directory_numbers,
     materialise_taxonomy_file,
     refresh_taxonomy_bundle_manifest,
     validate_bootstrap_entry,
@@ -148,10 +151,96 @@ def read_gzip_text(path: Path) -> str:
         return handle.read()
 
 
-def test_refresh_manifest_adds_uq_source_metadata_for_plain_tsv_release(
+def install_fake_remote_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    url_texts: dict[str, str],
+    url_bytes: dict[str, bytes],
+) -> None:
+    """Patch URL readers to serve deterministic remote fixtures."""
+
+    def fake_read_url_text(url: str) -> str:
+        """Return one text fixture or raise the normal bundling error."""
+
+        if url in url_texts:
+            return url_texts[url]
+        if url in url_bytes:
+            return url_bytes[url].decode("utf-8")
+        raise TaxonomyBundleError(f"Could not read URL: {url}")
+
+    def fake_read_url_bytes(url: str) -> bytes:
+        """Return one byte fixture or raise the normal bundling error."""
+
+        if url in url_bytes:
+            return url_bytes[url]
+        if url in url_texts:
+            return url_texts[url].encode("utf-8")
+        raise TaxonomyBundleError(f"Could not read URL: {url}")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.read_url_text",
+        fake_read_url_text,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.read_url_bytes",
+        fake_read_url_bytes,
+    )
+
+
+def test_parse_release_directory_numbers_ignores_non_release_entries() -> None:
+    """Release discovery should keep only numeric `releaseNNN/` directories."""
+
+    index_html = (
+        '<a href="release95/">release95/</a>\n'
+        '<a href="latest/">latest/</a>\n'
+        '<a href="release232/">release232/</a>\n'
+        '<a href="temporary/">temporary/</a>\n'
+        '<a href="release95/">release95/</a>\n'
+    )
+
+    assert parse_release_directory_numbers(index_html) == (95, 232)
+
+
+def test_parse_latest_release_number_rejects_unparseable_text() -> None:
+    """Latest-version parsing should fail fast on malformed VERSION payloads."""
+
+    with pytest.raises(TaxonomyBundleError, match="Could not parse"):
+        parse_latest_release_number("Released sometime recently\n")
+
+
+def test_infer_taxonomy_source_name_prefers_current_release_filenames() -> None:
+    """Filename inference should prefer `bac120` and `ar53` over legacy names."""
+
+    checksum_mapping = {
+        "bac120_taxonomy_r232.tsv.gz": ("a" * 32,),
+        "bac_taxonomy_r232.tsv.gz": ("b" * 32,),
+        "ar53_taxonomy_r232.tsv.gz": ("c" * 32,),
+        "ar122_taxonomy_r232.tsv.gz": ("d" * 32,),
+    }
+
+    assert infer_taxonomy_source_name(
+        232,
+        checksum_mapping,
+        (
+            "bac120_taxonomy_r{release}.tsv.gz",
+            "bac_taxonomy_r{release}.tsv.gz",
+        ),
+    ) == "bac120_taxonomy_r232.tsv.gz"
+    assert infer_taxonomy_source_name(
+        232,
+        checksum_mapping,
+        (
+            "ar53_taxonomy_r{release}.tsv.gz",
+            "ar122_taxonomy_r{release}.tsv.gz",
+        ),
+    ) == "ar53_taxonomy_r232.tsv.gz"
+
+
+def test_refresh_manifest_builds_runtime_integrity_for_plain_tsv_release(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Refresh should map release80 target names to plain upstream TSV files."""
+    """Refresh should gzip plain TSV sources and write runtime integrity fields."""
 
     manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
     write_manifest_text(
@@ -170,24 +259,38 @@ def test_refresh_manifest_adds_uq_source_metadata_for_plain_tsv_release(
         )
         + "\n",
     )
-    release_root = tmp_path / "mirror" / "release80" / "80.0"
-    payloads = {
-        "bac_taxonomy_r80.tsv": b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n",
-    }
-    write_checksum_file(release_root, "MD5SUM", payloads)
+    releases_root_url = "https://example.org/releases/"
+    source_root_url = f"{releases_root_url}release80/80.0/"
+    bacterial_plain = b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n"
+    install_fake_remote_mapping(
+        monkeypatch,
+        url_texts={
+            releases_root_url: '<a href="release80/">release80/</a>\n',
+            f"{releases_root_url}latest/VERSION.txt": "v80 Released Apr 15, 2026\n",
+            f"{source_root_url}MD5SUM": build_md5_line(
+                "bac_taxonomy_r80.tsv",
+                bacterial_plain,
+            )
+            + "\n",
+        },
+        url_bytes={
+            f"{source_root_url}bac_taxonomy_r80.tsv": bacterial_plain,
+        },
+    )
 
     entries = refresh_taxonomy_bundle_manifest(
         manifest_path,
-        releases_root_url=(tmp_path / "mirror").as_uri() + "/",
+        releases_root_url=releases_root_url,
     )
 
     assert len(entries) == 1
-    assert entries[0].source_root_url == release_root.as_uri() + "/"
+    assert entries[0].source_root_url == source_root_url
     assert entries[0].checksum_filename == "MD5SUM"
+    assert entries[0].bacterial_taxonomy == "bac_taxonomy_r80.tsv.gz"
+    assert entries[0].bacterial_taxonomy_sha256 is not None
+    assert entries[0].bacterial_taxonomy_rows == 1
     manifest_text = manifest_path.read_text(encoding="ascii")
     assert "source_root_url" in manifest_text
-    assert "bacterial_source_name" not in manifest_text
-    assert "archaeal_source_name" not in manifest_text
 
 
 def test_load_taxonomy_bundle_manifest_rejects_missing_required_headers(
@@ -279,10 +382,11 @@ def test_load_taxonomy_bundle_manifest_rejects_invalid_taxonomy_paths(
         load_taxonomy_bundle_manifest(manifest_path)
 
 
-def test_refresh_manifest_prefers_precompressed_source_when_available(
+def test_refresh_manifest_discovers_newer_releases_and_rebuilds_in_order(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Refresh should keep using upstream gzip files when the mirror exposes them."""
+    """Refresh should preserve curated history and append newly discovered releases."""
 
     manifest_path = tmp_path / "data" / "gtdb_taxonomy" / "releases.tsv"
     write_manifest_text(
@@ -295,6 +399,15 @@ def test_refresh_manifest_prefers_precompressed_source_when_available(
                     "95,95.0",
                     "bac120_taxonomy_r95.tsv.gz",
                     "ar122_taxonomy_r95.tsv.gz",
+                    "false",
+                    archaeal_sha256=DUMMY_SHA256,
+                    archaeal_rows=DUMMY_ROWS,
+                ),
+                build_runtime_manifest_row(
+                    "226.0",
+                    "226,226.0,latest",
+                    "bac120_taxonomy_r226.tsv.gz",
+                    "ar53_taxonomy_r226.tsv.gz",
                     "true",
                     archaeal_sha256=DUMMY_SHA256,
                     archaeal_rows=DUMMY_ROWS,
@@ -303,28 +416,76 @@ def test_refresh_manifest_prefers_precompressed_source_when_available(
         )
         + "\n",
     )
-    release_root = tmp_path / "mirror" / "release95" / "95.0"
+    releases_root_url = "https://example.org/releases/"
     bacterial_plain = b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n"
-    archaeal_plain = b"RS_GCF_000002.1\td__Archaea;g__Methanobrevibacter\n"
-    payloads = {
-        "bac120_taxonomy_r95.tsv": bacterial_plain,
-        "bac120_taxonomy_r95.tsv.gz": gzip.compress(bacterial_plain, mtime=7),
-        "ar122_taxonomy_r95.tsv": archaeal_plain,
-        "ar122_taxonomy_r95.tsv.gz": gzip.compress(archaeal_plain, mtime=7),
-    }
-    write_checksum_file(release_root, "MD5SUM", payloads)
-
-    entries = refresh_taxonomy_bundle_manifest(
-        manifest_path,
-        releases_root_url=(tmp_path / "mirror").as_uri() + "/",
+    archaeal_95_plain = b"RS_GCF_000002.1\td__Archaea;g__Methanobrevibacter\n"
+    bacterial_95_gzip = gzip.compress(bacterial_plain, mtime=7)
+    archaeal_95_gzip = gzip.compress(archaeal_95_plain, mtime=7)
+    bacterial_226_plain = b"RS_GCF_000003.1\td__Bacteria;g__Thermoflexus\n"
+    archaeal_226_plain = b"RS_GCF_000004.1\td__Archaea;g__Methanobrevibacter\n"
+    bacterial_226_gzip = gzip.compress(bacterial_226_plain, mtime=0)
+    archaeal_226_gzip = gzip.compress(archaeal_226_plain, mtime=0)
+    bacterial_232_plain = b"RS_GCF_000005.1\td__Bacteria;g__Thermoflexus\n"
+    archaeal_232_plain = b"RS_GCF_000006.1\td__Archaea;g__Methanobrevibacter\n"
+    bacterial_232_gzip = gzip.compress(bacterial_232_plain, mtime=0)
+    archaeal_232_gzip = gzip.compress(archaeal_232_plain, mtime=0)
+    install_fake_remote_mapping(
+        monkeypatch,
+        url_texts={
+            releases_root_url: "\n".join(
+                [
+                    '<a href="release95/">release95/</a>',
+                    '<a href="release214/">release214/</a>',
+                    '<a href="release226/">release226/</a>',
+                    '<a href="release232/">release232/</a>',
+                    '<a href="latest/">latest/</a>',
+                    "",
+                ],
+            ),
+            f"{releases_root_url}latest/VERSION.txt": "v232 Released Apr 15, 2026\n",
+            f"{releases_root_url}release95/95.0/MD5SUM": "\n".join(
+                [
+                    build_md5_line("bac120_taxonomy_r95.tsv.gz", bacterial_95_gzip),
+                    build_md5_line("ar122_taxonomy_r95.tsv.gz", archaeal_95_gzip),
+                    "",
+                ],
+            ),
+            f"{releases_root_url}release226/226.0/MD5SUM.txt": "\n".join(
+                [
+                    build_md5_line("bac120_taxonomy_r226.tsv.gz", bacterial_226_gzip),
+                    build_md5_line("ar53_taxonomy_r226.tsv.gz", archaeal_226_gzip),
+                    "",
+                ],
+            ),
+            f"{releases_root_url}release232/232.0/MD5SUM.txt": "\n".join(
+                [
+                    build_md5_line("bac120_taxonomy_r232.tsv.gz", bacterial_232_gzip),
+                    build_md5_line("ar53_taxonomy_r232.tsv.gz", archaeal_232_gzip),
+                    "",
+                ],
+            ),
+        },
+        url_bytes={
+            f"{releases_root_url}release95/95.0/bac120_taxonomy_r95.tsv.gz": bacterial_95_gzip,
+            f"{releases_root_url}release95/95.0/ar122_taxonomy_r95.tsv.gz": archaeal_95_gzip,
+            f"{releases_root_url}release226/226.0/bac120_taxonomy_r226.tsv.gz": bacterial_226_gzip,
+            f"{releases_root_url}release226/226.0/ar53_taxonomy_r226.tsv.gz": archaeal_226_gzip,
+            f"{releases_root_url}release232/232.0/bac120_taxonomy_r232.tsv.gz": bacterial_232_gzip,
+            f"{releases_root_url}release232/232.0/ar53_taxonomy_r232.tsv.gz": archaeal_232_gzip,
+        },
     )
 
-    assert entries[0].checksum_filename == "MD5SUM"
-    assert entries[0].bacterial_taxonomy == "bac120_taxonomy_r95.tsv.gz"
-    assert entries[0].archaeal_taxonomy == "ar122_taxonomy_r95.tsv.gz"
+    entries = refresh_taxonomy_bundle_manifest(manifest_path, releases_root_url=releases_root_url)
+
+    assert [entry.resolved_release for entry in entries] == ["95.0", "226.0", "232.0"]
+    assert entries[-1].aliases == "232,232.0,release232,release232/232.0,latest"
+    assert [entry.is_latest for entry in entries] == ["false", "false", "true"]
+    assert all(entry.source_root_url is not None for entry in entries)
+    assert "214.0" not in manifest_path.read_text(encoding="ascii")
 
 
 def test_refresh_manifest_tolerates_unrelated_duplicate_checksum_entries(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """Refresh should ignore conflicting duplicate entries for unrelated files."""
@@ -348,31 +509,41 @@ def test_refresh_manifest_tolerates_unrelated_duplicate_checksum_entries(
         )
         + "\n",
     )
-    release_root = tmp_path / "mirror" / "release214" / "214.0"
+    releases_root_url = "https://example.org/releases/"
     bacterial_plain = b"RS_GCF_000001.1\td__Bacteria;g__Escherichia\n"
     bacterial_gzip = gzip.compress(bacterial_plain, mtime=0)
     archaeal_plain = b"RS_GCF_000002.1\td__Archaea;g__Methanobrevibacter\n"
     archaeal_gzip = gzip.compress(archaeal_plain, mtime=0)
-    write_checksum_lines(
-        release_root,
-        "MD5SUM.txt",
-        (
-            build_md5_line("bac120_taxonomy_r214.tsv.gz", bacterial_gzip),
-            build_md5_line("ar53_taxonomy_r214.tsv.gz", archaeal_gzip),
-            build_md5_line(
-                "genomic_files_all/ar53_msa_marker_genes_all_r214.tar.gz",
-                b"first",
+    install_fake_remote_mapping(
+        monkeypatch,
+        url_texts={
+            releases_root_url: '<a href="release214/">release214/</a>\n',
+            f"{releases_root_url}latest/VERSION.txt": "v214 Released Apr 15, 2026\n",
+            f"{releases_root_url}release214/214.0/MD5SUM.txt": "\n".join(
+                (
+                    build_md5_line("bac120_taxonomy_r214.tsv.gz", bacterial_gzip),
+                    build_md5_line("ar53_taxonomy_r214.tsv.gz", archaeal_gzip),
+                    build_md5_line(
+                        "genomic_files_all/ar53_msa_marker_genes_all_r214.tar.gz",
+                        b"first",
+                    ),
+                    build_md5_line(
+                        "genomic_files_all/ar53_msa_marker_genes_all_r214.tar.gz",
+                        b"second",
+                    ),
+                    "",
+                ),
             ),
-            build_md5_line(
-                "genomic_files_all/ar53_msa_marker_genes_all_r214.tar.gz",
-                b"second",
-            ),
-        ),
+        },
+        url_bytes={
+            f"{releases_root_url}release214/214.0/bac120_taxonomy_r214.tsv.gz": bacterial_gzip,
+            f"{releases_root_url}release214/214.0/ar53_taxonomy_r214.tsv.gz": archaeal_gzip,
+        },
     )
 
     entries = refresh_taxonomy_bundle_manifest(
         manifest_path,
-        releases_root_url=(tmp_path / "mirror").as_uri() + "/",
+        releases_root_url=releases_root_url,
     )
 
     assert entries[0].checksum_filename == "MD5SUM.txt"

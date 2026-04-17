@@ -148,7 +148,7 @@ def test_load_release_manifest_reads_real_bundled_manifest() -> None:
 
     assert entries
     assert any(entry.is_latest for entry in entries)
-    assert any(entry.resolved_release == "226.0" for entry in entries)
+    assert any(entry.resolved_release == "232.0" for entry in entries)
 
 
 def test_resolve_release_supports_latest_alias() -> None:
@@ -156,7 +156,7 @@ def test_resolve_release_supports_latest_alias() -> None:
 
     resolution = resolve_release("latest")
 
-    assert resolution.resolved_release == "226.0"
+    assert resolution.resolved_release == "232.0"
     assert resolution.bacterial_taxonomy is not None
     assert resolution.archaeal_taxonomy is not None
 

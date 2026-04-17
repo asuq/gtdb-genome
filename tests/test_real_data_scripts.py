@@ -489,7 +489,7 @@ def test_real_data_prepare_case_command_records_faulthandler_and_safe_debug(
         "export REAL_DATA_PYTHON_FAULTHANDLER=1\n"
         "export REAL_DATA_DEBUG_SAFE=1\n"
         "real_data_prepare_case_command "
-        "gtdb-genomes --gtdb-release 226 "
+        "gtdb-genomes --gtdb-release 232 "
         "--gtdb-taxon 's__Thermoflexus hugenholtzii' "
         "--threads 2 --include genome\n"
         "real_data_write_command_file "
@@ -907,7 +907,7 @@ def test_remote_check_dehydrate_suppressed_partial_result_accepts_crlf_tsvs(
     assert result.returncode == 0
 
 
-def test_real_data_runner_cases_pin_latest_smoke_to_release_226() -> None:
+def test_real_data_runner_cases_pin_latest_smoke_to_release_232() -> None:
     """The live validation cases should not depend on the moving `latest` alias."""
 
     local_script = Path("bin/run-real-data-tests-local.sh").read_text(
@@ -917,8 +917,8 @@ def test_real_data_runner_cases_pin_latest_smoke_to_release_226() -> None:
         encoding="utf-8",
     )
 
-    assert "--gtdb-release 226" in local_script
-    assert "--gtdb-release 226" in remote_script
+    assert "--gtdb-release 232" in local_script
+    assert "--gtdb-release 232" in remote_script
     assert "--gtdb-release latest" not in local_script
     assert "--gtdb-release latest" not in remote_script
 

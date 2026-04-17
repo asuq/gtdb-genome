@@ -247,7 +247,7 @@ run_remote_case() {
                 "${REMOTE_TEST_ROOT}" "${case_id}" 0 present "" \
                 remote_check_direct_success \
                 gtdb-genomes \
-                --gtdb-release 226 \
+                --gtdb-release 232 \
                 --gtdb-taxon "s__Thermoflexus hugenholtzii" \
                 --threads 2 \
                 --include genome
@@ -328,7 +328,7 @@ run_remote_case() {
                 "REAL_DATA_REAL_DATASETS_BIN=$(command -v datasets)" \
                 REAL_DATA_INTERRUPT_DATASETS_DOWNLOAD=1 \
                 gtdb-genomes \
-                --gtdb-release 226 \
+                --gtdb-release 232 \
                 --gtdb-taxon "s__Thermoflexus hugenholtzii" \
                 --threads 2 \
                 --include genome,gff3,protein
@@ -369,7 +369,7 @@ main() {
         "C0-manifest" \
         4 \
         gtdb-genomes \
-        --gtdb-release 226 \
+        --gtdb-release 232 \
         --gtdb-taxon g__DefinitelyNotReal \
         --outdir "${REMOTE_TEST_ROOT}/c0-manifest-output" \
         --dry-run

@@ -146,7 +146,7 @@ def resolve_requested_release(requested_release: str) -> str:
 
     release = requested_release.strip()
     if release == "latest":
-        return "226.0"
+        return "232.0"
     if release.startswith("release") and "/" in release:
         _, _, resolved_release = release.partition("/")
         return resolved_release

@@ -94,7 +94,7 @@ successfully.
 ### Release and accession choice
 
 - `-r`, `--gtdb-release`: Defaults to `latest`. Accepted local aliases include
-  `latest`, `80`, `95`, `214`, `226`, `220.0`, and `release220/220.0`.
+  `latest`, `80`, `95`, `214`, `232`, `220.0`, and `release220/220.0`.
 
   The `latest` alias is resolved from the local manifest row marked with
   `is_latest=true`. GTDB release resolution never contacts GTDB over the
@@ -422,7 +422,7 @@ data/gtdb_taxonomy/<resolved_release>/
 
 `releases.tsv` remains plain text by design so the manifest stays easy to
 inspect and validate. It carries both the runtime release mapping columns and
-build-only UQ mirror metadata used by the bootstrap flow.
+build-only source metadata used by the bootstrap flow.
 
 Fresh source checkouts do not track the generated `<resolved_release>/`
 payload directories in Git. Before GTDB-dependent maintainer or source-
@@ -432,17 +432,17 @@ checkout runs, build the local runtime payload with:
 uv run python -m gtdb_genomes.bootstrap_taxonomy
 ```
 
-The bootstrap step downloads the configured taxonomy files from the HTTPS UQ
-mirror release directory recorded in `releases.tsv`, verifies each source file
-against the release `MD5SUM` or `MD5SUM.txt` listing, and materialises the
-local `.tsv.gz` runtime layout. That source-checkout bootstrap authenticity
-boundary is limited by the upstream-published MD5 listing. This bootstrap path
-is for maintainers and source checkouts; packaged runtimes already include the
-generated files. Community packaging and downstream redistribution should use
-the tagged release `sdist`, not a repository snapshot.
+The bootstrap step downloads the configured taxonomy files from the official
+GTDB HTTPS release directory recorded in `releases.tsv`, verifies each source
+file against the release `MD5SUM` or `MD5SUM.txt` listing, and materialises
+the local `.tsv.gz` runtime layout. That source-checkout bootstrap
+authenticity boundary is limited by the upstream-published MD5 listing. This
+bootstrap path is for maintainers and source checkouts; packaged runtimes
+already include the generated files. Community packaging and downstream
+redistribution should use the tagged release `sdist`, not a repository snapshot.
 
-Maintainers can refresh the build-only mirror metadata for the existing release
-rows with:
+Maintainers can refresh the build-only source metadata and discover newly
+published GTDB releases with:
 
 ```bash
 uv run python -m gtdb_genomes.refresh_taxonomy_manifest
@@ -466,9 +466,9 @@ Contributor setup lives in [CONTRIBUTING.md](../CONTRIBUTING.md). The pytest mat
 
 Published distribution archives include MIT-licensed project code plus GTDB
 taxonomy data under CC BY-SA 4.0. The taxonomy files are shipped as separate
-`.tsv.gz` package data generated from the UQ mirror and are not relicensed by
-this project. See `NOTICE` and `licenses/CC-BY-SA-4.0.txt` for attribution and
-licence details.
+`.tsv.gz` package data generated from the official GTDB releases host and are
+not relicensed by this project. See `NOTICE` and
+`licenses/CC-BY-SA-4.0.txt` for attribution and licence details.
 
 ## Failure Handling
 

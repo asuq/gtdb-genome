@@ -9,8 +9,8 @@ from pathlib import Path
 from gtdb_genomes.logging_utils import configure_named_console_logging
 from gtdb_genomes.release_resolver import get_release_manifest_path
 from gtdb_genomes.taxonomy_bundle import (
+    GTDB_RELEASES_ROOT,
     TaxonomyBundleError,
-    UQ_RELEASES_ROOT,
     refresh_taxonomy_bundle_manifest,
 )
 
@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="python -m gtdb_genomes.refresh_taxonomy_manifest",
-        description="Refresh GTDB taxonomy source metadata from the UQ mirror.",
+        description="Refresh GTDB taxonomy source metadata from the official GTDB releases host.",
     )
     parser.add_argument(
         "--manifest-path",
@@ -30,8 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--releases-root-url",
-        default=UQ_RELEASES_ROOT,
-        help="Base directory URL for the GTDB release mirror.",
+        default=GTDB_RELEASES_ROOT,
+        help="Base directory URL for the GTDB releases host.",
     )
     return parser
 

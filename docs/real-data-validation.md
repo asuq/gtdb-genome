@@ -24,7 +24,7 @@ The bundled release set currently covers:
 - `80`, `83`: early bacterial-only legacy releases
 - `86`: first dual-table release with `bac_taxonomy_*` and `arc_taxonomy_*`
 - `89`, `95`, `202`: `bac120` + `ar122`
-- `207`, `214`, `220`, `226`: `bac120` + `ar53`
+- `207`, `214`, `220`, `226`, `232`: `bac120` + `ar53`
 
 ## Real-Data Anchors
 
@@ -37,7 +37,8 @@ These case anchors were checked against the bundled taxonomy data:
 - `95 / g__Thermoflexus + s__Thermoflexus hugenholtzii`: duplicate-across-taxa
 - `202 / g__Bacteroides`: 1025 genomes, suitable for `auto` -> dehydrate
 - `207 / g__Methanobrevibacter`: 47 genomes
-- `226 / s__Thermoflexus hugenholtzii`: four genomes
+- `232 / s__Thermoflexus hugenholtzii`: four genomes
+- `232 / g__Methanobrevibacter`: 79 genomes
 
 ## Runner Scripts
 
@@ -99,7 +100,7 @@ Required bootstrap step:
 uv run python -m gtdb_genomes.bootstrap_taxonomy
 ```
 
-This downloads the GTDB taxonomy payloads from the pinned HTTPS UQ mirror
+This downloads the GTDB taxonomy payloads from the official GTDB source
 metadata in `data/gtdb_taxonomy/releases.tsv`, verifies each source file against the
 release `MD5SUM` or `MD5SUM.txt` listing, and materialises the local
 `data/gtdb_taxonomy/<release>/*.tsv.gz` runtime layout used by the source
@@ -284,7 +285,7 @@ Run the same packaged-data sanity check used by remote `C0-manifest`:
 
 ```bash
 gtdb-genomes \
-  --gtdb-release 226 \
+  --gtdb-release 232 \
   --gtdb-taxon g__DefinitelyNotReal \
   --outdir /tmp/gtdb-realtests/c0-manifest-output \
   --dry-run
@@ -314,7 +315,7 @@ Automatic strategy selection should keep this case on the direct path:
 
 ```bash
 gtdb-genomes \
-  --gtdb-release 226 \
+  --gtdb-release 232 \
   --gtdb-taxon "s__Thermoflexus hugenholtzii" \
   --threads 2 \
   --include genome \
@@ -451,7 +452,7 @@ Review these paths under the selected `REMOTE_TEST_ROOT`:
 - `A6`: `202 / g__Bacteroides`
 - `A7`: `207 / g__Methanobrevibacter`
 - `A8`: `release220/220.0 / s__Thermoflexus hugenholtzii`
-- `A9`: `226 / g__Methanobrevibacter`
+- `A9`: `232 / g__Methanobrevibacter`
 
 Acceptance:
 
@@ -483,14 +484,14 @@ Acceptance highlights:
 
 ### Remote packaged-runtime runs
 
-- `C1`: `226 / s__Thermoflexus hugenholtzii`
+- `C1`: `232 / s__Thermoflexus hugenholtzii`
 - `C2`: `89 / s__Thermoflexus hugenholtzii`
 - `C3`: `207 / g__Methanobrevibacter`
 - `C4`: `80 / g__Acholeplasma_C`
 - `C5`: `202 / g__Bacteroides`
 - `C6`: `release220/220.0 / s__Thermoflexus hugenholtzii`
 - `C7`: optional `214 / g__Bacteroides`
-- `C8`: `226 / s__Thermoflexus hugenholtzii / intentional interrupted direct download`
+- `C8`: `232 / s__Thermoflexus hugenholtzii / intentional interrupted direct download`
 
 Acceptance highlights:
 
