@@ -332,7 +332,7 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
     build_info = json.loads(
         read_wheel_member_text(wheel_path, "gtdb_genomes/_build_info.json"),
     )
-    assert build_info["package_version"] == "0.2.0"
+    assert build_info["package_version"] == "0.2.1"
     assert "git_revision" in build_info
     inspect_result = subprocess.run(
         [
@@ -396,7 +396,7 @@ def test_uv_build_advertises_external_runtime_requirements_in_metadata(
     )
 
     for requirement_line in (
-        "Requires-External: ncbi-datasets-cli (>=18.4.0,<18.22.0)",
+        "Requires-External: ncbi-datasets-cli (>=18.4.0,<18.27.0)",
         "Requires-External: unzip (>=6.0,<7.0)",
     ):
         assert requirement_line in wheel_metadata_text
@@ -658,7 +658,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "--prefer-genbank",
             "--threads",
             "`genome`, `gff3`, and `protein`",
-            "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
+            "`ncbi-datasets-cli >=18.4.0,<18.27.0`",
             "`unzip >=6.0,<7.0`",
             "The published package is available from Bioconda",
             "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
@@ -692,7 +692,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "mamba activate gtdb-genomes",
             "gtdb-genomes --help",
             "`polars >=1.31.0,<2.0.0`",
-            "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
+            "`ncbi-datasets-cli >=18.4.0,<18.27.0`",
             "`unzip >=6.0,<7.0`",
             (
                 "[GTDB Taxonomy Data]"
@@ -733,7 +733,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         (
             "You can copy and paste this citation:",
             (
-                "Shima, A. (2026). gtdb-genomes (Version 0.2.0) "
+                "Shima, A. (2026). gtdb-genomes (Version 0.2.1) "
                 "[Computer software]. Zenodo. "
                 "https://doi.org/10.5281/zenodo.19198946"
             ),
@@ -1033,16 +1033,12 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     )
 
 
-def test_bioconda_recipe_copy_matches_published_recipe_metadata() -> None:
-    """The upstream Bioconda recipe copy should match published metadata."""
+def test_bioconda_recipe_copy_tracks_next_dependency_window() -> None:
+    """The upstream Bioconda recipe copy should track the next dependency window."""
 
     datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
     unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
     bioconda_recipe_path = Path("packaging/bioconda/meta.yaml")
-    merged_recipe_path = Path(
-        "/Users/asuq/Documents/Lab/Coding/bioconda-recipes/"
-        "recipes/gtdb-genomes/meta.yaml",
-    )
     bioconda_text = bioconda_recipe_path.read_text(
         encoding="utf-8",
     )
@@ -1052,14 +1048,13 @@ def test_bioconda_recipe_copy_matches_published_recipe_metadata() -> None:
 
     assert bioconda_recipe_path.is_file()
     assert not Path("packaging/bioconda/meta.yaml.template").exists()
-    if merged_recipe_path.is_file():
-        assert bioconda_text == merged_recipe_path.read_text(encoding="utf-8")
     assert '{% set version = "0.2.0" %}' in bioconda_text
     assert "https://github.com/asuq/gtdb-genomes/releases/download/" in (
         bioconda_text
     )
     assert "meta.yaml" in bioconda_readme_text
     assert "upstream copy of the merged Bioconda recipe" in bioconda_readme_text
+    assert "next dependency-window release" in bioconda_readme_text
     assert "https://github.com/asuq/gtdb-genomes" in bioconda_text
     assert "https://github.com/asuq/gtdb-genomes/blob/main/README.md" in (
         bioconda_text
@@ -1109,8 +1104,8 @@ def test_citation_file_uses_canonical_release_metadata() -> None:
         (
             "cff-version: 1.2.0",
             'title: "gtdb-genomes"',
-            'version: "0.2.0"',
-            "date-released: 2026-03-25",
+            'version: "0.2.1"',
+            "date-released: 2026-05-19",
             "repository-code: 'https://github.com/asuq/gtdb-genomes'",
             'family-names: "Shima"',
             'given-names: "Akito"',
@@ -1163,20 +1158,20 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "exact built source archive",
             "validates both the wheel and `sdist`",
             "no `uv` on `PATH`",
-            "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
+            "`ncbi-datasets-cli >=18.4.0,<18.27.0`",
             "`unzip >=6.0,<7.0`",
             "Requires-External",
             "ncbi-datasets-cli=18.4.0",
-            "ncbi-datasets-cli=18.21.0",
+            "ncbi-datasets-cli=18.26.0",
             "polars=1.31.0",
             "tqdm=4.67.1",
             "-c conda-forge -c bioconda",
             "unzip=6.0",
             "--force-reinstall --no-deps",
-            "gtdb_genomes-0.2.0-py3-none-any.whl",
-            'git commit -m "chore(release): prepare v0.2.0"',
+            "gtdb_genomes-0.2.1-py3-none-any.whl",
+            'git commit -m "chore(release): prepare v0.2.1"',
             "run-real-data-tests-server.sh smoke",
-            "Do not merge to `main` or create `v0.2.0`",
+            "Do not merge to `main` or create `v0.2.1`",
             "load_release_taxonomy()",
             "accession_decision_sha256",
             "selected_accession",
@@ -1219,7 +1214,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "- \"3.13\"",
             "- \"3.14\"",
             "ncbi-datasets-cli=18.4.0",
-            "ncbi-datasets-cli=18.21.0",
+            "ncbi-datasets-cli=18.26.0",
             "unzip=6.0",
             "uv run pytest -q",
             "micromamba run -n gtdb-genome",
@@ -1347,7 +1342,7 @@ def test_live_validation_workflow_bootstraps_before_b1() -> None:
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "bin/run-real-data-tests-local.sh B1",
             "LOCAL_LAUNCHER_MODE: module",
-            "ncbi-datasets-cli=18.21.0",
+            "ncbi-datasets-cli=18.26.0",
             "unzip=6.0",
         ),
     )

@@ -98,7 +98,7 @@ jobs:
       - name: Create validation environment
         run: >-
           micromamba create -y -n gtdb-genome python=3.12 uv pip
-          ncbi-datasets-cli=18.21.0 unzip=6.0
+          ncbi-datasets-cli=18.26.0 unzip=6.0
 
       - name: Sync project dependencies
         run: micromamba run -n gtdb-genome uv sync --locked --group dev
@@ -136,7 +136,7 @@ jobs:
       - name: Create validation environment
         run: >-
           micromamba create -y -n gtdb-genome python=3.12 uv pip
-          ncbi-datasets-cli=18.21.0 unzip=6.0
+          ncbi-datasets-cli=18.26.0 unzip=6.0
 
       - name: Bootstrap GTDB taxonomy data
         run: >-
@@ -176,7 +176,7 @@ jobs:
       - name: Create runtime environment
         run: >-
           micromamba create -y -n gtdb-genome-runtime python=3.12 pip
-          polars=1.31.0 tqdm=4.67.1 ncbi-datasets-cli=18.21.0 unzip=6.0
+          polars=1.31.0 tqdm=4.67.1 ncbi-datasets-cli=18.26.0 unzip=6.0
 
       - name: Install built wheel into clean runtime
         run: >-
@@ -233,7 +233,7 @@ jobs:
         run: >-
           micromamba create -y -n gtdb-genome-runtime-sdist
           python=3.12 pip hatchling polars=1.31.0 tqdm=4.67.1
-          ncbi-datasets-cli=18.21.0 unzip=6.0
+          ncbi-datasets-cli=18.26.0 unzip=6.0
 
       - name: Install built sdist into clean runtime
         run: >-

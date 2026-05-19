@@ -68,6 +68,42 @@ def test_check_required_tools_accepts_supported_versions(
     check_required_tools(("datasets", "unzip"))
 
 
+def test_check_required_tools_accepts_latest_supported_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The widened datasets window should accept the latest tested 18.x tool."""
+
+    monkeypatch.setattr(shutil, "which", lambda tool_name: f"/usr/bin/{tool_name}")
+
+    def fake_run(
+        command: list[str],
+        capture_output: bool,
+        text: bool,
+        check: bool,
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Return high-end supported version output for each required command."""
+
+        del capture_output, text, check, timeout
+        if command[0] == "datasets":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="datasets version: 18.26.0\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="UnZip 6.00 of 20 April 2009\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    check_required_tools(("datasets", "unzip"))
+
+
 def test_check_required_tools_raises_for_missing_commands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -103,7 +139,7 @@ def test_check_required_tools_raises_for_unsupported_versions(
             return subprocess.CompletedProcess(
                 command,
                 0,
-                stdout="datasets version: 18.22.0\n",
+                stdout="datasets version: 18.27.0\n",
                 stderr="",
             )
         return subprocess.CompletedProcess(
@@ -117,7 +153,7 @@ def test_check_required_tools_raises_for_unsupported_versions(
 
     with pytest.raises(
         PreflightError,
-        match="Supported range: >=18.4.0,<18.22.0",
+        match="Supported range: >=18.4.0,<18.27.0",
     ):
         check_required_tools(("datasets", "unzip"))
 
@@ -197,7 +233,7 @@ def test_check_required_tools_rejects_datasets_versions_below_supported_floor(
 
     with pytest.raises(
         PreflightError,
-        match="Supported range: >=18.4.0,<18.22.0",
+        match="Supported range: >=18.4.0,<18.27.0",
     ):
         check_required_tools(("datasets", "unzip"))
 

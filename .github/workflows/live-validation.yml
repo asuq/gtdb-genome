@@ -28,7 +28,7 @@ jobs:
       - name: Create live validation environment
         run: >-
           micromamba create -y -n ci-live python=3.12 uv
-          ncbi-datasets-cli=18.21.0 unzip=6.0
+          ncbi-datasets-cli=18.26.0 unzip=6.0
 
       - name: Sync project dependencies
         run: micromamba run -n ci-live uv sync --locked --group dev

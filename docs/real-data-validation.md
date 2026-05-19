@@ -3,13 +3,13 @@
 This guide turns the release-variant real-data test plan into a repeatable
 validation workflow for `gtdb-genomes`.
 
-Supported external-tool window for the first public release:
+Supported external-tool window for the current release:
 
-- `ncbi-datasets-cli >=18.4.0,<18.22.0`
+- `ncbi-datasets-cli >=18.4.0,<18.27.0`
 - `unzip >=6.0,<7.0`
 
 GitHub Actions validates both ends of the supported `datasets` window:
-`ncbi-datasets-cli=18.4.0` in Validation A and `ncbi-datasets-cli=18.21.0`
+`ncbi-datasets-cli=18.4.0` in Validation A and `ncbi-datasets-cli=18.26.0`
 in the remaining validation, live-validation, and release jobs. All jobs keep
 `unzip=6.0` inside that supported window.
 
@@ -157,9 +157,9 @@ Remote validation assumes:
 Suggested remote setup:
 
 ```bash
-mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.21.0
+mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.26.0
 mamba activate gtdb-genome-test
-python -m pip install --force-reinstall --no-deps /path/to/dist/gtdb_genomes-0.2.0-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps /path/to/dist/gtdb_genomes-0.2.1-py3-none-any.whl
 which gtdb-genomes
 gtdb-genomes --help
 python -c "from gtdb_genomes.release_resolver import get_release_manifest_path; path = get_release_manifest_path(); assert path.is_file(), path"
@@ -189,7 +189,7 @@ child environment. `C5` now runs without the key and uses it opportunistically
 when present.
 
 Built wheels and sdists advertise `Requires-External` hints for
-`ncbi-datasets-cli (>=18.4.0,<18.22.0)` and `unzip (>=6.0,<7.0)`, but remote
+`ncbi-datasets-cli (>=18.4.0,<18.27.0)` and `unzip (>=6.0,<7.0)`, but remote
 validation still installs concrete tool versions and relies on CLI preflight as
 the authoritative runtime gate.
 
@@ -246,7 +246,7 @@ merging to `main` or tagging:
 ```bash
 mamba run -n gtdb-genome uv lock
 mamba run -n gtdb-genome uv run pytest -q
-git commit -m "chore(release): prepare v0.2.0"
+git commit -m "chore(release): prepare v0.2.1"
 ```
 
 ### 2. Build and copy the wheel from the local machine
@@ -257,8 +257,8 @@ already has a repo checkout containing `bin/`.
 
 ```bash
 mamba run -n gtdb-genome uv build
-ls dist/gtdb_genomes-0.2.0-py3-none-any.whl
-scp dist/gtdb_genomes-0.2.0-py3-none-any.whl user@remote:/tmp/gtdb-genome-remote/
+ls dist/gtdb_genomes-0.2.1-py3-none-any.whl
+scp dist/gtdb_genomes-0.2.1-py3-none-any.whl user@remote:/tmp/gtdb-genome-remote/
 scp bin/run-real-data-tests-server.sh \
   user@remote:/tmp/gtdb-genome-remote/
 scp bin/run-real-data-tests-remote.sh \
@@ -272,9 +272,9 @@ SSH to the remote server and create a fresh packaged-runtime environment:
 
 ```bash
 ssh user@remote
-mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.21.0
+mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.26.0
 mamba activate gtdb-genome-test
-python -m pip install --force-reinstall --no-deps /tmp/gtdb-genome-remote/gtdb_genomes-0.2.0-py3-none-any.whl
+python -m pip install --force-reinstall --no-deps /tmp/gtdb-genome-remote/gtdb_genomes-0.2.1-py3-none-any.whl
 which gtdb-genomes
 gtdb-genomes --help
 python -c "from gtdb_genomes.release_resolver import get_release_manifest_path; path = get_release_manifest_path(); assert path.is_file(), path"
@@ -388,7 +388,7 @@ export REMOTE_TEST_ROOT=/tmp/gtdb-realtests/remote-$(date +%Y%m%d)
 bash /tmp/gtdb-genome-remote/run-real-data-tests-server.sh C1 C5 C6
 ```
 
-Do not merge to `main` or create `v0.2.0` until this full packaged-runtime
+Do not merge to `main` or create `v0.2.1` until this full packaged-runtime
 suite is green.
 
 ### 6. Investigation mode for a failing remote case

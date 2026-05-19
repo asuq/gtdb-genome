@@ -458,7 +458,7 @@ validated locally from the recorded SHA-256 and expected row counts in
 validation before runtime taxonomy loading.
 
 Built wheels and sdists also advertise `Requires-External` hints for
-`ncbi-datasets-cli (>=18.4.0,<18.22.0)` and `unzip (>=6.0,<7.0)`. Those
+`ncbi-datasets-cli (>=18.4.0,<18.27.0)` and `unzip (>=6.0,<7.0)`. Those
 metadata hints do not replace the CLI preflight, which remains the
 authoritative runtime check.
 
