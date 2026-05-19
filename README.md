@@ -5,6 +5,8 @@
 [![CI](https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml/badge.svg)](https://github.com/asuq/gtdb-genomes/actions/workflows/ci.yml)
 [![Live validation](https://github.com/asuq/gtdb-genomes/actions/workflows/live-validation.yml/badge.svg)](https://github.com/asuq/gtdb-genomes/actions/workflows/live-validation.yml)
 [![GitHub release](https://img.shields.io/github/v/release/asuq/gtdb-genomes)](https://github.com/asuq/gtdb-genomes/releases)
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](https://bioconda.github.io/recipes/gtdb-genomes/README.html)
+[![Conda](https://img.shields.io/conda/vn/bioconda/gtdb-genomes.svg)](https://anaconda.org/bioconda/gtdb-genomes)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19198946.svg)](https://doi.org/10.5281/zenodo.19198946)
 [![CITATION.cff](https://img.shields.io/badge/CITATION-cff-blue.svg)](https://github.com/asuq/gtdb-genomes/blob/main/CITATION.cff)
 [![Code licence: MIT](https://img.shields.io/badge/code-MIT-green.svg)](LICENSE)
@@ -25,11 +27,15 @@ The detailed guide covers the
 
 ## Installation
 
-The first public Bioconda release is not ready yet.
-It still needs a tagged source archive and a verified checksum.
-The checked-in recipe is a draft, not a published installation path.
+The published package is available from Bioconda:
 
-The packaged runtime is currently checked with:
+```bash
+mamba create -n gtdb-genomes -c conda-forge -c bioconda gtdb-genomes
+mamba activate gtdb-genomes
+gtdb-genomes --help
+```
+
+The Bioconda package currently constrains the packaged runtime to:
 
 - `polars >=1.31.0,<2.0.0`
 - `tqdm >=4.60.0,<5.0.0`
@@ -165,7 +171,7 @@ Contributor setup and source-checkout notes are in
 For runtime and packaging boundaries, see
 [Runtime Contract](docs/usage-details.md#runtime-contract) and
 [GTDB Taxonomy Data](docs/usage-details.md#bundled-gtdb-taxonomy). For
-Bioconda template
+Bioconda recipe
 notes, see [packaging/bioconda/README.md](packaging/bioconda/README.md).
 
 ## Licence
@@ -191,5 +197,5 @@ Machine-readable citation metadata is also available in [CITATION.cff](CITATION.
 - [Usage details](docs/usage-details.md)
 - [Contributing](CONTRIBUTING.md)
 - [Real-data validation guide](docs/real-data-validation.md)
-- [Bioconda draft template](packaging/bioconda/meta.yaml.template)
+- [Bioconda recipe](packaging/bioconda/meta.yaml)
 - [Bioconda packaging notes](packaging/bioconda/README.md)

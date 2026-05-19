@@ -634,6 +634,16 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
                 "(https://doi.org/10.5281/zenodo.19198946)"
             ),
             (
+                "[![install with bioconda]"
+                "(https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)]"
+                "(https://bioconda.github.io/recipes/gtdb-genomes/README.html)"
+            ),
+            (
+                "[![Conda]"
+                "(https://img.shields.io/conda/vn/bioconda/gtdb-genomes.svg)]"
+                "(https://anaconda.org/bioconda/gtdb-genomes)"
+            ),
+            (
                 "[Genome Taxonomy Database (GTDB)]"
                 "(https://gtdb.ecogenomic.org/)"
             ),
@@ -650,8 +660,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "`genome`, `gff3`, and `protein`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
-            "first public Bioconda release is not ready yet",
-            "checked-in recipe is a draft",
+            "The published package is available from Bioconda",
+            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
+            "mamba activate gtdb-genomes",
+            "gtdb-genomes --help",
             "polars >=1.31.0,<2.0.0",
             "--keep-tmp",
             "> [!IMPORTANT]",
@@ -668,16 +680,17 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "Contribution",
             "Citation",
             "CONTRIBUTING.md",
-            "packaging/bioconda/meta.yaml.template",
+            "packaging/bioconda/meta.yaml",
             '--gtdb-taxon "p__Pseudomonadota" "c__Alphaproteobacteria"',
         ),
     )
     assert_contains_all(
         installation_text,
         (
-            "tagged source archive",
-            "verified checksum",
-            "draft",
+            "The published package is available from Bioconda",
+            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
+            "mamba activate gtdb-genomes",
+            "gtdb-genomes --help",
             "`polars >=1.31.0,<2.0.0`",
             "`ncbi-datasets-cli >=18.4.0,<18.22.0`",
             "`unzip >=6.0,<7.0`",
@@ -690,9 +703,9 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert_not_contains_any(
         installation_text,
         (
-            "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
-            "mamba activate gtdb-genomes",
-            "gtdb-genomes --help",
+            "first public Bioconda release is not ready yet",
+            "checked-in recipe is a draft",
+            "tagged source archive and a verified checksum",
             "uv sync --group dev",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "uv run gtdb-genomes --help",
@@ -963,7 +976,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         "docs/real-data-validation.md",
     ).read_text(encoding="utf-8")
 
-    bioconda_text = Path("packaging/bioconda/meta.yaml.template").read_text(
+    bioconda_text = Path("packaging/bioconda/meta.yaml").read_text(
         encoding="utf-8",
     )
     bioconda_readme_text = Path("packaging/bioconda/README.md").read_text(
@@ -977,9 +990,13 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         bioconda_text,
         (
             "--no-build-isolation",
+            "run_exports:",
+            '{{ pin_subpackage(name, max_pin="x.x") }}',
             "hatchling >=1.27.0,<2.0.0",
             "polars >=1.31.0,<2.0.0",
+            "tqdm >=4.60.0,<5.0.0",
             "- ncbi-datasets-cli",
+            "15693e474cdfe0d1ea8e4011816586c2ee45de6fccfe8ccf42e823f6b7284d73",
             "resolve_and_validate_release('latest')",
             "load_release_taxonomy",
             "g__NoSuchTaxon",
@@ -989,10 +1006,10 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     assert_contains_all(
         bioconda_readme_text,
         (
-            "meta.yaml.template",
-            "draft recipe template",
-            "quarantined",
-            "final `sha256`",
+            "meta.yaml",
+            "upstream copy of the merged Bioconda recipe",
+            "Keep this file synced from the Bioconda recipe",
+            "verified `sha256`",
             "polars >=1.31.0,<2.0.0",
             "bundled taxonomy loading",
             "offline zero-match dry-run path",
@@ -1016,37 +1033,40 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     )
 
 
-def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists() -> None:
-    """The Bioconda draft recipe should stay quarantined until release metadata exists."""
+def test_bioconda_recipe_copy_matches_published_recipe_metadata() -> None:
+    """The upstream Bioconda recipe copy should match published metadata."""
 
     datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
     unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
-    bioconda_template_path = Path("packaging/bioconda/meta.yaml.template")
-    bioconda_text = bioconda_template_path.read_text(
+    bioconda_recipe_path = Path("packaging/bioconda/meta.yaml")
+    merged_recipe_path = Path(
+        "/Users/asuq/Documents/Lab/Coding/bioconda-recipes/"
+        "recipes/gtdb-genomes/meta.yaml",
+    )
+    bioconda_text = bioconda_recipe_path.read_text(
         encoding="utf-8",
     )
     bioconda_readme_text = Path("packaging/bioconda/README.md").read_text(
         encoding="utf-8",
     )
 
-    assert not Path("packaging/bioconda/meta.yaml").exists()
-    assert bioconda_template_path.is_file()
+    assert bioconda_recipe_path.is_file()
+    assert not Path("packaging/bioconda/meta.yaml.template").exists()
+    if merged_recipe_path.is_file():
+        assert bioconda_text == merged_recipe_path.read_text(encoding="utf-8")
     assert '{% set version = "0.2.0" %}' in bioconda_text
     assert "https://github.com/asuq/gtdb-genomes/releases/download/" in (
         bioconda_text
     )
-    assert (
-        "Fill these from the tagged GitHub release after the first public "
-        "release"
-    ) in bioconda_text
-    assert "meta.yaml.template" in bioconda_readme_text
-    assert "quarantined" in bioconda_readme_text
+    assert "meta.yaml" in bioconda_readme_text
+    assert "upstream copy of the merged Bioconda recipe" in bioconda_readme_text
     assert "https://github.com/asuq/gtdb-genomes" in bioconda_text
     assert "https://github.com/asuq/gtdb-genomes/blob/main/README.md" in (
         bioconda_text
     )
     assert "hatchling >=1.27.0,<2.0.0" in bioconda_text
     assert "polars >=1.31.0,<2.0.0" in bioconda_text
+    assert "tqdm >=4.60.0,<5.0.0" in bioconda_text
     assert "g__NoSuchTaxon" in bioconda_text
     assert "--dry-run" in bioconda_text
     assert f"- {unzip_policy.display_name} {unzip_policy.supported_range}" in (
@@ -1057,10 +1077,11 @@ def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists()
     )
     assert "recipe-maintainers:" in bioconda_text
     assert "- asuq" in bioconda_text
-    assert (
-        "sha256: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-        in bioconda_text
+    assert "sha256: 15693e474cdfe0d1ea8e4011816586c2ee45de6fccfe8ccf42e823f6b7284d73" in (
+        bioconda_text
     )
+    assert "run_exports:" in bioconda_text
+    assert '{{ pin_subpackage(name, max_pin="x.x") }}' in bioconda_text
     assert "example.org" not in bioconda_text
     assert "your-org" not in bioconda_text
     assert "your-github-id" not in bioconda_text
@@ -1071,7 +1092,8 @@ def test_bioconda_recipe_template_is_quarantined_until_release_metadata_exists()
             "https://github.com/asuq/gtdb-genome/releases/download/",
             "https://github.com/asuq/gtdb-genome/blob/main/README.md",
             "https://github.com/asuq/gtdb-genome\n",
-            "run_exports:",
+            "sha256: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "Fill these from the tagged GitHub release",
             "???",
         ),
     )

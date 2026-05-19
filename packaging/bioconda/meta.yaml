@@ -2,7 +2,7 @@
 {% set version = "0.2.0" %}
 
 package:
-  name: {{ name|lower }}
+  name: {{ name }}
   version: {{ version }}
 
 build:
@@ -11,12 +11,12 @@ build:
   script: {{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
   entry_points:
     - gtdb-genomes=gtdb_genomes.cli:main
+  run_exports:
+    - {{ pin_subpackage(name, max_pin="x.x") }}
 
 source:
-  # Fill these from the tagged GitHub release after the first public release
-  # is published.
   url: https://github.com/asuq/gtdb-genomes/releases/download/v{{ version }}/gtdb_genomes-{{ version }}.tar.gz
-  sha256: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  sha256: 15693e474cdfe0d1ea8e4011816586c2ee45de6fccfe8ccf42e823f6b7284d73
 
 requirements:
   host:
@@ -26,7 +26,7 @@ requirements:
   run:
     - python >=3.12
     - polars >=1.31.0,<2.0.0
-    - tqdm >=4.67.1,<5.0.0
+    - tqdm >=4.60.0,<5.0.0
     - unzip >=6.0,<7.0
     - ncbi-datasets-cli >=18.4.0,<18.22.0
 

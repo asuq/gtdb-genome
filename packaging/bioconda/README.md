@@ -1,22 +1,24 @@
 # Bioconda Packaging Notes
 
-`meta.yaml.template` is a draft recipe template for the first public Bioconda
-submission.
+`meta.yaml` is the upstream copy of the merged Bioconda recipe for
+`gtdb-genomes` version `0.2.0`.
 
-It is intentionally quarantined from merge-ready packaging because the source
-archive URL and final `sha256` must be filled from a tagged GitHub release.
-The template also mirrors the current runtime floors from `pyproject.toml`,
-including `polars >=1.31.0,<2.0.0` and `tqdm >=4.67.1,<5.0.0`. Its smoke tests
-cover bundled taxonomy loading plus one offline zero-match dry-run path so the
-packaged CLI contract is exercised without a live download. The
-`resolve_and_validate_release()` smoke test now performs full bundled-payload
-validation before `load_release_taxonomy()` checks that the packaged tables
-really load.
+Keep this file synced from the Bioconda recipe when Bioconda-specific changes
+are merged. The current recipe uses the tagged GitHub release `sdist`, the
+verified `sha256`, `noarch: python`, and the same lightweight smoke tests used
+for the submitted package.
 
-For community packaging, the supported source input is the tagged release
-`sdist`, not a repository snapshot. The repository bootstrap path exists for
-maintainers and source checkouts, and its MD5-anchored mirror verification is
-outside the community packaging trust boundary.
+The smoke tests cover bundled taxonomy loading plus one offline zero-match dry-run path
+so the packaged CLI contract is exercised without a live download.
+The current runtime requirements include `polars >=1.31.0,<2.0.0`,
+`tqdm >=4.60.0,<5.0.0`, `ncbi-datasets-cli >=18.4.0,<18.22.0`, and
+`unzip >=6.0,<7.0`.
 
-Do not submit or publish this template unchanged. Copy it to `meta.yaml` only
-when a tagged release archive exists and the final `sha256` has been verified.
+For future releases:
+
+1. Bump the recipe `version`.
+2. Update the source archive URL and `sha256`.
+3. Keep runtime requirements aligned with `pyproject.toml` and the documented
+   external-tool support window.
+4. Run Bioconda lint and build checks.
+5. Submit a small update PR to `bioconda/bioconda-recipes`.
