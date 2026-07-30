@@ -39,7 +39,7 @@ The Bioconda package currently constrains the packaged runtime to:
 
 - `polars >=1.31.0,<2.0.0`
 - `tqdm >=4.60.0,<5.0.0`
-- `ncbi-datasets-cli >=18.4.0,<18.27.0`
+- `ncbi-datasets-cli >=18.4.0,<19.0.0`
 - `unzip >=6.0,<7.0`
 
 For packaging and redistribution details, see

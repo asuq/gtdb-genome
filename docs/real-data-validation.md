@@ -5,13 +5,13 @@ validation workflow for `gtdb-genomes`.
 
 Supported external-tool window for the current release:
 
-- `ncbi-datasets-cli >=18.4.0,<18.27.0`
+- `ncbi-datasets-cli >=18.4.0,<19.0.0`
 - `unzip >=6.0,<7.0`
 
-GitHub Actions validates both ends of the supported `datasets` window:
-`ncbi-datasets-cli=18.4.0` in Validation A and `ncbi-datasets-cli=18.26.0`
-in the remaining validation, live-validation, and release jobs. All jobs keep
-`unzip=6.0` inside that supported window.
+GitHub Actions validates the minimum supported `datasets` version with
+`ncbi-datasets-cli=18.4.0` in Validation A and the newer tested
+`ncbi-datasets-cli=18.33.1` in the remaining validation, live-validation, and
+release jobs. All jobs keep `unzip=6.0` inside its supported window.
 
 It is split into three passes:
 
@@ -157,7 +157,7 @@ Remote validation assumes:
 Suggested remote setup:
 
 ```bash
-mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.26.0
+mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.33.1
 mamba activate gtdb-genome-test
 python -m pip install --force-reinstall --no-deps /path/to/dist/gtdb_genomes-0.2.1-py3-none-any.whl
 which gtdb-genomes
@@ -189,7 +189,7 @@ child environment. `C5` now runs without the key and uses it opportunistically
 when present.
 
 Built wheels and sdists advertise `Requires-External` hints for
-`ncbi-datasets-cli (>=18.4.0,<18.27.0)` and `unzip (>=6.0,<7.0)`, but remote
+`ncbi-datasets-cli (>=18.4.0,<19.0.0)` and `unzip (>=6.0,<7.0)`, but remote
 validation still installs concrete tool versions and relies on CLI preflight as
 the authoritative runtime gate.
 
@@ -272,7 +272,7 @@ SSH to the remote server and create a fresh packaged-runtime environment:
 
 ```bash
 ssh user@remote
-mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.26.0
+mamba create -n gtdb-genome-test -c conda-forge -c bioconda python=3.12 pip polars=1.31.0 tqdm=4.67.1 unzip=6.0 ncbi-datasets-cli=18.33.1
 mamba activate gtdb-genome-test
 python -m pip install --force-reinstall --no-deps /tmp/gtdb-genome-remote/gtdb_genomes-0.2.1-py3-none-any.whl
 which gtdb-genomes

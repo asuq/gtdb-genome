@@ -11,7 +11,7 @@ for the submitted package.
 The smoke tests cover bundled taxonomy loading plus one offline zero-match dry-run path
 so the packaged CLI contract is exercised without a live download.
 The current runtime requirements include `polars >=1.31.0,<2.0.0`,
-`tqdm >=4.60.0,<5.0.0`, `ncbi-datasets-cli >=18.4.0,<18.27.0`, and
+`tqdm >=4.60.0,<5.0.0`, `ncbi-datasets-cli >=18.4.0,<19.0.0`, and
 `unzip >=6.0,<7.0`.
 
 For future releases:

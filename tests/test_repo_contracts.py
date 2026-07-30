@@ -111,7 +111,7 @@ def build_fixture_project(
     if uv_path is None:
         pytest.skip("uv is required for packaging regression tests")
     environment = os.environ.copy()
-    environment["UV_CACHE_DIR"] = str(project_root / ".uv-cache")
+    environment["UV_CACHE_DIR"] = str(output_root.parent / ".uv-cache")
     return subprocess.run(
         [uv_path, "build", "--out-dir", str(output_root)],
         cwd=project_root,
@@ -396,7 +396,7 @@ def test_uv_build_advertises_external_runtime_requirements_in_metadata(
     )
 
     for requirement_line in (
-        "Requires-External: ncbi-datasets-cli (>=18.4.0,<18.27.0)",
+        "Requires-External: ncbi-datasets-cli (>=18.4.0,<19.0.0)",
         "Requires-External: unzip (>=6.0,<7.0)",
     ):
         assert requirement_line in wheel_metadata_text
@@ -658,7 +658,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "--prefer-genbank",
             "--threads",
             "`genome`, `gff3`, and `protein`",
-            "`ncbi-datasets-cli >=18.4.0,<18.27.0`",
+            "`ncbi-datasets-cli >=18.4.0,<19.0.0`",
             "`unzip >=6.0,<7.0`",
             "The published package is available from Bioconda",
             "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
@@ -692,7 +692,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "mamba activate gtdb-genomes",
             "gtdb-genomes --help",
             "`polars >=1.31.0,<2.0.0`",
-            "`ncbi-datasets-cli >=18.4.0,<18.27.0`",
+            "`ncbi-datasets-cli >=18.4.0,<19.0.0`",
             "`unzip >=6.0,<7.0`",
             (
                 "[GTDB Taxonomy Data]"
@@ -1158,11 +1158,11 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "exact built source archive",
             "validates both the wheel and `sdist`",
             "no `uv` on `PATH`",
-            "`ncbi-datasets-cli >=18.4.0,<18.27.0`",
+            "`ncbi-datasets-cli >=18.4.0,<19.0.0`",
             "`unzip >=6.0,<7.0`",
             "Requires-External",
             "ncbi-datasets-cli=18.4.0",
-            "ncbi-datasets-cli=18.26.0",
+            "ncbi-datasets-cli=18.33.1",
             "polars=1.31.0",
             "tqdm=4.67.1",
             "-c conda-forge -c bioconda",
@@ -1214,7 +1214,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "- \"3.13\"",
             "- \"3.14\"",
             "ncbi-datasets-cli=18.4.0",
-            "ncbi-datasets-cli=18.26.0",
+            "ncbi-datasets-cli=18.33.1",
             "unzip=6.0",
             "uv run pytest -q",
             "micromamba run -n gtdb-genome",
@@ -1342,7 +1342,7 @@ def test_live_validation_workflow_bootstraps_before_b1() -> None:
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
             "bin/run-real-data-tests-local.sh B1",
             "LOCAL_LAUNCHER_MODE: module",
-            "ncbi-datasets-cli=18.26.0",
+            "ncbi-datasets-cli=18.33.1",
             "unzip=6.0",
         ),
     )

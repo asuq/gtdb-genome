@@ -68,10 +68,10 @@ def test_check_required_tools_accepts_supported_versions(
     check_required_tools(("datasets", "unzip"))
 
 
-def test_check_required_tools_accepts_latest_supported_datasets(
+def test_check_required_tools_accepts_late_18_x_datasets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The widened datasets window should accept the latest tested 18.x tool."""
+    """The datasets policy should accept later minor releases within major 18."""
 
     monkeypatch.setattr(shutil, "which", lambda tool_name: f"/usr/bin/{tool_name}")
 
@@ -89,7 +89,7 @@ def test_check_required_tools_accepts_latest_supported_datasets(
             return subprocess.CompletedProcess(
                 command,
                 0,
-                stdout="datasets version: 18.26.0\n",
+                stdout="datasets version: 18.99.0\n",
                 stderr="",
             )
         return subprocess.CompletedProcess(
@@ -139,7 +139,7 @@ def test_check_required_tools_raises_for_unsupported_versions(
             return subprocess.CompletedProcess(
                 command,
                 0,
-                stdout="datasets version: 18.27.0\n",
+                stdout="datasets version: 19.0.0\n",
                 stderr="",
             )
         return subprocess.CompletedProcess(
@@ -153,7 +153,7 @@ def test_check_required_tools_raises_for_unsupported_versions(
 
     with pytest.raises(
         PreflightError,
-        match="Supported range: >=18.4.0,<18.27.0",
+        match="Supported range: >=18.4.0,<19.0.0",
     ):
         check_required_tools(("datasets", "unzip"))
 
@@ -233,7 +233,7 @@ def test_check_required_tools_rejects_datasets_versions_below_supported_floor(
 
     with pytest.raises(
         PreflightError,
-        match="Supported range: >=18.4.0,<18.27.0",
+        match="Supported range: >=18.4.0,<19.0.0",
     ):
         check_required_tools(("datasets", "unzip"))
 
