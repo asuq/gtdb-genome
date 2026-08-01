@@ -332,7 +332,7 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
     build_info = json.loads(
         read_wheel_member_text(wheel_path, "gtdb_genomes/_build_info.json"),
     )
-    assert build_info["package_version"] == "0.2.1"
+    assert build_info["package_version"] == "0.2.2"
     assert "git_revision" in build_info
     inspect_result = subprocess.run(
         [
@@ -733,7 +733,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         (
             "You can copy and paste this citation:",
             (
-                "Shima, A. (2026). gtdb-genomes (Version 0.2.1) "
+                "Shima, A. (2026). gtdb-genomes (Version 0.2.2) "
                 "[Computer software]. Zenodo. "
                 "https://doi.org/10.5281/zenodo.19198946"
             ),
@@ -1104,8 +1104,8 @@ def test_citation_file_uses_canonical_release_metadata() -> None:
         (
             "cff-version: 1.2.0",
             'title: "gtdb-genomes"',
-            'version: "0.2.1"',
-            "date-released: 2026-05-19",
+            'version: "0.2.2"',
+            "date-released: 2026-08-01",
             "repository-code: 'https://github.com/asuq/gtdb-genomes'",
             'family-names: "Shima"',
             'given-names: "Akito"',
@@ -1168,10 +1168,10 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "-c conda-forge -c bioconda",
             "unzip=6.0",
             "--force-reinstall --no-deps",
-            "gtdb_genomes-0.2.1-py3-none-any.whl",
-            'git commit -m "chore(release): prepare v0.2.1"',
+            "gtdb_genomes-0.2.2-py3-none-any.whl",
+            'git commit -m "chore(release): prepare v0.2.2"',
             "run-real-data-tests-server.sh smoke",
-            "Do not merge to `main` or create `v0.2.1`",
+            "Do not merge to `main` or create `v0.2.2`",
             "load_release_taxonomy()",
             "accession_decision_sha256",
             "selected_accession",
