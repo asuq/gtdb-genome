@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -24,6 +26,7 @@ from gtdb_genomes.taxonomy_bundle import (
     parse_latest_release_number,
     parse_release_directory_numbers,
     materialise_taxonomy_file,
+    read_url_bytes,
     refresh_taxonomy_bundle_manifest,
     validate_bootstrap_entry,
 )
@@ -149,6 +152,137 @@ def read_gzip_text(path: Path) -> str:
 
     with gzip.open(path, "rt", encoding="ascii") as handle:
         return handle.read()
+
+
+def test_read_url_bytes_retries_transient_https_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient HTTPS failures should retry before returning the payload."""
+
+    calls: list[tuple[str, int]] = []
+    delays: list[float] = []
+
+    def fake_urlopen(url: str, timeout: int) -> BytesIO:
+        """Fail twice before returning one successful response."""
+
+        calls.append((url, timeout))
+        if len(calls) < 3:
+            raise URLError("temporary GTDB mirror failure")
+        return BytesIO(b"taxonomy payload")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.urlopen",
+        fake_urlopen,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.time.sleep",
+        delays.append,
+    )
+
+    assert read_url_bytes("https://example.org/taxonomy.tsv.gz") == (
+        b"taxonomy payload"
+    )
+    assert calls == [
+        ("https://example.org/taxonomy.tsv.gz", 60),
+        ("https://example.org/taxonomy.tsv.gz", 60),
+        ("https://example.org/taxonomy.tsv.gz", 60),
+    ]
+    assert delays == [2.0, 5.0]
+
+
+def test_read_url_bytes_exhausts_transient_https_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Persistent HTTPS failures should stop after the bounded attempt count."""
+
+    calls: list[str] = []
+    delays: list[float] = []
+
+    def fake_urlopen(url: str, timeout: int) -> BytesIO:
+        """Return one transient failure for every bounded attempt."""
+
+        del timeout
+        calls.append(url)
+        raise URLError("persistent GTDB mirror failure")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.urlopen",
+        fake_urlopen,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.time.sleep",
+        delays.append,
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="after 3 attempts"):
+        read_url_bytes("https://example.org/taxonomy.tsv.gz")
+
+    assert calls == ["https://example.org/taxonomy.tsv.gz"] * 3
+    assert delays == [2.0, 5.0]
+
+
+def test_read_url_bytes_retries_transient_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transient HTTP status responses should use the same bounded retries."""
+
+    calls: list[str] = []
+    delays: list[float] = []
+
+    def fake_urlopen(url: str, timeout: int) -> BytesIO:
+        """Return one service-unavailable response before succeeding."""
+
+        del timeout
+        calls.append(url)
+        if len(calls) == 1:
+            raise HTTPError(url, 503, "Service Unavailable", hdrs=None, fp=None)
+        return BytesIO(b"taxonomy payload")
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.urlopen",
+        fake_urlopen,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.time.sleep",
+        delays.append,
+    )
+
+    assert read_url_bytes("https://example.org/taxonomy.tsv.gz") == (
+        b"taxonomy payload"
+    )
+    assert calls == ["https://example.org/taxonomy.tsv.gz"] * 2
+    assert delays == [2.0]
+
+
+def test_read_url_bytes_does_not_retry_permanent_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Permanent HTTP failures should remain immediate and actionable."""
+
+    calls: list[str] = []
+    delays: list[float] = []
+
+    def fake_urlopen(url: str, timeout: int) -> BytesIO:
+        """Return one permanent HTTP failure."""
+
+        del timeout
+        calls.append(url)
+        raise HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
+
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.urlopen",
+        fake_urlopen,
+    )
+    monkeypatch.setattr(
+        "gtdb_genomes.taxonomy_bundle.time.sleep",
+        delays.append,
+    )
+
+    with pytest.raises(TaxonomyBundleError, match="Could not read URL"):
+        read_url_bytes("https://example.org/missing.tsv.gz")
+
+    assert calls == ["https://example.org/missing.tsv.gz"]
+    assert delays == []
 
 
 def install_fake_remote_mapping(

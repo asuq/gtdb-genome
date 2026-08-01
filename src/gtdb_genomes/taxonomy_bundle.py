@@ -8,11 +8,13 @@ import hashlib
 import logging
 import re
 import shutil
+import time
 from dataclasses import dataclass
+from http.client import HTTPException
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.error import URLError
-from urllib.parse import urljoin
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlsplit
 from urllib.request import urlopen
 
 from gtdb_genomes.bundled_data_validation import (
@@ -62,6 +64,19 @@ REQUIRED_RUNTIME_FIELDS = (
     "is_latest",
 )
 CHECKSUM_CANDIDATE_FILENAMES = ("MD5SUM.txt", "MD5SUM")
+URL_READ_TIMEOUT_SECONDS = 60
+URL_READ_RETRY_DELAYS_SECONDS = (2.0, 5.0)
+TRANSIENT_HTTP_STATUS_CODES = frozenset(
+    {
+        408,
+        425,
+        429,
+        500,
+        502,
+        503,
+        504,
+    },
+)
 RELEASE_DIRECTORY_PATTERN = re.compile(r"release(?P<release>\d+)/")
 LATEST_VERSION_PATTERN = re.compile(r"\bv(?P<release>\d+)\b")
 BACTERIAL_TAXONOMY_CANDIDATES = (
@@ -446,14 +461,38 @@ def join_directory_url(directory_url: str, filename: str) -> str:
     return urljoin(normalise_directory_url(directory_url), filename)
 
 
-def read_url_bytes(url: str) -> bytes:
-    """Read bytes from one URL or raise a bundling error."""
+def is_retryable_url_read_error(
+    url: str,
+    error: OSError | HTTPException,
+) -> bool:
+    """Return whether one URL read failure may be transient."""
 
-    try:
-        with urlopen(url, timeout=60) as response:
-            return response.read()
-    except (URLError, OSError) as error:
-        raise TaxonomyBundleError(f"Could not read URL: {url}") from error
+    if urlsplit(url).scheme not in {"http", "https"}:
+        return False
+    if isinstance(error, HTTPError):
+        return error.code in TRANSIENT_HTTP_STATUS_CODES
+    return True
+
+
+def read_url_bytes(url: str) -> bytes:
+    """Read bytes from one URL with bounded retries for transient failures."""
+
+    maximum_attempts = len(URL_READ_RETRY_DELAYS_SECONDS) + 1
+    last_error: OSError | HTTPException | None = None
+    for attempt_number in range(1, maximum_attempts + 1):
+        try:
+            with urlopen(url, timeout=URL_READ_TIMEOUT_SECONDS) as response:
+                return response.read()
+        except (OSError, HTTPException) as error:
+            last_error = error
+            if not is_retryable_url_read_error(url, error):
+                raise TaxonomyBundleError(f"Could not read URL: {url}") from error
+            if attempt_number < maximum_attempts:
+                time.sleep(URL_READ_RETRY_DELAYS_SECONDS[attempt_number - 1])
+
+    raise TaxonomyBundleError(
+        f"Could not read URL after {maximum_attempts} attempts: {url}",
+    ) from last_error
 
 
 def read_url_text(url: str) -> str:
