@@ -490,7 +490,6 @@ def test_dry_run_logs_info_milestones(
     assert exit_code == 0
     log_text = log_stream.getvalue()
     assert "INFO Starting run:" in log_text
-    assert "INFO Checking unzip availability for dry-run" in log_text
     assert "INFO Resolved bundled release 95" in log_text
     assert "INFO Selected 1 supported accession(s) and 0 unsupported legacy accession(s)" in (
         log_text

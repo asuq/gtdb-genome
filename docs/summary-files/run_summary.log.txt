@@ -20,7 +20,6 @@ version_latest
 package_version
 git_revision
 datasets_version
-unzip_version
 release_manifest_sha256
 bacterial_taxonomy_sha256
 archaeal_taxonomy_sha256

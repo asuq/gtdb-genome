@@ -1215,7 +1215,6 @@ def test_real_run_records_provenance_and_download_request_accessions(
             package_version="1.2.3",
             git_revision="deadbeef",
             datasets_version="datasets 2.0",
-            unzip_version="UnZip 6.00",
             release_manifest_sha256=kwargs["release_manifest_sha256"],
             bacterial_taxonomy_sha256=kwargs["bacterial_taxonomy_sha256"],
             archaeal_taxonomy_sha256=kwargs["archaeal_taxonomy_sha256"],
@@ -1354,7 +1353,6 @@ def test_real_run_records_provenance_and_download_request_accessions(
     assert fixed_summary["package_version"] == "1.2.3"
     assert fixed_summary["git_revision"] == "deadbeef"
     assert fixed_summary["datasets_version"] == "datasets 2.0"
-    assert fixed_summary["unzip_version"] == "UnZip 6.00"
     assert fixed_summary["release_manifest_sha256"] == "0" * 64
     assert fixed_summary["bacterial_taxonomy_sha256"] == "1" * 64
     assert fixed_summary["archaeal_taxonomy_sha256"] == ""
@@ -2513,7 +2511,6 @@ def test_render_run_summary_log_abbreviates_digest_fields() -> None:
             "package_version": "0.2.0",
             "git_revision": "deadbeef",
             "datasets_version": "datasets 2.0",
-            "unzip_version": "UnZip 6.00",
             "release_manifest_sha256": "0" * 64,
             "bacterial_taxonomy_sha256": "1" * 64,
             "archaeal_taxonomy_sha256": "",

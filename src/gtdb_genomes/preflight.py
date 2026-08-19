@@ -42,34 +42,13 @@ SUPPORTED_TOOL_VERSIONS = {
         maximum_version_exclusive=(19, 0, 0),
         supported_range=">=18.4.0,<19.0.0",
     ),
-    "unzip": ToolVersionPolicy(
-        display_name="unzip",
-        version_command=("unzip", "-v"),
-        minimum_version=(6, 0),
-        maximum_version_exclusive=(7, 0),
-        supported_range=">=6.0,<7.0",
-    ),
 }
 
 
-def get_early_required_tools(
-    dry_run: bool,
-) -> tuple[str, ...]:
-    """Return tools that must be checked before dry-run planning exits."""
+def get_supported_preflight_tools() -> tuple[str, ...]:
+    """Return external tools required for supported planning and execution."""
 
-    if not dry_run:
-        return ()
-    return ("unzip",)
-
-
-def get_supported_preflight_tools(
-    dry_run: bool,
-) -> tuple[str, ...]:
-    """Return tools required for supported planning and execution paths."""
-
-    if dry_run:
-        return ("datasets",)
-    return ("datasets", "unzip")
+    return ("datasets",)
 
 
 def pad_version_tuple(

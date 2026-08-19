@@ -10,26 +10,14 @@ import pytest
 from gtdb_genomes.preflight import (
     PreflightError,
     check_required_tools,
-    get_early_required_tools,
     get_supported_preflight_tools,
 )
 
 
-def test_get_early_required_tools_only_requires_unzip_for_dry_runs() -> None:
-    """Dry-runs should preflight `unzip` before planning exits."""
-
-    assert get_early_required_tools(dry_run=True) == ("unzip",)
-    assert get_early_required_tools(dry_run=False) == ()
-
-
 def test_get_supported_preflight_tools_preserves_runtime_requirements() -> None:
-    """Supported planning should keep datasets-only dry-runs and full real runs."""
+    """Supported planning and execution should require only datasets."""
 
-    assert get_supported_preflight_tools(dry_run=True) == ("datasets",)
-    assert get_supported_preflight_tools(dry_run=False) == (
-        "datasets",
-        "unzip",
-    )
+    assert get_supported_preflight_tools() == ("datasets",)
 
 
 def test_check_required_tools_accepts_supported_versions(
@@ -46,26 +34,19 @@ def test_check_required_tools_accepts_supported_versions(
         check: bool,
         timeout: int,
     ) -> subprocess.CompletedProcess[str]:
-        """Return supported version output for each required command."""
+        """Return supported datasets version output."""
 
         del capture_output, text, check, timeout
-        if command[0] == "datasets":
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="datasets version: 18.4.0\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="UnZip 6.00 of 20 April 2009\n",
+            stdout="datasets version: 18.4.0\n",
             stderr="",
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    check_required_tools(("datasets", "unzip"))
+    check_required_tools(("datasets",))
 
 
 def test_check_required_tools_accepts_late_18_x_datasets(
@@ -82,26 +63,19 @@ def test_check_required_tools_accepts_late_18_x_datasets(
         check: bool,
         timeout: int,
     ) -> subprocess.CompletedProcess[str]:
-        """Return high-end supported version output for each required command."""
+        """Return a high-end supported datasets version."""
 
         del capture_output, text, check, timeout
-        if command[0] == "datasets":
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="datasets version: 18.99.0\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="UnZip 6.00 of 20 April 2009\n",
+            stdout="datasets version: 18.99.0\n",
             stderr="",
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    check_required_tools(("datasets", "unzip"))
+    check_required_tools(("datasets",))
 
 
 def test_check_required_tools_raises_for_missing_commands(
@@ -113,9 +87,9 @@ def test_check_required_tools_raises_for_missing_commands(
 
     with pytest.raises(
         PreflightError,
-        match="Missing required external tools: datasets, unzip",
+        match="Missing required external tools: datasets",
     ):
-        check_required_tools(("datasets", "unzip"))
+        check_required_tools(("datasets",))
 
 
 def test_check_required_tools_raises_for_unsupported_versions(
@@ -132,20 +106,13 @@ def test_check_required_tools_raises_for_unsupported_versions(
         check: bool,
         timeout: int,
     ) -> subprocess.CompletedProcess[str]:
-        """Return unsupported datasets and unzip versions."""
+        """Return an unsupported datasets version."""
 
         del capture_output, text, check, timeout
-        if command[0] == "datasets":
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="datasets version: 19.0.0\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="UnZip 7.00 of 20 April 2009\n",
+            stdout="datasets version: 19.0.0\n",
             stderr="",
         )
 
@@ -155,7 +122,7 @@ def test_check_required_tools_raises_for_unsupported_versions(
         PreflightError,
         match="Supported range: >=18.4.0,<19.0.0",
     ):
-        check_required_tools(("datasets", "unzip"))
+        check_required_tools(("datasets",))
 
 
 def test_check_required_tools_rejects_non_zero_version_commands_with_parseable_output(
@@ -175,18 +142,11 @@ def test_check_required_tools_rejects_non_zero_version_commands_with_parseable_o
         """Return parseable version text even though the command failed."""
 
         del capture_output, text, check, timeout
-        if command[0] == "datasets":
-            return subprocess.CompletedProcess(
-                command,
-                1,
-                stdout="datasets version: 18.4.0\n",
-                stderr="wrapper failed\n",
-            )
         return subprocess.CompletedProcess(
             command,
-            0,
-            stdout="UnZip 6.00 of 20 April 2009\n",
-            stderr="",
+            1,
+            stdout="datasets version: 18.4.0\n",
+            stderr="wrapper failed\n",
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -195,7 +155,7 @@ def test_check_required_tools_rejects_non_zero_version_commands_with_parseable_o
         PreflightError,
         match="Could not determine the installed version",
     ):
-        check_required_tools(("datasets", "unzip"))
+        check_required_tools(("datasets",))
 
 
 def test_check_required_tools_rejects_datasets_versions_below_supported_floor(
@@ -212,20 +172,13 @@ def test_check_required_tools_rejects_datasets_versions_below_supported_floor(
         check: bool,
         timeout: int,
     ) -> subprocess.CompletedProcess[str]:
-        """Return one pre-floor datasets version and a supported unzip version."""
+        """Return one pre-floor datasets version."""
 
         del capture_output, text, check, timeout
-        if command[0] == "datasets":
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="datasets version: 18.3.1\n",
-                stderr="",
-            )
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="UnZip 6.00 of 20 April 2009\n",
+            stdout="datasets version: 18.3.1\n",
             stderr="",
         )
 
@@ -235,7 +188,7 @@ def test_check_required_tools_rejects_datasets_versions_below_supported_floor(
         PreflightError,
         match="Supported range: >=18.4.0,<19.0.0",
     ):
-        check_required_tools(("datasets", "unzip"))
+        check_required_tools(("datasets",))
 
 
 def test_check_required_tools_raises_for_unparseable_versions(

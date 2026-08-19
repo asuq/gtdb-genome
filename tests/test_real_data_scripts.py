@@ -92,7 +92,6 @@ def build_run_summary_log(
         "package_version: 1.0.0\n"
         "git_revision: deadbeef\n"
         "datasets_version: datasets 2.0\n"
-        "unzip_version: UnZip 6.00\n"
         "release_manifest_sha256: 0\n"
         "bacterial_taxonomy_sha256: 1\n"
         "archaeal_taxonomy_sha256: \n"
@@ -449,8 +448,6 @@ def test_real_data_run_command_check_redacts_logs_and_records_versions(
     assert "[REDACTED]" in combined_text
     assert "python_version=" in version_text
     assert "datasets_version=" in version_text
-    assert "unzip_bin=" in version_text
-    assert "unzip_version=" in version_text
 
 
 def test_real_data_run_command_check_removes_raw_temp_directory(

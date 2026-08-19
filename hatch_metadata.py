@@ -5,7 +5,6 @@ from __future__ import annotations
 
 EXTERNAL_RUNTIME_REQUIREMENTS = (
     "ncbi-datasets-cli (>=18.4.0,<19.0.0)",
-    "unzip (>=6.0,<7.0)",
 )
 
 

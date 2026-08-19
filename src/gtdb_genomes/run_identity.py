@@ -90,7 +90,6 @@ def build_deterministic_run_id(
         "package_version": provenance.package_version,
         "git_revision": provenance.git_revision,
         "datasets_version": provenance.datasets_version,
-        "unzip_version": provenance.unzip_version,
         "release_manifest_sha256": provenance.release_manifest_sha256,
         "bacterial_taxonomy_sha256": provenance.bacterial_taxonomy_sha256,
         "archaeal_taxonomy_sha256": provenance.archaeal_taxonomy_sha256,

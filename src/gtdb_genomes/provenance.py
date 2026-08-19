@@ -22,7 +22,6 @@ class RuntimeProvenance:
     package_version: str
     git_revision: str
     datasets_version: str
-    unzip_version: str
     release_manifest_sha256: str
     bacterial_taxonomy_sha256: str | None
     archaeal_taxonomy_sha256: str | None
@@ -173,9 +172,7 @@ def build_runtime_provenance(
         package_version=get_package_version(),
         git_revision=get_git_revision(),
         datasets_version=get_command_version(("datasets", "version")),
-        unzip_version=get_command_version(("unzip", "-v")),
         release_manifest_sha256=release_manifest_sha256,
         bacterial_taxonomy_sha256=bacterial_taxonomy_sha256,
         archaeal_taxonomy_sha256=archaeal_taxonomy_sha256,
     )
-

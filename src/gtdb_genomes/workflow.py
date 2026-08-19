@@ -145,7 +145,6 @@ def run_workflow(args: CliArgs) -> int:
         resolution, selected_frame, supported_selected_frame, unsupported_selected_frame = (
             workflow_selection.prepare_selection_frames(args, logger)
         )
-        workflow_selection.run_early_dry_run_unzip_check(args, logger)
     except KeyboardInterrupt:
         exit_code = log_user_interrupt(logger)
         close_logger(logger)
@@ -188,7 +187,7 @@ def run_workflow(args: CliArgs) -> int:
         )
 
     try:
-        workflow_selection.run_supported_preflight(args, supported_selected_frame)
+        workflow_selection.run_supported_preflight(supported_selected_frame)
         (
             mapped_frame,
             suppressed_notes,

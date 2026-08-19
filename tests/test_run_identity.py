@@ -16,7 +16,6 @@ def build_test_provenance() -> RuntimeProvenance:
         package_version="1.2.3",
         git_revision="deadbeef",
         datasets_version="datasets 2.0",
-        unzip_version="UnZip 6.00",
         release_manifest_sha256="0" * 64,
         bacterial_taxonomy_sha256="1" * 64,
         archaeal_taxonomy_sha256=None,

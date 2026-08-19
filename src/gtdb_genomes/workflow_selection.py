@@ -22,7 +22,6 @@ from gtdb_genomes.layout import (
 from gtdb_genomes.logging_utils import close_logger
 from gtdb_genomes.preflight import (
     check_required_tools,
-    get_early_required_tools,
     get_supported_preflight_tools,
 )
 from gtdb_genomes.release_resolver import ReleaseResolution, resolve_and_validate_release
@@ -193,33 +192,17 @@ def prepare_selection_frames(
     )
 
 
-# Early preflight and zero-match handling.
-
-
-def run_early_dry_run_unzip_check(
-    args: CliArgs,
-    logger: logging.Logger,
-) -> None:
-    """Check `unzip` early so dry-runs surface the real-run requirement sooner."""
-
-    required_tools = get_early_required_tools(args.dry_run)
-    if not required_tools:
-        return
-    logger.info("Checking unzip availability for dry-run")
-    check_required_tools(required_tools)
+# Preflight and zero-match handling.
 
 
 def run_supported_preflight(
-    args: CliArgs,
     supported_selected_frame: pl.DataFrame,
 ) -> None:
     """Check tools that are required for supported accession planning or runs."""
 
     if supported_selected_frame.is_empty():
         return
-    required_tools = get_supported_preflight_tools(
-        dry_run=args.dry_run,
-    )
+    required_tools = get_supported_preflight_tools()
     if required_tools:
         check_required_tools(required_tools)
 

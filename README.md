@@ -35,12 +35,14 @@ mamba activate gtdb-genomes
 gtdb-genomes --help
 ```
 
-The Bioconda package currently constrains the packaged runtime to:
+The packaged runtime uses:
 
 - `polars >=1.31.0,<2.0.0`
 - `tqdm >=4.60.0,<5.0.0`
 - `ncbi-datasets-cli >=18.4.0,<19.0.0`
-- `unzip >=6.0,<7.0`
+
+ZIP archives are validated and extracted with the Python standard library;
+no external archive-extraction command is required.
 
 For packaging and redistribution details, see
 [GTDB Taxonomy Data](docs/usage-details.md#bundled-gtdb-taxonomy).
@@ -187,7 +189,7 @@ licence details.
 You can copy and paste this citation:
 
 ```text
-Shima, A. (2026). gtdb-genomes (Version 0.2.2) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19198946
+Shima, A. (2026). gtdb-genomes (Version 0.3.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.19198946
 ```
 
 Machine-readable citation metadata is also available in [CITATION.cff](CITATION.cff).

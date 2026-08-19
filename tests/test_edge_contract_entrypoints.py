@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 
 import pytest
 
@@ -115,7 +114,7 @@ def test_mixed_uba_dry_run_warns_once_and_skips_outputs(
 
     assert exit_code == 0
     assert not output_dir.exists()
-    assert required_tools_calls == [("unzip",), ("datasets",)]
+    assert required_tools_calls == [("datasets",)]
     warning_text = warning_stream.getvalue()
     assert warning_text.count("unsupported legacy GTDB UBA accessions") == 1
     assert "PRJNA417962" in warning_text
@@ -160,103 +159,10 @@ def test_uba_only_dry_run_warns_once_and_skips_ncbi_calls(
 
     assert exit_code == 0
     assert not output_dir.exists()
-    assert required_tools_calls == [("unzip",)]
+    assert required_tools_calls == []
     warning_text = warning_stream.getvalue()
     assert warning_text.count("unsupported legacy GTDB UBA accessions") == 1
     assert "PRJNA417962" in warning_text
-
-
-def test_zero_match_dry_run_missing_unzip_returns_exit_five(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Dry-runs should fail early when `unzip` is unavailable."""
-
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_selection.load_release_taxonomy",
-        lambda resolution: build_taxonomy_frame("d__Bacteria;p__Firmicutes;g__Bacillus"),
-    )
-
-    def raise_preflight_error(required_tools: tuple[str, ...]) -> None:
-        """Fail on the new early dry-run unzip check."""
-
-        assert required_tools == ("unzip",)
-        raise PreflightError("Missing required external tools: unzip")
-
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_selection.check_required_tools",
-        raise_preflight_error,
-    )
-
-    output_dir = tmp_path / "zero-match-dry-run-preflight"
-    exit_code = main(
-        [
-            "--gtdb-release",
-            "95",
-            "--gtdb-taxon",
-            "g__Escherichia",
-            "--prefer-genbank",
-            "--outdir",
-            str(output_dir),
-            "--dry-run",
-        ],
-    )
-
-    assert exit_code == 5
-    assert not output_dir.exists()
-
-
-def test_dry_run_unsupported_unzip_version_returns_exit_five(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Dry-runs should fail early when unzip is outside the supported range."""
-
-    monkeypatch.setattr(
-        "gtdb_genomes.workflow_selection.load_release_taxonomy",
-        lambda resolution: build_taxonomy_frame(
-            "d__Bacteria;p__Proteobacteria;g__Escherichia",
-        ),
-    )
-    monkeypatch.setattr(
-        "gtdb_genomes.preflight.shutil.which",
-        lambda tool_name: f"/usr/bin/{tool_name}",
-    )
-
-    def fake_run(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: int,
-    ) -> subprocess.CompletedProcess[str]:
-        """Return an unsupported unzip version during entrypoint preflight."""
-
-        del capture_output, text, check, timeout
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout="UnZip 7.00 of 20 April 2009\n",
-            stderr="",
-        )
-
-    monkeypatch.setattr("gtdb_genomes.preflight.subprocess.run", fake_run)
-
-    output_dir = tmp_path / "unsupported-unzip-version"
-    exit_code = main(
-        [
-            "--gtdb-release",
-            "95",
-            "--gtdb-taxon",
-            "g__Escherichia",
-            "--outdir",
-            str(output_dir),
-            "--dry-run",
-        ],
-    )
-
-    assert exit_code == 5
-    assert not output_dir.exists()
 
 
 def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
@@ -278,8 +184,6 @@ def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
         """Fail when the workflow reaches the supported dry-run datasets check."""
 
         required_tools_calls.append(required_tools)
-        if required_tools == ("unzip",):
-            return None
         assert required_tools == ("datasets",)
         raise PreflightError("Missing required external tools: datasets")
 
@@ -304,14 +208,14 @@ def test_supported_prefer_genbank_dry_run_missing_tools_returns_exit_five(
 
     assert exit_code == 5
     assert not output_dir.exists()
-    assert required_tools_calls == [("unzip",), ("datasets",)]
+    assert required_tools_calls == [("datasets",)]
 
 
 def test_supported_real_run_missing_tools_returns_exit_five(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Supported non-dry runs should still enforce datasets and unzip."""
+    """Supported non-dry runs should still enforce datasets."""
 
     monkeypatch.setattr(
         "gtdb_genomes.workflow_selection.load_release_taxonomy",
@@ -323,8 +227,8 @@ def test_supported_real_run_missing_tools_returns_exit_five(
     def raise_preflight_error(required_tools: tuple[str, ...]) -> None:
         """Fail when the workflow reaches the supported real-run path."""
 
-        assert required_tools == ("datasets", "unzip")
-        raise PreflightError("Missing required external tools: datasets, unzip")
+        assert required_tools == ("datasets",)
+        raise PreflightError("Missing required external tools: datasets")
 
     monkeypatch.setattr(
         "gtdb_genomes.workflow_selection.check_required_tools",

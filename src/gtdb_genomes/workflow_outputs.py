@@ -69,7 +69,6 @@ class RunSummaryRow(TypedDict):
     package_version: str
     git_revision: str
     datasets_version: str
-    unzip_version: str
     release_manifest_sha256: str
     bacterial_taxonomy_sha256: str
     archaeal_taxonomy_sha256: str
@@ -342,7 +341,6 @@ def build_run_summary_row(
         "package_version": provenance.package_version,
         "git_revision": provenance.git_revision,
         "datasets_version": provenance.datasets_version,
-        "unzip_version": provenance.unzip_version,
         "release_manifest_sha256": provenance.release_manifest_sha256,
         "bacterial_taxonomy_sha256": (
             provenance.bacterial_taxonomy_sha256 or ""
@@ -396,7 +394,6 @@ def render_run_summary_log(run_summary: RunSummaryRow) -> str:
                 "package_version",
                 "git_revision",
                 "datasets_version",
-                "unzip_version",
                 "release_manifest_sha256",
                 "bacterial_taxonomy_sha256",
                 "archaeal_taxonomy_sha256",

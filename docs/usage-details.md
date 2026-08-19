@@ -59,9 +59,7 @@ optional options:
   --debug               Enable debug logging; cannot be used while an NCBI API
                         key is active
   --keep-tmp            Keep intermediate working files
-  -d, --dry-run         Resolve inputs without downloading genome payloads;
-                        still preflights unzip so real-run archive
-                        requirements fail fast
+  -d, --dry-run         Resolve inputs without downloading genome payloads
 ```
 
 Running `gtdb-genomes` with no arguments shows this full help text and exits
@@ -149,9 +147,9 @@ successfully.
     direct passes, the workflow may fall back to the original accession and
     records `downloaded_after_fallback` plus
     `paired_to_gca_fallback_original_on_download_failure`
-  - if a batch dehydrated download exhausts its retry budget, or if unzip or
-    batch rehydrate fails, the tool falls back to batch direct downloads and
-    records `dehydrate_fallback_direct` as the final method used
+  - if a batch dehydrated download exhausts its retry budget, or if native ZIP
+    extraction or batch rehydrate fails, the tool falls back to batch direct
+    downloads and records `dehydrate_fallback_direct` as the final method used
 
 - `-j`, `--threads`: Sets the worker count for the steps that can use it.
   Default:
@@ -195,12 +193,10 @@ successfully.
 
 - `-d`, `--dry-run`: Resolves inputs without creating the final output tree or
   downloading genome payloads. It may resolve the local GTDB release, read
-  the included GTDB taxonomy TSVs and the local release manifest, preflight
-  `unzip` so the runtime contract matches real runs, and perform NCBI metadata
-  lookup when `--prefer-genbank` is enabled and the selected rows include
-  supported non-`UBA*` accessions. Zero-match runs and unsupported-`UBA*`-only
-  runs still avoid NCBI calls, but dry runs still preflight `unzip` before
-  they exit.
+  the included GTDB taxonomy TSVs and the local release manifest, and perform
+  NCBI metadata lookup when `--prefer-genbank` is enabled and the selected rows
+  include supported non-`UBA*` accessions. Zero-match runs and
+  unsupported-`UBA*`-only runs avoid NCBI calls.
 
 ## API Key Handling
 
@@ -315,8 +311,10 @@ The tool uses `datasets` for:
 GTDB release resolution and GTDB taxonomy loading remain local. Runtime
 release selection does not contact GTDB over the network.
 
-`unzip` is required because `datasets` produces zip archives that
-`gtdb-genomes` extracts before reorganising the final output tree.
+`datasets` produces ZIP archives that `gtdb-genomes` validates and extracts
+with Python's standard-library `zipfile` module before reorganising the final
+output tree. Archive members with unsafe paths, symbolic links, or other
+non-regular file types are rejected before extraction.
 
 Tool requirements are resolved after GTDB release loading and taxonomy
 selection. Missing external tools therefore affect only the execution paths
@@ -334,7 +332,7 @@ This applies to:
 - batch dehydrated `datasets download genome accession --inputfile ...`
 - `datasets rehydrate`
 
-Local unzip, local file parsing, and manifest writing are not retried.
+Local ZIP extraction, local file parsing, and manifest writing are not retried.
 
 Direct-mode layout resolution adds a separate workflow-level retry scheduler on
 top of the command retry budget. A supported direct request starts with
@@ -457,10 +455,9 @@ validated locally from the recorded SHA-256 and expected row counts in
 `resolve_and_validate_release()`, which now performs that full payload
 validation before runtime taxonomy loading.
 
-Built wheels and sdists also advertise `Requires-External` hints for
-`ncbi-datasets-cli (>=18.4.0,<19.0.0)` and `unzip (>=6.0,<7.0)`. Those
-metadata hints do not replace the CLI preflight, which remains the
-authoritative runtime check.
+Built wheels and sdists also advertise a `Requires-External` hint for
+`ncbi-datasets-cli (>=18.4.0,<19.0.0)`. That metadata hint does not replace the
+CLI preflight, which remains the authoritative runtime check.
 
 Contributor setup lives in [CONTRIBUTING.md](../CONTRIBUTING.md). The pytest matrix runs on Linux, macOS, and Windows. Clean packaged-runtime and real-data validation currently run on Linux. Bioconda recipe-template notes live in [packaging/bioconda/README.md](../packaging/bioconda/README.md).
 

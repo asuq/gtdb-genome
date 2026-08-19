@@ -345,7 +345,6 @@ main() {
 
     real_data_require_command gtdb-genomes
     real_data_require_command datasets
-    real_data_require_command unzip
     if ! REAL_DATA_PYTHON_VERSION_BIN=$(real_data_detect_python_bin); then
         real_data_die "Required command not found on PATH: python or python3"
     fi

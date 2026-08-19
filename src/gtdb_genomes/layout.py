@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import csv
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
-import subprocess
+import time
 import zipfile
-
-from gtdb_genomes.subprocess_utils import (
-    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-    build_spawn_error_message,
-    build_timeout_error_message,
-)
 
 
 @dataclass(slots=True)
@@ -60,7 +53,6 @@ RUN_SUMMARY_KEYS = (
     "package_version",
     "git_revision",
     "datasets_version",
-    "unzip_version",
     "release_manifest_sha256",
     "bacterial_taxonomy_sha256",
     "archaeal_taxonomy_sha256",
@@ -122,6 +114,8 @@ TAXON_ACCESSION_COLUMNS = (
     "duplicate_across_taxa",
 )
 WINDOWS_DRIVE_ROOT_PATTERN = re.compile(r"^[A-Za-z]:($|[\\/])")
+ARCHIVE_EXTRACTION_CHUNK_SIZE_BYTES = 1024 * 1024
+DEFAULT_ARCHIVE_EXTRACTION_TIMEOUT_SECONDS = 4 * 60 * 60
 RESERVED_OUTPUT_ARTEFACTS = (
     ".gtdb_genomes_work",
     "accession_map.tsv",
@@ -211,19 +205,6 @@ def initialise_run_directories(output_root: Path) -> RunDirectories:
     )
 
 
-def build_unzip_command(archive_path: Path, destination: Path) -> list[str]:
-    """Build the unzip command used for archive extraction."""
-
-    return [
-        "unzip",
-        "-o",
-        "-q",
-        str(archive_path),
-        "-d",
-        str(destination),
-    ]
-
-
 def normalise_archive_member_name(member_name: str) -> str:
     """Normalise one archive member name for path-safety checks."""
 
@@ -270,52 +251,104 @@ def validate_archive_member_type(member_info: zipfile.ZipInfo) -> None:
     )
 
 
-def validate_archive_members(archive_path: Path) -> None:
-    """Validate all member paths and types before extraction."""
+def validate_archive_members(member_infos: list[zipfile.ZipInfo]) -> None:
+    """Validate all archive member paths and types before extraction."""
 
-    try:
-        with zipfile.ZipFile(archive_path) as handle:
-            for member_info in handle.infolist():
-                validate_archive_member_name(member_info.filename)
-                validate_archive_member_type(member_info)
-    except (FileNotFoundError, zipfile.BadZipFile) as error:
+    for member_info in member_infos:
+        validate_archive_member_name(member_info.filename)
+        validate_archive_member_type(member_info)
+
+
+def build_archive_member_target(
+    destination: Path,
+    resolved_destination: Path,
+    member_name: str,
+) -> Path:
+    """Return the validated extraction target for one archive member."""
+
+    normalised_name = normalise_archive_member_name(member_name)
+    target = destination.joinpath(*PurePosixPath(normalised_name).parts)
+    resolved_target = target.resolve()
+    if not resolved_target.is_relative_to(resolved_destination):
         raise LayoutError(
-            f"Could not inspect archive members in {archive_path}: {error}",
-        ) from error
+            f"Archive member resolves outside the extraction root: {member_name}",
+        )
+    return target
+
+
+def check_archive_extraction_deadline(deadline: float, timeout_seconds: int) -> None:
+    """Fail when native archive extraction exceeds its fixed deadline."""
+
+    if time.monotonic() > deadline:
+        raise LayoutError(
+            f"Archive extraction timed out after {timeout_seconds} seconds",
+        )
+
+
+def extract_archive_member(
+    handle: zipfile.ZipFile,
+    member_info: zipfile.ZipInfo,
+    destination: Path,
+    resolved_destination: Path,
+    *,
+    deadline: float,
+    timeout_seconds: int,
+) -> None:
+    """Extract one previously validated member with bounded-memory copying."""
+
+    check_archive_extraction_deadline(deadline, timeout_seconds)
+    target = build_archive_member_target(
+        destination,
+        resolved_destination,
+        member_info.filename,
+    )
+    if member_info.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with handle.open(member_info, "r") as source, target.open("wb") as output:
+        while chunk := source.read(ARCHIVE_EXTRACTION_CHUNK_SIZE_BYTES):
+            check_archive_extraction_deadline(deadline, timeout_seconds)
+            output.write(chunk)
 
 
 def extract_archive(
     archive_path: Path,
     destination: Path,
-    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    *,
+    timeout_seconds: int = DEFAULT_ARCHIVE_EXTRACTION_TIMEOUT_SECONDS,
 ) -> Path:
-    """Extract one datasets zip archive into the destination directory."""
+    """Safely extract one datasets ZIP archive with the Python standard library."""
 
-    validate_archive_members(archive_path)
-    destination.mkdir(parents=True, exist_ok=True)
-    command = build_unzip_command(archive_path, destination)
+    deadline = time.monotonic() + timeout_seconds
     try:
-        result = runner(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as error:
+        with zipfile.ZipFile(archive_path) as handle:
+            member_infos = handle.infolist()
+            validate_archive_members(member_infos)
+            destination.mkdir(parents=True, exist_ok=True)
+            resolved_destination = destination.resolve()
+            for member_info in member_infos:
+                extract_archive_member(
+                    handle,
+                    member_info,
+                    destination,
+                    resolved_destination,
+                    deadline=deadline,
+                    timeout_seconds=timeout_seconds,
+                )
+    except LayoutError:
+        raise
+    except (
+        OSError,
+        EOFError,
+        RuntimeError,
+        NotImplementedError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+    ) as error:
         raise LayoutError(
-            build_timeout_error_message(
-                "archive_extraction",
-                DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
-            ),
+            f"Could not extract archive {archive_path}: {error}",
         ) from error
-    except OSError as error:
-        raise LayoutError(build_spawn_error_message("archive_extraction", error)) from error
-    if result.returncode != 0:
-        error_message = result.stderr.strip() or result.stdout.strip()
-        if not error_message:
-            error_message = "archive extraction failed"
-        raise LayoutError(error_message)
     return destination
 
 

@@ -332,7 +332,7 @@ def test_uv_build_includes_generated_taxonomy_payloads_in_sdist_and_wheel(
     build_info = json.loads(
         read_wheel_member_text(wheel_path, "gtdb_genomes/_build_info.json"),
     )
-    assert build_info["package_version"] == "0.2.2"
+    assert build_info["package_version"] == "0.3.0"
     assert "git_revision" in build_info
     inspect_result = subprocess.run(
         [
@@ -395,12 +395,11 @@ def test_uv_build_advertises_external_runtime_requirements_in_metadata(
         "/PKG-INFO",
     )
 
-    for requirement_line in (
-        "Requires-External: ncbi-datasets-cli (>=18.4.0,<19.0.0)",
-        "Requires-External: unzip (>=6.0,<7.0)",
-    ):
-        assert requirement_line in wheel_metadata_text
-        assert requirement_line in sdist_metadata_text
+    requirement_line = "Requires-External: ncbi-datasets-cli (>=18.4.0,<19.0.0)"
+    assert requirement_line in wheel_metadata_text
+    assert requirement_line in sdist_metadata_text
+    assert "Requires-External: unzip" not in wheel_metadata_text
+    assert "Requires-External: unzip" not in sdist_metadata_text
 
 
 def test_uv_build_rejects_manifest_only_source_fixture(tmp_path: Path) -> None:
@@ -659,7 +658,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "--threads",
             "`genome`, `gff3`, and `protein`",
             "`ncbi-datasets-cli >=18.4.0,<19.0.0`",
-            "`unzip >=6.0,<7.0`",
+            "no external archive-extraction command is required",
             "The published package is available from Bioconda",
             "mamba create -n gtdb-genomes -c conda-forge -c bioconda",
             "mamba activate gtdb-genomes",
@@ -693,7 +692,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
             "gtdb-genomes --help",
             "`polars >=1.31.0,<2.0.0`",
             "`ncbi-datasets-cli >=18.4.0,<19.0.0`",
-            "`unzip >=6.0,<7.0`",
+            "ZIP archives are validated and extracted with the Python standard library",
             (
                 "[GTDB Taxonomy Data]"
                 "(docs/usage-details.md#bundled-gtdb-taxonomy)"
@@ -733,7 +732,7 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
         (
             "You can copy and paste this citation:",
             (
-                "Shima, A. (2026). gtdb-genomes (Version 0.2.2) "
+                "Shima, A. (2026). gtdb-genomes (Version 0.3.0) "
                 "[Computer software]. Zenodo. "
                 "https://doi.org/10.5281/zenodo.19198946"
             ),
@@ -959,17 +958,11 @@ def test_runtime_docs_match_current_readme_and_usage_details() -> None:
     )
 
     datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
-    unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
+    assert "unzip" not in SUPPORTED_TOOL_VERSIONS
     assert f"`{datasets_policy.display_name} {datasets_policy.supported_range}`" in (
         readme_text
     )
-    assert f"`{unzip_policy.display_name} {unzip_policy.supported_range}`" in (
-        readme_text
-    )
     assert f"`{datasets_policy.display_name} {datasets_policy.supported_range}`" in (
-        Path("docs/real-data-validation.md").read_text(encoding="utf-8")
-    )
-    assert f"`{unzip_policy.display_name} {unzip_policy.supported_range}`" in (
         Path("docs/real-data-validation.md").read_text(encoding="utf-8")
     )
     assert "REAL_DATA_DEBUG_SAFE=1" in Path(
@@ -1037,7 +1030,6 @@ def test_bioconda_recipe_copy_tracks_next_dependency_window() -> None:
     """The upstream Bioconda recipe copy should track the next dependency window."""
 
     datasets_policy = SUPPORTED_TOOL_VERSIONS["datasets"]
-    unzip_policy = SUPPORTED_TOOL_VERSIONS["unzip"]
     bioconda_recipe_path = Path("packaging/bioconda/meta.yaml")
     bioconda_text = bioconda_recipe_path.read_text(
         encoding="utf-8",
@@ -1064,9 +1056,7 @@ def test_bioconda_recipe_copy_tracks_next_dependency_window() -> None:
     assert "tqdm >=4.60.0,<5.0.0" in bioconda_text
     assert "g__NoSuchTaxon" in bioconda_text
     assert "--dry-run" in bioconda_text
-    assert f"- {unzip_policy.display_name} {unzip_policy.supported_range}" in (
-        bioconda_text
-    )
+    assert "- unzip >=6.0,<7.0" in bioconda_text
     assert f"- {datasets_policy.display_name} {datasets_policy.supported_range}" in (
         bioconda_text
     )
@@ -1104,8 +1094,8 @@ def test_citation_file_uses_canonical_release_metadata() -> None:
         (
             "cff-version: 1.2.0",
             'title: "gtdb-genomes"',
-            'version: "0.2.2"',
-            "date-released: 2026-08-01",
+            'version: "0.3.0"',
+            "date-released: 2026-08-19",
             "repository-code: 'https://github.com/asuq/gtdb-genomes'",
             'family-names: "Shima"',
             'given-names: "Akito"',
@@ -1133,8 +1123,8 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "LOCAL_LAUNCHER_MODE=module",
             "default launcher mode requires `uv` on `PATH`",
             "module launcher uses the checked-out `.venv/bin/python` directly",
-            "A1` to `A9`: `uv`, `datasets`, and `unzip` for the default launcher mode",
-            "B1` to `B6`: `uv`, `datasets`, and `unzip` for the default launcher mode",
+            "A1` to `A9`: `uv` and `datasets` for the default launcher mode",
+            "B1` to `B6`: `uv` and `datasets` for the default launcher mode",
             "--gtdb-release 232",
             "232 / s__Thermoflexus hugenholtzii",
             "232 / g__Methanobrevibacter",
@@ -1142,8 +1132,7 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "REMOTE_TEST_ROOT",
             "case-results.tsv",
             "tool-versions.txt",
-            "Dry-runs preflight `unzip` early",
-            "runtime contract matches",
+            "ZIP extraction requires no external command",
             "C5",
             "C7",
             "C8",
@@ -1159,19 +1148,17 @@ def test_real_data_validation_guide_describes_local_requirements() -> None:
             "validates both the wheel and `sdist`",
             "no `uv` on `PATH`",
             "`ncbi-datasets-cli >=18.4.0,<19.0.0`",
-            "`unzip >=6.0,<7.0`",
             "Requires-External",
             "ncbi-datasets-cli=18.4.0",
             "ncbi-datasets-cli=18.33.1",
             "polars=1.31.0",
             "tqdm=4.67.1",
             "-c conda-forge -c bioconda",
-            "unzip=6.0",
             "--force-reinstall --no-deps",
-            "gtdb_genomes-0.2.2-py3-none-any.whl",
-            'git commit -m "chore(release): prepare v0.2.2"',
+            "gtdb_genomes-0.3.0-py3-none-any.whl",
+            'git commit -m "chore(release): prepare v0.3.0"',
             "run-real-data-tests-server.sh smoke",
-            "Do not merge to `main` or create `v0.2.2`",
+            "Do not merge to `main` or create `v0.3.0`",
             "load_release_taxonomy()",
             "accession_decision_sha256",
             "selected_accession",
@@ -1215,7 +1202,6 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
             "- \"3.14\"",
             "ncbi-datasets-cli=18.4.0",
             "ncbi-datasets-cli=18.33.1",
-            "unzip=6.0",
             "uv run pytest -q",
             "micromamba run -n gtdb-genome",
             "uv run python -m gtdb_genomes.bootstrap_taxonomy",
@@ -1239,6 +1225,7 @@ def test_ci_workflow_runs_expected_validation_suites() -> None:
     assert_not_contains_any(
         ci_text,
         (
+            "unzip=",
             "bin/run-real-data-tests-remote.sh C7",
             "LOCAL_LAUNCHER_MODE: module",
             "mamba-org/setup-micromamba@v2",
@@ -1343,12 +1330,12 @@ def test_live_validation_workflow_bootstraps_before_b1() -> None:
             "bin/run-real-data-tests-local.sh B1",
             "LOCAL_LAUNCHER_MODE: module",
             "ncbi-datasets-cli=18.33.1",
-            "unzip=6.0",
         ),
     )
     assert_not_contains_any(
         live_text,
         (
+            "unzip=",
             "mamba-org/setup-micromamba@v2",
         ),
     )

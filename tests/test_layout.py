@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import zipfile
 from pathlib import Path
 import stat
@@ -18,7 +17,6 @@ from gtdb_genomes.layout import (
     RUN_SUMMARY_KEYS,
     TAXON_ACCESSION_COLUMNS,
     build_leftover_run_abort_message,
-    build_unzip_command,
     copy_accession_payload,
     extract_archive,
     find_leftover_run_artefacts,
@@ -150,84 +148,62 @@ def test_find_leftover_run_artefacts_returns_sorted_names(tmp_path: Path) -> Non
     )
 
 
-def test_extract_archive_uses_unzip_runner(tmp_path: Path) -> None:
-    """Archive extraction should call unzip with the expected argv layout."""
+def test_extract_archive_materialises_members(tmp_path: Path) -> None:
+    """Native archive extraction should materialise the validated members."""
 
-    commands: list[list[str]] = []
     archive_path = tmp_path / "archive.zip"
     write_test_archive(
         archive_path,
         {"ncbi_dataset/data/GCF_000001.1/genome.fna": ">seq\nACGT\n"},
     )
 
-    def runner(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: int,
-    ) -> subprocess.CompletedProcess[str]:
-        """Record the command and pretend extraction succeeded."""
+    destination = extract_archive(archive_path, tmp_path / "out")
 
-        commands.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-    destination = extract_archive(
-        archive_path,
-        tmp_path / "out",
-        runner=runner,
-    )
-
-    assert commands == [build_unzip_command(archive_path, tmp_path / "out")]
     assert destination == tmp_path / "out"
+    assert (
+        destination / "ncbi_dataset/data/GCF_000001.1/genome.fna"
+    ).read_text(encoding="ascii") == ">seq\nACGT\n"
 
 
-def test_extract_archive_raises_layout_error_on_failure(tmp_path: Path) -> None:
-    """Archive extraction failures should raise a layout error."""
-
-    archive_path = tmp_path / "archive.zip"
-    write_test_archive(
-        archive_path,
-        {"ncbi_dataset/data/GCF_000001.1/genome.fna": ">seq\nACGT\n"},
-    )
-
-    def runner(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: int,
-    ) -> subprocess.CompletedProcess[str]:
-        """Return a fake unzip failure."""
-
-        return subprocess.CompletedProcess(command, 1, stdout="", stderr="unzip failed")
-
-    with pytest.raises(LayoutError, match="unzip failed"):
-        extract_archive(archive_path, tmp_path / "out", runner=runner)
-
-
-def test_extract_archive_raises_layout_error_on_spawn_failure(tmp_path: Path) -> None:
-    """Archive extraction should report missing unzip as a layout error."""
+def test_extract_archive_raises_layout_error_for_invalid_zip(tmp_path: Path) -> None:
+    """Invalid ZIP input should raise an actionable layout error."""
 
     archive_path = tmp_path / "archive.zip"
-    write_test_archive(
-        archive_path,
-        {"ncbi_dataset/data/GCF_000001.1/genome.fna": ">seq\nACGT\n"},
+    archive_path.write_bytes(b"not a zip archive")
+
+    with pytest.raises(LayoutError, match="Could not extract archive"):
+        extract_archive(archive_path, tmp_path / "out")
+
+
+def test_extract_archive_raises_layout_error_for_crc_failure(tmp_path: Path) -> None:
+    """Corrupted member contents should fail CRC validation during extraction."""
+
+    archive_path = tmp_path / "archive.zip"
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as handle:
+        handle.writestr("ncbi_dataset/data/GCF_000001.1/genome.fna", "payload")
+    archive_path.write_bytes(archive_path.read_bytes().replace(b"payload", b"corrupt", 1))
+
+
+    with pytest.raises(LayoutError, match="Bad CRC-32"):
+        extract_archive(archive_path, tmp_path / "out")
+
+
+def test_extract_archive_enforces_native_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Chunked native extraction should retain the fixed deadline contract."""
+
+    archive_path = tmp_path / "archive.zip"
+    write_test_archive(archive_path, {"payload.txt": "payload"})
+    clock_values = iter((0.0, 0.0, 2.0))
+    monkeypatch.setattr(
+        "gtdb_genomes.layout.time.monotonic",
+        lambda: next(clock_values),
     )
 
-    def runner(
-        command: list[str],
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: int,
-    ) -> subprocess.CompletedProcess[str]:
-        """Raise a missing-executable error before extraction starts."""
-
-        raise FileNotFoundError("unzip")
-
-    with pytest.raises(LayoutError, match="archive extraction command could not start"):
-        extract_archive(archive_path, tmp_path / "out", runner=runner)
+    with pytest.raises(LayoutError, match="timed out after 1 seconds"):
+        extract_archive(archive_path, tmp_path / "out", timeout_seconds=1)
 
 
 @pytest.mark.parametrize(
@@ -235,7 +211,9 @@ def test_extract_archive_raises_layout_error_on_spawn_failure(tmp_path: Path) ->
     (
         ("/absolute/path.txt", "absolute member path"),
         ("../escape.txt", "parent-traversing member path"),
+        ("..\\escape.txt", "parent-traversing member path"),
         ("C:/drive-rooted.txt", "drive-rooted member path"),
+        ("C:\\drive-rooted.txt", "drive-rooted member path"),
         ("", "empty member name"),
     ),
 )
@@ -244,7 +222,7 @@ def test_extract_archive_rejects_unsafe_member_paths(
     member_name: str,
     error_fragment: str,
 ) -> None:
-    """Archive extraction should reject unsafe member paths before unzip runs."""
+    """Archive extraction should reject unsafe paths before writing members."""
 
     archive_path = tmp_path / "archive.zip"
     write_test_archive(archive_path, {member_name: "payload"})
@@ -254,13 +232,32 @@ def test_extract_archive_rejects_unsafe_member_paths(
 
 
 def test_extract_archive_rejects_symbolic_link_members(tmp_path: Path) -> None:
-    """Archive extraction should reject symbolic-link members before unzip runs."""
+    """Archive extraction should reject symbolic-link members before writing."""
 
     archive_path = tmp_path / "archive.zip"
     write_symlink_archive(archive_path, "ncbi_dataset/data/link")
 
     with pytest.raises(LayoutError, match="symbolic link member"):
         extract_archive(archive_path, tmp_path / "out")
+
+
+def test_extract_archive_rejects_preexisting_symlink_escape(tmp_path: Path) -> None:
+    """Existing destination symlinks must not redirect extracted files."""
+
+    archive_path = tmp_path / "archive.zip"
+    write_test_archive(archive_path, {"redirect/payload.txt": "payload"})
+    destination = tmp_path / "out"
+    destination.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (destination / "redirect").symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"Could not create a test symlink: {error}")
+
+    with pytest.raises(LayoutError, match="outside the extraction root"):
+        extract_archive(archive_path, destination)
+    assert not (outside / "payload.txt").exists()
 
 
 def test_write_root_manifests_and_zero_match_outputs(tmp_path: Path) -> None:

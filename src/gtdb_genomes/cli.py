@@ -286,8 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=(
-            "Resolve inputs without downloading genome payloads; still "
-            "preflights unzip so real-run archive requirements fail fast"
+            "Resolve inputs without downloading genome payloads"
         ),
     )
     return parser
