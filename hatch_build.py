@@ -24,7 +24,9 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from gtdb_genomes.provenance import (
+    UNKNOWN_GIT_REVISION,
     get_git_revision,
+    read_packaged_git_revision,
     read_pyproject_version,
     write_build_info,
 )
@@ -38,6 +40,19 @@ from gtdb_genomes.release_resolver import (
 
 
 REQUIRES_EXTERNAL_PREFIX = "Requires-External: "
+SDIST_BUILD_INFO_PATH = PROJECT_ROOT / "gtdb_genomes" / "_build_info.json"
+
+
+def get_build_git_revision() -> str:
+    """Preserve source revision metadata when a wheel is built from the sdist."""
+
+    git_revision = get_git_revision()
+    if git_revision != UNKNOWN_GIT_REVISION:
+        return git_revision
+    return (
+        read_packaged_git_revision(SDIST_BUILD_INFO_PATH)
+        or UNKNOWN_GIT_REVISION
+    )
 
 
 def append_requires_external_metadata(metadata_text: str) -> str:
@@ -216,7 +231,7 @@ class CustomBuildHook(BuildHookInterface):
         write_build_info(
             build_info_path,
             package_version_value=package_version,
-            git_revision=get_git_revision(),
+            git_revision=get_build_git_revision(),
         )
         force_include = build_data.setdefault("force_include", {})
         if not isinstance(force_include, dict):

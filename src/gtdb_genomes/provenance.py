@@ -70,14 +70,20 @@ def get_packaged_build_info_path() -> Path:
     return get_package_root() / BUILD_INFO_FILENAME
 
 
-def read_packaged_git_revision() -> str | None:
-    """Return the packaged git revision when build metadata is available."""
+def read_packaged_git_revision(
+    build_info_path: Path | None = None,
+) -> str | None:
+    """Return the recorded Git revision from packaged build metadata."""
 
-    build_info_path = get_packaged_build_info_path()
-    if not build_info_path.is_file():
+    resolved_build_info_path = (
+        get_packaged_build_info_path()
+        if build_info_path is None
+        else build_info_path
+    )
+    if not resolved_build_info_path.is_file():
         return None
     try:
-        payload = json.loads(build_info_path.read_text(encoding="utf-8"))
+        payload = json.loads(resolved_build_info_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     git_revision = payload.get("git_revision")

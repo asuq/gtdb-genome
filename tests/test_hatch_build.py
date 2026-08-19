@@ -17,6 +17,7 @@ pytest.importorskip("hatchling.builders.hooks.plugin.interface")
 from hatch_build import (
     CustomBuildHook,
     append_requires_external_metadata,
+    get_build_git_revision,
     patch_wheel_metadata,
 )
 from hatch_metadata import get_external_runtime_requirements
@@ -137,6 +138,23 @@ def test_initialise_build_info_requires_force_include_dict(
 
     with pytest.raises(RuntimeError, match="force_include"):
         hook.initialise_build_info(build_data={"force_include": []})
+
+
+def test_get_build_git_revision_preserves_sdist_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Wheel builds from an sdist should retain its recorded source revision."""
+
+    build_info_path = tmp_path / "_build_info.json"
+    build_info_path.write_text(
+        '{"git_revision": "deadbeef", "package_version": "0.3.0"}\n',
+        encoding="ascii",
+    )
+    monkeypatch.setattr("hatch_build.get_git_revision", lambda: "unknown")
+    monkeypatch.setattr("hatch_build.SDIST_BUILD_INFO_PATH", build_info_path)
+
+    assert get_build_git_revision() == "deadbeef"
 
 
 def test_append_requires_external_metadata_appends_known_runtime_requirements() -> None:
